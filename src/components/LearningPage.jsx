@@ -840,32 +840,13 @@ export default function LearningPage({
           ) : (
             <button
               onClick={handleOpenCategories}
-              className="w-[29px] h-[29px] active:scale-90"
+              className="w-[36px] h-[36px] active:scale-90"
             >
               <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
             </button>
           )}
 
-          {/* Title: ZZ LAB logo */}
-          {!isReview && (
-            <img
-              src="/assets/figma/zzlab-title.png"
-              alt="ZZ LAB"
-              style={{ height: 25 }}
-              className="absolute left-1/2 -translate-x-1/2 object-contain"
-            />
-          )}
-
-          <div className="flex items-center gap-2">
-            <span className="text-[14px] text-[#999]">{counterText}</span>
-            <button onClick={handleStar} className="w-[24px] h-[23px] active:scale-90">
-              {isWordStarred ? (
-                <img src="/assets/figma/star-yellow.png" alt="已收藏" className="w-full h-full object-contain" />
-              ) : (
-                <img src="/assets/figma/star-btn.png" alt="收藏" className="w-full h-full object-contain" />
-              )}
-            </button>
-          </div>
+          <span className="text-[14px] text-[#999]">{counterText}</span>
         </div>
 
         {/* ── IMAGE AREA (Format A only) ── */}
@@ -936,26 +917,35 @@ export default function LearningPage({
             {displaySentence}
           </p>
 
-          {/* Translation cover — height:24 locked on button to prevent layout shift */}
+          {/* Translation — always visible in format A; cover in other formats */}
           {sentenceLang !== nativeLang && (
-            <button
-              onClick={() => setShowSentence(tt => !tt)}
-              className="mt-[5px] flex items-center justify-center active:scale-95"
-              style={{ minWidth: 234, height: 24, flexShrink: 0 }}
-            >
-              {showSentence ? (
-                <span className="text-[14px] text-center leading-none px-2" style={{ color: sentenceTranslation ? '#555' : '#bbb' }}>
-                  {sentenceTranslation || t.translating}
-                </span>
-              ) : (
-                <div className="rounded-sm" style={{
-                  width: 268, height: 24,
-                  background: isReview
-                    ? 'linear-gradient(90deg, #ffffff 0%, #e0feb1 48%, #ffffff 100%)'
-                    : 'linear-gradient(90deg, #fffdf4 0%, #ffd9ba 48%, #fffdf5 100%)',
-                }} />
-              )}
-            </button>
+            quizFormat === 'A' ? (
+              <span
+                className="mt-[5px] text-[14px] text-center leading-none px-2"
+                style={{ color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                {sentenceTranslation || t.translating}
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowSentence(tt => !tt)}
+                className="mt-[5px] flex items-center justify-center active:scale-95"
+                style={{ minWidth: 234, height: 24, flexShrink: 0 }}
+              >
+                {showSentence ? (
+                  <span className="text-[14px] text-center leading-none px-2" style={{ color: sentenceTranslation ? '#555' : '#bbb' }}>
+                    {sentenceTranslation || t.translating}
+                  </span>
+                ) : (
+                  <div className="rounded-sm" style={{
+                    width: 268, height: 24,
+                    background: isReview
+                      ? 'linear-gradient(90deg, #ffffff 0%, #e0feb1 48%, #ffffff 100%)'
+                      : 'linear-gradient(90deg, #fffdf4 0%, #ffd9ba 48%, #fffdf5 100%)',
+                  }} />
+                )}
+              </button>
+            )
           )}
         </div>
 
