@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background-color: #E5E5E5;
+  color: #2A2A2A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: #C4A882 transparent;
+}
+.overflow-y-auto::-webkit-scrollbar {
+  width: 3px;
+}
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: #C4A882;
+  border-radius: 20px;
+}
+
+button {
+  transition: all 0.12s ease;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+/* Category modal animation - expand from top-left */
+@keyframes categoryExpand {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translate(-8px, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Kawaii wiggle for choice buttons and skip */
+@keyframes btnWiggle {
+  0%   { transform: rotate(0deg); }
+  20%  { transform: rotate(-4deg); }
+  45%  { transform: rotate(3deg); }
+  65%  { transform: rotate(-2deg); }
+  82%  { transform: rotate(1deg); }
+  100% { transform: rotate(0deg); }
+}

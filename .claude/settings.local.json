@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ln -sf ../compressed-Vocab /Users/miaofang/Desktop/VocabWorkspace/public/images)",
+      "Bash(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx vite build)",
+      "Bash(pkill -f \"vite --port 3000\")",
+      "Bash(claude mcp add --transport http figma-remote-mcp https://mcp.figma.com/mcp)",
+      "Bash(~/.zshrc)",
+      "Bash(export PATH=\"$HOME/.local/bin:$PATH\")",
+      "Bash(claude mcp list)",
+      "Bash(python3 -m json.tool)",
+      "WebFetch(domain:xhslink.com)",
+      "WebFetch(domain:www.xiaohongshu.com)",
+      "Bash(claude --version)",
+      "Bash(claude config list)",
+      "WebFetch(domain:www.youtube.com)",
+      "mcp__figma-remote-mcp__get_design_context",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type}\" http://localhost:5174/images/neuron.jpg)",
+      "Bash(ln -s ../../compressed-Vocab /Users/miaofang/Desktop/VocabWorkspace/public/images)",
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/img/background*)",
+      "Bash(chmod +x \"/Users/miaofang/Desktop/启动VocabKids.command\")",
+      "Bash(python3 -c \":*)",
+      "mcp__figma-remote-mcp__get_screenshot",
+      "mcp__figma-remote-mcp__get_metadata",
+      "Bash(python3:*)",
+      "Bash(npx vite:*)",
+      "Bash(kill %1)",
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/public/assets/figma/text-container*)",
+      "Bash(curl -s http://localhost:5174/src/components/LearningPage.jsx)",
+      "Bash(node_modules/.bin/vite build:*)",
+      "Bash(sips -g pixelWidth -g pixelHeight public/assets/figma/pic_square_wrapper_clean.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight public/assets/figma/choice-btn.png public/assets/figma/text-container.png public/assets/figma/pic-container.png)",
+      "Bash(node -e \":*)",
+      "Bash(node --input-type=module -e ':*)"
+    ]
+  }
+}
