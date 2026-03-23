@@ -40,6 +40,12 @@ migrateOldProgress();
 migrateProgressToTargetOnly();
 
 export default function App() {
+  const [isCompact, setIsCompact] = useState(() => window.innerHeight < 750);
+  useEffect(() => {
+    const onResize = () => setIsCompact(window.innerHeight < 750);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [page, setPage] = useState('learn');
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListFilter, setWordListFilter] = useState(null);
@@ -127,7 +133,7 @@ export default function App() {
         </div>
 
         {/* Bottom tab bar */}
-        <div className="shrink-0 relative overflow-visible" style={{ height: 57, backgroundColor: '#2b2a26' }}>
+        <div className="shrink-0 relative overflow-visible" style={{ height: isCompact ? 49 : 57, backgroundColor: '#2b2a26' }}>
           {/* Nav separator line at top */}
           <img
             src="/assets/figma/nav-separator.png"
