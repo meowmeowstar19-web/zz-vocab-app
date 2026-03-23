@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { words, wordsShuffled, categories } from '../data/words';
+import sentenceZh from '../data/sentenceZh';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
@@ -187,21 +188,28 @@ export default function LearningPage({
 
   // Responsive sizes
   const isCompact = contentH < 720;
-  const imgSize = isCompact ? Math.max(180, Math.round(contentH * 0.3)) : 270;
-  const wordInfoH = isCompact ? 120 : 151;
-  const choiceH = isCompact ? 85 : 115;        // text choice height (A/C)
-  const imgChoiceH = isCompact ? 115 : 145;    // image choice height (B) — larger for images
-  const choiceFontSize = isCompact ? 16 : 20;
-  const skipW = isCompact ? 66 : 88;
-  const skipH = isCompact ? 64 : 85;
-  const skipFontSize = isCompact ? 16 : 22;
-  const choicesTopPad = isCompact ? 15 : 26;
+  const imgSize = isCompact ? Math.max(120, Math.round(contentH * 0.21)) : 270;
+  const imgPadTop = isCompact ? 10 : 22;
+  const wordInfoH = isCompact ? 85 : 151;
+  const wordInfoPadTop = isCompact ? 12 : 25;
+  const choiceH = isCompact ? 58 : 115;        // text choice height (A/C)
+  const imgChoiceH = isCompact ? 75 : 145;     // image choice height (B)
+  const choiceFontSize = isCompact ? 14 : 20;
+  const skipW = isCompact ? 56 : 88;
+  const skipH = isCompact ? 52 : 85;
+  const skipFontSize = isCompact ? 13 : 22;
+  const choicesTopPad = isCompact ? 8 : 26;
+  const choicesPadBottom = isCompact ? 10 : 30;
   const rowGapText = isCompact ? 5 : 7;
   const skipTop = Math.round(choicesTopPad + choiceH + rowGapText / 2 - skipH / 2);
-  // Format B: center skip button at the gap between rows 1 and 2.
-  const imgRowGap = isCompact ? 7 : 10;
+  const imgRowGap = isCompact ? 6 : 10;
   const imgSkipTop = Math.round(choicesTopPad + imgChoiceH + imgRowGap / 2 - skipH / 2);
-  const showBottomDecor = !isCompact;
+  // Proportional frame scaling so inner image always matches outer frame
+  const frameScale = imgSize / 270;
+  const framePicTop = -Math.round(16 * frameScale);
+  const framePicLeft = -Math.round(45 * frameScale);
+  const framePicW = Math.round((270 + 77) * frameScale);
+  const framePicH = Math.round((270 + 47) * frameScale);
 
   // Reload progress when target language changes (storage key changed)
   useEffect(() => {
@@ -433,10 +441,17 @@ export default function LearningPage({
     return () => { cancelled = true; };
   }, [currentWord?.id, targetLang]);
 
-  // Sentence translation
+  // Sentence translation — use pre-baked zh lookup, fall back to API for ja↔zh/en
   useEffect(() => {
     if (!currentWord || !displaySentence) { setSentenceTranslation(''); return; }
     if (sentenceLang === nativeLang) { setSentenceTranslation(''); return; }
+    // Pre-baked Chinese translations (en→zh or ja→zh): use sentenceZh keyed by English sentence
+    if (nativeLang === 'zh') {
+      const englishSentence = currentWord.sentence || displaySentence;
+      const prebuilt = sentenceZh[englishSentence];
+      if (prebuilt) { setSentenceTranslation(prebuilt); return; }
+    }
+    // Fallback: API (for ja native, or missing entries)
     const cacheKey = `${currentWord.id}_${langKey}`;
     if (_sentenceCache.has(cacheKey)) { setSentenceTranslation(_sentenceCache.get(cacheKey)); return; }
     setSentenceTranslation('');
@@ -807,22 +822,24 @@ export default function LearningPage({
           src="/assets/figma/study_background.jpg"
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          style={{ zIndex: 0 }}
+          style={{ zIndex: 0, objectPosition: isCompact ? 'top' : 'center' }}
         />
       )}
 
-      {/* ── DECORATIVE OVERLAYS (normal mode only, hidden on compact) ── */}
-      {!isReview && showBottomDecor && (
+      {/* ── DECORATIVE OVERLAYS ── */}
+      {!isReview && (
         <>
           <img src="/assets/figma/nav-decor-top-1.png" alt=""
             className="absolute pointer-events-none select-none"
-            style={{ left: 0, bottom: -3, width: 78, zIndex: 3 }} />
+            style={{ left: isCompact ? -8 : 0, bottom: -3, width: isCompact ? 62 : 78, zIndex: 3 }} />
           <img src="/assets/figma/nav-decor-top-2.png" alt=""
             className="absolute pointer-events-none select-none"
-            style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
-          <img src="/assets/figma/nav-decor-3.png" alt=""
-            className="absolute pointer-events-none select-none"
-            style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
+            style={{ right: isCompact ? -8 : 0, bottom: isCompact ? -8 : -10, width: isCompact ? 88 : 113, zIndex: 3 }} />
+          {!isCompact && (
+            <img src="/assets/figma/nav-decor-3.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
+          )}
         </>
       )}
 
@@ -851,7 +868,7 @@ export default function LearningPage({
 
         {/* ── IMAGE AREA (Format A only) ── */}
         {showBigImage && (
-          <div className="shrink-0 flex justify-center" style={{ paddingTop: 22 }}>
+          <div className="shrink-0 flex justify-center" style={{ paddingTop: imgPadTop }}>
             <div className="relative" style={{ width: imgSize, height: imgSize }}>
               <div className={`absolute inset-0 rounded-[20px] overflow-hidden ${isReview ? 'border-2 border-black' : ''}`}>
                 <img
@@ -866,8 +883,8 @@ export default function LearningPage({
                   alt=""
                   className="absolute pointer-events-none select-none"
                   style={{
-                    top: -16, left: -45,
-                    width: imgSize + 77, height: imgSize + 47,
+                    top: framePicTop, left: framePicLeft,
+                    width: framePicW, height: framePicH,
                     maxWidth: 'none', zIndex: 1,
                   }}
                 />
@@ -878,8 +895,8 @@ export default function LearningPage({
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
-          minHeight: showBigImage ? wordInfoH : (isCompact ? 100 : 130),
-          paddingTop: showBigImage ? 25 : (isCompact ? 24 : 36),
+          minHeight: showBigImage ? wordInfoH : (isCompact ? 85 : 130),
+          paddingTop: showBigImage ? wordInfoPadTop : (isCompact ? 14 : 36),
           paddingBottom: isCompact ? 2 : 6,
         }}>
           {/* Main word display */}
@@ -899,7 +916,7 @@ export default function LearningPage({
           {/* Speaker + phonetic / reading */}
           <button
             onClick={handleSpeak}
-            className="flex items-center gap-1.5 mt-[6px] text-[#999] active:scale-95"
+            className={`flex items-center gap-1.5 ${isCompact ? 'mt-[3px]' : 'mt-[6px]'} text-[#999] active:scale-95`}
           >
             <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
@@ -911,7 +928,7 @@ export default function LearningPage({
 
           {/* Example sentence */}
           <p
-            className="mt-[6px] text-[15px] text-textMain text-center leading-snug"
+            className={`${isCompact ? 'mt-[3px] text-[13px]' : 'mt-[6px] text-[15px]'} text-textMain text-center leading-snug`}
             style={{ fontFamily: getFontFamily(sentenceLang) }}
           >
             {displaySentence}
@@ -921,7 +938,7 @@ export default function LearningPage({
           {sentenceLang !== nativeLang && (
             quizFormat === 'A' ? (
               <span
-                className="mt-[5px] text-[14px] text-center leading-none px-2"
+                className={`${isCompact ? 'mt-[2px] text-[12px]' : 'mt-[5px] text-[14px]'} text-center leading-none px-2`}
                 style={{ color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 {sentenceTranslation || t.translating}
@@ -950,10 +967,10 @@ export default function LearningPage({
         </div>
 
         {/* ── SPACER ── */}
-        <div className="flex-1 min-h-0" />
+        <div className="flex-1 min-h-0" style={{ maxHeight: isCompact ? 20 : 9999 }} />
 
         {/* ── CHOICES AREA ── */}
-        <div className="shrink-0 relative px-[15px]" style={{ zIndex: 4, paddingTop: choicesTopPad, paddingBottom: isCompact ? 20 : 30 }}>
+        <div className="shrink-0 relative px-[15px]" style={{ zIndex: 4, paddingTop: choicesTopPad, paddingBottom: choicesPadBottom }}>
 
           {/* 2 x 2 grid: image choices (B) or text choices (A/C) */}
           {quizFormat === 'B' ? (
@@ -1017,13 +1034,13 @@ export default function LearningPage({
                     animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
                   }}>
                     {/* Cat decor on top-left cell */}
-                    {idx === 0 && !isReview && showBottomDecor && (
+                    {idx === 0 && !isReview && !isCompact && (
                       <img src="/assets/figma/word-decor.png" alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
                     {/* Leaf decor on bottom-right cell */}
-                    {idx === 3 && !isReview && showBottomDecor && (
+                    {idx === 3 && !isReview && !isCompact && (
                       <img src="/assets/figma/word-decor-2.png" alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ right: -18, top: -7, width: 35, zIndex: 5 }} />
