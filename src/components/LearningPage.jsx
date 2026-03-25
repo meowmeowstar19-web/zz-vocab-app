@@ -192,6 +192,7 @@ export default function LearningPage({
   const FULL_H = 776;
   const S1_H = 630;
   const MIN_H = 530;
+  const ULTRA_H = 430; // ultra-compact: choices would overflow into nav
 
   const responsive2 = (v0, v1, v2) => {
     if (contentH >= FULL_H) return v0;
@@ -206,11 +207,14 @@ export default function LearningPage({
   // Keep responsive as alias for two-point shorthand
   const responsive = (full, min) => responsive2(full, full + (min - full) * ((FULL_H - S1_H) / (FULL_H - MIN_H)), min);
 
-  // Image: 100% → 70% → 65%
-  const imgScale = responsive2(1.0, 0.70, 0.65);
+  // Ultra-compact factor: 0 at MIN_H, 1 at ULTRA_H (for screens so short choices overlap nav)
+  const ultraT = contentH < MIN_H ? Math.min(1, (MIN_H - contentH) / (MIN_H - ULTRA_H)) : 0;
+
+  // Image: 100% → 70% → 65% → ~55% (continues shrinking below MIN_H)
+  const imgScale = responsive2(1.0, 0.70, 0.65) * (1 - 0.15 * ultraT);
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
-  const imgPadTop = Math.round(responsive2(22, 0, 0));
+  const imgPadTop = Math.max(10, Math.round(responsive2(22, 10, 10)));
   // Frame decoration scales proportionally with image
   const frameTop = Math.round(-16 * imgScale);
   const frameLeft = Math.round(-45 * imgScale);
@@ -220,7 +224,7 @@ export default function LearningPage({
 
   // Word info section — ensure minimum gap between image and word
   const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTop = Math.max(16, Math.round(responsive2(25, 16, 16)));
+  const wordInfoPadTop = Math.max(16, Math.round(responsive2(25, 25, 16)));
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
@@ -229,8 +233,10 @@ export default function LearningPage({
   const sentenceFS = Math.round(responsive2(16, 16, 13));
   const translationFS = Math.round(responsive2(14, 14, 11));
 
-  // Choices: 100% → 88% → 80%
-  const choiceScale = responsive2(1.0, 0.88, 0.80);
+  // Choices: 100% → 88% → 80% → ~70% (continues shrinking below MIN_H)
+  const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.12 * ultraT);
+  // Choices padding-top: stays 26 until ultra-compact, then drops to 10
+  const choicesPadTop = Math.round(26 - 16 * ultraT);
   // Natural (full-size) height of the choices section
   const TEXT_CHOICES_H = 26 + 115 * 2 + 7 + 30;   // 293
   const IMG_CHOICES_H = 26 + 145 * 2 + 10 + 30;   // 356
@@ -856,7 +862,7 @@ export default function LearningPage({
         <>
           <img src="/assets/figma/nav-decor-top-1.png" alt=""
             className="absolute pointer-events-none select-none"
-            style={{ left: 0, bottom: -3, width: navLeftDecorW, zIndex: 3 }} />
+            style={{ left: 0, bottom: -2, width: navLeftDecorW, zIndex: 3 }} />
           {showBigNavDecor ? (
             <img src="/assets/figma/nav-decor-top-2.png" alt=""
               className="absolute pointer-events-none select-none"
@@ -864,7 +870,7 @@ export default function LearningPage({
           ) : (
             /* Frog: CSS-cropped from source (matches Figma nav_decor_top_2_frog layer) */
             <div className="absolute pointer-events-none select-none overflow-hidden"
-              style={{ right: 6, bottom: 2, width: 40, height: 38, zIndex: 3 }}>
+              style={{ right: 6, bottom: -10, width: 40, height: 38, zIndex: 3 }}>
               <img src="/assets/figma/nav-decor-frog.png" alt=""
                 style={{
                   position: 'absolute', left: 0, top: '-115.8%',
@@ -934,7 +940,7 @@ export default function LearningPage({
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
           minHeight: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
-          paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(36, 24, 16)),
+          paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(66, 24, 16)),
           paddingBottom: wordInfoPadBot,
         }}>
           {/* Main word display */}
@@ -964,8 +970,9 @@ export default function LearningPage({
 
           {/* Example sentence */}
           <p
-            className="mt-[2px] text-textMain text-center leading-snug"
+            className="text-textMain text-center leading-snug"
             style={{
+              marginTop: showBigImage ? 5 : 2,
               fontSize: sentenceFS,
               fontWeight: 'normal',
               // Use a readable normal-weight font (not Arial Black which is ultra-bold)
@@ -987,7 +994,7 @@ export default function LearningPage({
             ) : (
               <button
                 onClick={() => setShowSentence(tt => !tt)}
-                className="mt-[5px] flex items-center justify-center active:scale-95"
+                className="mt-[8px] flex items-center justify-center active:scale-95"
                 style={{ minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
@@ -1019,7 +1026,7 @@ export default function LearningPage({
            transform: choiceScale < 0.995 ? `scale(${choiceScale})` : undefined,
            transformOrigin: 'top center',
          }}>
-          <div className="relative px-[15px]" style={{ paddingTop: 26, paddingBottom: 30 }}>
+          <div className="relative px-[15px]" style={{ paddingTop: choicesPadTop, paddingBottom: 30 }}>
 
           {/* 2 x 2 grid: image choices (B) or text choices (A/C) */}
           {quizFormat === 'B' ? (
