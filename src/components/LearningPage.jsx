@@ -185,23 +185,63 @@ export default function LearningPage({
     return () => window.removeEventListener('resize', measure);
   }, []);
 
-  // Responsive sizes
-  const isCompact = contentH < 720;
-  const imgSize = isCompact ? Math.max(180, Math.round(contentH * 0.3)) : 270;
-  const wordInfoH = isCompact ? 120 : 151;
-  const choiceH = isCompact ? 85 : 115;        // text choice height (A/C)
-  const imgChoiceH = isCompact ? 115 : 145;    // image choice height (B) — larger for images
-  const choiceFontSize = isCompact ? 16 : 20;
-  const skipW = isCompact ? 66 : 88;
-  const skipH = isCompact ? 64 : 85;
-  const skipFontSize = isCompact ? 16 : 22;
-  const choicesTopPad = isCompact ? 15 : 26;
-  const rowGapText = isCompact ? 5 : 7;
-  const skipTop = Math.round(choicesTopPad + choiceH + rowGapText / 2 - skipH / 2);
-  // Format B: center skip button at the gap between rows 1 and 2.
-  const imgRowGap = isCompact ? 7 : 10;
-  const imgSkipTop = Math.round(choicesTopPad + imgChoiceH + imgRowGap / 2 - skipH / 2);
-  const showBottomDecor = !isCompact;
+  // ── Continuous responsive scaling (two-segment, matches Figma reference) ──
+  // Full (FULL_H): image=100%, choices=100%
+  // Short 1 (S1_H): image=70%, choices=88%  (Figma short screen 1)
+  // Short 2 (MIN_H): image=65%, choices=80% (Figma short screen 2)
+  const FULL_H = 776;
+  const S1_H = 630;
+  const MIN_H = 530;
+
+  const responsive2 = (v0, v1, v2) => {
+    if (contentH >= FULL_H) return v0;
+    if (contentH >= S1_H) {
+      const t = (FULL_H - contentH) / (FULL_H - S1_H);
+      return v0 + (v1 - v0) * t;
+    }
+    if (contentH <= MIN_H) return v2;
+    const t = (S1_H - contentH) / (S1_H - MIN_H);
+    return v1 + (v2 - v1) * t;
+  };
+  // Keep responsive as alias for two-point shorthand
+  const responsive = (full, min) => responsive2(full, full + (min - full) * ((FULL_H - S1_H) / (FULL_H - MIN_H)), min);
+
+  // Image: 100% → 70% → 65%
+  const imgScale = responsive2(1.0, 0.70, 0.65);
+  const imgSize = Math.round(270 * imgScale);
+  const imgMarginTop = Math.round(responsive2(0, -25, -32));
+  const imgPadTop = Math.round(responsive2(22, 0, 0));
+  // Frame decoration scales proportionally with image
+  const frameTop = Math.round(-16 * imgScale);
+  const frameLeft = Math.round(-45 * imgScale);
+  const frameW = imgSize + Math.round(77 * imgScale);
+  const frameH = imgSize + Math.round(47 * imgScale);
+  const imgRadius = Math.round(20 * imgScale);
+
+  // Word info section — ensure minimum gap between image and word
+  const wordInfoMinH = Math.round(responsive2(151, 120, 82));
+  const wordInfoPadTop = Math.max(16, Math.round(responsive2(25, 16, 16)));
+  const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
+
+  // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
+  const wordTextFS = Math.round(responsive2(24, 24, 19));
+  const phoneticFS = Math.round(responsive2(16, 16, 13));
+  const sentenceFS = Math.round(responsive2(16, 16, 13));
+  const translationFS = Math.round(responsive2(14, 14, 11));
+
+  // Choices: 100% → 88% → 80%
+  const choiceScale = responsive2(1.0, 0.88, 0.80);
+  // Natural (full-size) height of the choices section
+  const TEXT_CHOICES_H = 26 + 115 * 2 + 7 + 30;   // 293
+  const IMG_CHOICES_H = 26 + 145 * 2 + 10 + 30;   // 356
+  const skipTop_full = Math.round(26 + 115 + 7 / 2 - 85 / 2);
+  const imgSkipTop_full = Math.round(26 + 145 + 10 / 2 - 85 / 2);
+
+  // Decoration thresholds
+  const showCatDecor = contentH >= S1_H;       // cat on choices (hide at short screen 1)
+  const showBigNavDecor = contentH >= FULL_H;  // large nav scene → frog when adapting
+  const isCompact = contentH < FULL_H;
+  const navLeftDecorW = Math.round(responsive2(78, 52, 46));
 
   // Reload progress when target language changes (storage key changed)
   useEffect(() => {
@@ -811,15 +851,27 @@ export default function LearningPage({
         />
       )}
 
-      {/* ── DECORATIVE OVERLAYS (normal mode only, hidden on compact) ── */}
-      {!isReview && showBottomDecor && (
+      {/* ── DECORATIVE OVERLAYS (normal mode only) ── */}
+      {!isReview && (
         <>
           <img src="/assets/figma/nav-decor-top-1.png" alt=""
             className="absolute pointer-events-none select-none"
-            style={{ left: 0, bottom: -3, width: 78, zIndex: 3 }} />
-          <img src="/assets/figma/nav-decor-top-2.png" alt=""
-            className="absolute pointer-events-none select-none"
-            style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
+            style={{ left: 0, bottom: -3, width: navLeftDecorW, zIndex: 3 }} />
+          {showBigNavDecor ? (
+            <img src="/assets/figma/nav-decor-top-2.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
+          ) : (
+            /* Frog: CSS-cropped from source (matches Figma nav_decor_top_2_frog layer) */
+            <div className="absolute pointer-events-none select-none overflow-hidden"
+              style={{ right: 6, bottom: 2, width: 40, height: 38, zIndex: 3 }}>
+              <img src="/assets/figma/nav-decor-frog.png" alt=""
+                style={{
+                  position: 'absolute', left: 0, top: '-115.8%',
+                  width: '290%', height: '215.82%', maxWidth: 'none',
+                }} />
+            </div>
+          )}
           <img src="/assets/figma/nav-decor-3.png" alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -830,7 +882,7 @@ export default function LearningPage({
       <div ref={containerRef} className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
 
         {/* ── TOP BAR ── */}
-        <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11 }}>
+        <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
           {isReview ? (
             <button onClick={onExitReview} className="w-[18px] h-[18px] flex items-center justify-center active:scale-90">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -851,9 +903,12 @@ export default function LearningPage({
 
         {/* ── IMAGE AREA (Format A only) ── */}
         {showBigImage && (
-          <div className="shrink-0 flex justify-center" style={{ paddingTop: 22 }}>
+          <div className="shrink-0 flex justify-center" style={{ paddingTop: imgPadTop, marginTop: imgMarginTop }}>
             <div className="relative" style={{ width: imgSize, height: imgSize }}>
-              <div className={`absolute inset-0 rounded-[20px] overflow-hidden ${isReview ? 'border-2 border-black' : ''}`}>
+              <div
+                className={`absolute inset-0 overflow-hidden ${isReview ? 'border-2 border-black' : ''}`}
+                style={{ borderRadius: imgRadius }}
+              >
                 <img
                   src={`/images/${encodeURIComponent(currentWord.img)}`}
                   alt={displayWord}
@@ -866,8 +921,8 @@ export default function LearningPage({
                   alt=""
                   className="absolute pointer-events-none select-none"
                   style={{
-                    top: -16, left: -45,
-                    width: imgSize + 77, height: imgSize + 47,
+                    top: frameTop, left: frameLeft,
+                    width: frameW, height: frameH,
                     maxWidth: 'none', zIndex: 1,
                   }}
                 />
@@ -878,22 +933,20 @@ export default function LearningPage({
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
-          minHeight: showBigImage ? wordInfoH : (isCompact ? 100 : 130),
-          paddingTop: showBigImage ? 25 : (isCompact ? 24 : 36),
-          paddingBottom: isCompact ? 2 : 6,
+          minHeight: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
+          paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(36, 24, 16)),
+          paddingBottom: wordInfoPadBot,
         }}>
           {/* Main word display */}
           <span
             className="leading-tight text-textMain text-center"
             style={{
-              fontSize: showBigImage
-                ? (isTargetJa ? (isCompact ? 22 : 28) : (isCompact ? 20 : 24))
-                : (isTargetJa ? (isCompact ? 26 : 32) : (isCompact ? 24 : 28)),
+              fontSize: wordTextFS,
               fontFamily: targetFont,
               fontWeight: 900,
             }}
           >
-            {displayWord}
+            {displayWord.toLowerCase()}
           </span>
 
           {/* Speaker + phonetic / reading */}
@@ -903,7 +956,7 @@ export default function LearningPage({
           >
             <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
-              <span className="text-[15px] text-center" style={{ fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }}>
+              <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
                 {phonetic}
               </span>
             )}
@@ -911,8 +964,13 @@ export default function LearningPage({
 
           {/* Example sentence */}
           <p
-            className="mt-[6px] text-[15px] text-textMain text-center leading-snug"
-            style={{ fontFamily: getFontFamily(sentenceLang) }}
+            className="mt-[2px] text-textMain text-center leading-snug"
+            style={{
+              fontSize: sentenceFS,
+              fontWeight: 'normal',
+              // Use a readable normal-weight font (not Arial Black which is ultra-bold)
+              fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
+            }}
           >
             {displaySentence}
           </p>
@@ -921,8 +979,8 @@ export default function LearningPage({
           {sentenceLang !== nativeLang && (
             quizFormat === 'A' ? (
               <span
-                className="mt-[5px] text-[14px] text-center leading-none px-2"
-                style={{ color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                className="mt-[5px] text-center leading-none px-2"
+                style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 {sentenceTranslation || t.translating}
               </span>
@@ -933,7 +991,7 @@ export default function LearningPage({
                 style={{ minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
-                  <span className="text-[14px] text-center leading-none px-2" style={{ color: sentenceTranslation ? '#555' : '#bbb' }}>
+                  <span style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
                     {sentenceTranslation || t.translating}
                   </span>
                 ) : (
@@ -952,13 +1010,21 @@ export default function LearningPage({
         {/* ── SPACER ── */}
         <div className="flex-1 min-h-0" />
 
-        {/* ── CHOICES AREA ── */}
-        <div className="shrink-0 relative px-[15px]" style={{ zIndex: 4, paddingTop: choicesTopPad, paddingBottom: isCompact ? 20 : 30 }}>
+        {/* ── CHOICES AREA (uniformly scaled) ── */}
+        <div className="shrink-0" style={{
+          height: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
+          position: 'relative', zIndex: 4, overflow: 'visible',
+        }}>
+         <div style={{
+           transform: choiceScale < 0.995 ? `scale(${choiceScale})` : undefined,
+           transformOrigin: 'top center',
+         }}>
+          <div className="relative px-[15px]" style={{ paddingTop: 26, paddingBottom: 30 }}>
 
           {/* 2 x 2 grid: image choices (B) or text choices (A/C) */}
           {quizFormat === 'B' ? (
             /* ── Format B: Image choices with pic-container frame ── */
-            <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: isCompact ? 7 : 10 }}>
+            <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 10 }}>
               {imageOpts.map((optWord, idx) => {
                 const isThisCorrect = isCorrect && optWord.id === currentWord.id;
                 const isThisWrong = wrongImageIds.has(optWord.id);
@@ -966,7 +1032,7 @@ export default function LearningPage({
                 const isWiggling = animKey === `img-${optWord.id}`;
                 return (
                   <div key={`${currentWord.id}-img-${idx}`} className="relative" style={{
-                    height: imgChoiceH,
+                    height: 145,
                     animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
                   }}>
                     {/* Word image inside rounded rect */}
@@ -1005,7 +1071,7 @@ export default function LearningPage({
             </div>
           ) : (
             /* ── Format A/C: Text choices ── */
-            <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: rowGapText }}>
+            <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 7 }}>
               {options.map((option, idx) => {
                 const isThisCorrect = isCorrect && option === correctAnswer;
                 const isThisWrong = wrongSelections.has(option);
@@ -1013,17 +1079,17 @@ export default function LearningPage({
                 const isWiggling = animKey === option;
                 return (
                   <div key={`${currentWord.id}-${idx}`} className="relative" style={{
-                    height: choiceH,
+                    height: 115,
                     animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
                   }}>
-                    {/* Cat decor on top-left cell */}
-                    {idx === 0 && !isReview && showBottomDecor && (
+                    {/* Cat decor on top-left cell — hidden on short screens */}
+                    {idx === 0 && !isReview && showCatDecor && (
                       <img src="/assets/figma/word-decor.png" alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
                     {/* Leaf decor on bottom-right cell */}
-                    {idx === 3 && !isReview && showBottomDecor && (
+                    {idx === 3 && !isReview && showCatDecor && (
                       <img src="/assets/figma/word-decor-2.png" alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ right: -18, top: -7, width: 35, zIndex: 5 }} />
@@ -1049,7 +1115,7 @@ export default function LearningPage({
                       onClick={() => handleOptionClick(option)}
                       disabled={!!isCorrect || isThisWrong}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: choiceFontSize, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 20, zIndex: 2, transition: 'none' }}
                     >
                       {option}
                     </button>
@@ -1062,10 +1128,10 @@ export default function LearningPage({
           {/* ── SKIP BUTTON ── */}
           <div
             className="absolute left-1/2 -translate-x-1/2 pointer-events-none"
-            style={{ top: quizFormat === 'B' ? imgSkipTop : skipTop, zIndex: 6 }}
+            style={{ top: quizFormat === 'B' ? imgSkipTop_full : skipTop_full, zIndex: 6 }}
           >
             <div className="relative pointer-events-auto" style={{
-              width: skipW, height: skipH,
+              width: 88, height: 85,
               animation: animKey === 'skip' ? 'btnWiggle 0.46s ease-out' : undefined,
             }}>
               <img
@@ -1076,13 +1142,13 @@ export default function LearningPage({
               <button
                 onClick={handleSkip}
                 className="absolute inset-0 flex items-start justify-center active:scale-95"
-                style={{ paddingTop: Math.round(skipH * 0.42) }}
+                style={{ paddingTop: Math.round(85 * 0.42) }}
               >
                 <span
                   className="relative text-[#8a5d45]"
                   style={{
                     fontWeight: 900,
-                    fontSize: nativeLang === 'en' ? Math.min(skipFontSize, 17) : skipFontSize,
+                    fontSize: nativeLang === 'en' ? 17 : 22,
                   }}
                 >
                   {t.skip}
@@ -1090,6 +1156,8 @@ export default function LearningPage({
               </button>
             </div>
           </div>
+          </div>
+         </div>
         </div>
       </div>
 
