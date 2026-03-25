@@ -98,7 +98,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
-      <div className="w-[402px] h-[841px] max-h-screen flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg">
+      <div className="w-screen h-screen sm:w-[402px] sm:h-[841px] sm:max-h-screen flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg">
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
