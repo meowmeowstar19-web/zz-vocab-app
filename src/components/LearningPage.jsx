@@ -222,7 +222,7 @@ export default function LearningPage({
 
   // Word info section — ensure minimum gap between image and word
   const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTop = Math.max(16, Math.round(responsive2(35, 30, 16)));
+  const wordInfoPadTop = 35;
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens

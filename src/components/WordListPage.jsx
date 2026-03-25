@@ -116,17 +116,13 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const wordList = useMemo(() => {
     const prog = progress;
     const showMastered = filter === 'mastered';
-    const showStarred = filter === 'starred';
     let list = eligibleWords.filter(w => {
       const p = prog[w.id];
       if (!p) return false;
       if (showMastered) return p.mastered;
-      if (showStarred) return p.starred && !p.mastered;
       return !!p.timestamp && !p.mastered;
     });
-    if (showStarred) {
-      list.sort((a, b) => (prog[b.id]?.starredAt || 0) - (prog[a.id]?.starredAt || 0));
-    } else if (showMastered) {
+    if (showMastered) {
       list.sort((a, b) => (prog[b.id]?.masteredAt || 0) - (prog[a.id]?.masteredAt || 0));
     } else if (filter === 'time') {
       if (timeAsc) {
@@ -248,23 +244,22 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
         {wordList.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-textSub">
             <div className="text-4xl mb-2">
-              {filter === 'mastered' ? '⚔️' : filter === 'starred' ? '⭐' : '📚'}
+              {filter === 'mastered' ? '⚔️' : '📚'}
             </div>
             <div className="text-sm font-bold">
-              {filter === 'mastered' ? t.noMastered : filter === 'starred' ? t.noStarred : t.noLearned}
+              {filter === 'mastered' ? t.noMastered : t.noLearned}
             </div>
             <div className="text-xs mt-1 text-textLight">
-              {filter === 'mastered' ? t.masteredTip : filter === 'starred' ? t.starredTip : t.learnedTip}
+              {filter === 'mastered' ? t.masteredTip : t.learnedTip}
             </div>
           </div>
         ) : (
           <div>
             {wordList.map(word => {
               const isRevealed = revealedWords.has(word.id);
-              // Starred list always shows unchecked (clicking marks as mastered + slides out)
               const isMastered = pendingMasteredWords.has(word.id)
                 ? pendingMasteredWords.get(word.id)
-                : (filter === 'starred' ? false : progress[word.id]?.mastered);
+                : progress[word.id]?.mastered;
               const isLeaving = leavingWords.has(word.id);
               const displayText = getWordText(word, targetLang) || word.en;
               const nativeText = getWordText(word, nativeLang);
