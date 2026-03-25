@@ -46,6 +46,14 @@ export default function App() {
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
   const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'zh');
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'en');
+  const [navH, setNavH] = useState(57);
+
+  useEffect(() => {
+    const update = () => setNavH(window.innerHeight < 833 ? 52 : 57);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
   // Persist category/level filters across tab switches
   const [learningCategory, setLearningCategory] = useState('all');
   const [learningLevel, setLearningLevel] = useState('beginner');
@@ -90,7 +98,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
-      <div className="w-[402px] h-[841px] max-h-screen flex flex-col overflow-hidden rounded-[2rem] shadow-2xl border border-neutral-300 relative bg-warm-bg">
+      <div className="w-[402px] h-[841px] max-h-screen flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg">
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
@@ -127,7 +135,7 @@ export default function App() {
         </div>
 
         {/* Bottom tab bar */}
-        <div className="shrink-0 relative overflow-visible" style={{ height: 57, backgroundColor: '#2b2a26' }}>
+        <div className="shrink-0 relative overflow-visible" style={{ height: navH, backgroundColor: '#2b2a26' }}>
           {/* Nav separator line at top */}
           <img
             src="/assets/figma/nav-separator.png"
