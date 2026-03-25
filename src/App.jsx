@@ -44,8 +44,8 @@ export default function App() {
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListFilter, setWordListFilter] = useState(null);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
-  const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'zh');
-  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'en');
+  const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
+  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
   const [navH, setNavH] = useState(57);
 
   useEffect(() => {
@@ -97,8 +97,8 @@ export default function App() {
   const activeTab = reviewMode ? 'wordlist' : page;
 
   return (
-    <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
-      <div className="w-screen h-screen sm:w-[402px] sm:h-[841px] sm:max-h-screen flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg">
+    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: '100dvh' }}>
+      <div className="w-screen sm:w-[402px] sm:h-[841px] sm:max-h-screen flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg" style={{ height: '100dvh' }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
