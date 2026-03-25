@@ -47,9 +47,13 @@ export default function App() {
   const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
   const [navH, setNavH] = useState(57);
+  const [viewportH, setViewportH] = useState(() => window.innerHeight);
 
   useEffect(() => {
-    const update = () => setNavH(window.innerHeight < 833 ? 52 : 57);
+    const update = () => {
+      setNavH(window.innerHeight < 833 ? 52 : 57);
+      setViewportH(window.innerHeight);
+    };
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
@@ -96,9 +100,14 @@ export default function App() {
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
 
+  // On mobile (<640px): use actual window.innerHeight for reliable viewport
+  // On desktop (>=640px): use fixed 841px phone shell
+  const isMobile = viewportH > 0 && window.innerWidth < 640;
+  const shellH = isMobile ? viewportH : 841;
+
   return (
-    <div className="h-dvh w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
-      <div className="h-dvh shell-h w-screen sm:w-[402px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg">
+    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: viewportH }}>
+      <div className="w-screen sm:w-[402px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg" style={{ height: shellH, maxHeight: viewportH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">

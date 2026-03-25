@@ -109,7 +109,7 @@ export default function LearningPage({
   const autoAdvanceTimer = useRef(null);
   const hasSpoken = useRef(false);
   const containerRef = useRef(null);
-  const [contentH, setContentH] = useState(795);
+  const [contentH, setContentH] = useState(() => Math.max(0, window.innerHeight - 60));
   const [animKey, setAnimKey] = useState(null);
   const animTimerRef = useRef(null);
 
@@ -173,16 +173,14 @@ export default function LearningPage({
     speakWordByLang(text, targetLang);
   }, [targetLang]);
 
-  // Measure container height for responsive layout
+  // Measure container height for responsive layout (ResizeObserver reacts to actual size changes)
   useLayoutEffect(() => {
-    const measure = () => {
-      if (containerRef.current) {
-        setContentH(containerRef.current.offsetHeight);
-      }
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    const el = containerRef.current;
+    if (!el) return;
+    setContentH(el.offsetHeight);
+    const ro = new ResizeObserver(() => setContentH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // ── Continuous responsive scaling (two-segment, matches Figma reference) ──
