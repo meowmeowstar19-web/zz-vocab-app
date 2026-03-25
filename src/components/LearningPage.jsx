@@ -210,8 +210,8 @@ export default function LearningPage({
   // Ultra-compact factor: 0 at MIN_H, 1 at ULTRA_H (for screens so short choices overlap nav)
   const ultraT = contentH < MIN_H ? Math.min(1, (MIN_H - contentH) / (MIN_H - ULTRA_H)) : 0;
 
-  // Image: 100% → 70% → 65% → ~55% (continues shrinking below MIN_H)
-  const imgScale = responsive2(1.0, 0.70, 0.65) * (1 - 0.15 * ultraT);
+  // Image: 100% → 70% → 65% → ~49% (more aggressive shrinking below MIN_H)
+  const imgScale = responsive2(1.0, 0.70, 0.65) * (1 - 0.25 * ultraT);
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
   const imgPadTop = Math.max(10, Math.round(responsive2(22, 10, 10)));
@@ -233,10 +233,10 @@ export default function LearningPage({
   const sentenceFS = Math.round(responsive2(16, 16, 13));
   const translationFS = Math.round(responsive2(14, 14, 11));
 
-  // Choices: 100% → 88% → 80% → ~70% (continues shrinking below MIN_H)
-  const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.12 * ultraT);
-  // Choices padding-top: stays 26 until ultra-compact, then drops to 10
-  const choicesPadTop = Math.round(26 - 16 * ultraT);
+  // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
+  const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
+  // Choices padding-top: drops quickly from 26 to 10 once below MIN_H (reaches 10 within 30px)
+  const choicesPadTop = contentH >= MIN_H ? 26 : Math.max(10, Math.round(26 - 16 * Math.min(1, (MIN_H - contentH) / 30)));
   // Natural (full-size) height of the choices section
   const TEXT_CHOICES_H = 26 + 115 * 2 + 7 + 30;   // 293
   const IMG_CHOICES_H = 26 + 145 * 2 + 10 + 30;   // 356
