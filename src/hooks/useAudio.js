@@ -3,6 +3,8 @@ import { useCallback, useRef } from 'react';
 let audioCtx = null;
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Mobile browsers suspend AudioContext until a user gesture resumes it
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
 }
 

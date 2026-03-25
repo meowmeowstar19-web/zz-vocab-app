@@ -70,7 +70,6 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const FILTERS = useMemo(() => [
     { key: 'time', label: t.timeOrder },
     { key: 'random', label: t.randomOrder },
-    { key: 'starred', label: t.starred },
     { key: 'mastered', label: t.mastered },
   ], [t]);
 
@@ -239,7 +238,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                   color: isActive ? '#ffffff' : '#000000',
                 }}
               >
-                {f.key === 'time' ? `${f.label} ${filter === 'time' ? (timeAsc ? '↑' : '↓') : ''}` : f.label}
+                {f.key === 'time' ? `${f.label} ${timeAsc ? '↑' : '↓'}` : f.label}
               </button>
             );
           })}
