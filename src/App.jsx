@@ -97,8 +97,8 @@ export default function App() {
   const activeTab = reviewMode ? 'wordlist' : page;
 
   return (
-    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: '100dvh' }}>
-      <div className="w-screen sm:w-[402px] sm:h-[841px] sm:max-h-screen flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg" style={{ height: '100dvh' }}>
+    <div className="h-dvh w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
+      <div className="h-dvh shell-h w-screen sm:w-[402px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 relative bg-warm-bg">
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
