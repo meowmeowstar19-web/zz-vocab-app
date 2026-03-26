@@ -100,14 +100,19 @@ export default function App() {
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
 
-  // On mobile (<640px): use actual window.innerHeight for reliable viewport
-  // On desktop (>=640px): use fixed 841px phone shell
-  const isMobile = viewportH > 0 && window.innerWidth < 640;
+  // Mobile: viewport narrower than the shell → use window.innerHeight for height
+  // Desktop: fixed 841px phone shell, centered, with rounded corners
+  const isMobile = viewportH > 0 && window.innerWidth < 500;
   const shellH = isMobile ? viewportH : 841;
 
   return (
-    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: viewportH }}>
-      <div className="w-[402px] flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg" style={{ height: shellH, maxHeight: viewportH }}>
+    <div className="w-screen h-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
+      <div
+        className={`w-[402px] flex flex-col overflow-hidden relative bg-warm-bg ${
+          isMobile ? '' : 'rounded-[2rem] shadow-2xl border border-neutral-300'
+        }`}
+        style={{ height: shellH, maxHeight: isMobile ? viewportH : '100vh' }}
+      >
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">

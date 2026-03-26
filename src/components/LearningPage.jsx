@@ -187,7 +187,7 @@ export default function LearningPage({
   // Full (FULL_H): image=100%, choices=100%
   // Short 1 (S1_H): image=70%, choices=88%  (Figma short screen 1)
   // Short 2 (MIN_H): image=65%, choices=80% (Figma short screen 2)
-  const FULL_H = 810;
+  const FULL_H = 780;
   const S1_H = 630;
   const MIN_H = 530;
   const ULTRA_H = 430; // ultra-compact: choices would overflow into nav
