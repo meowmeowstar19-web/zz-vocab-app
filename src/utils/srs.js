@@ -4,8 +4,11 @@
 // Level 12+: maintenance pool (7-10 day cycle)
 
 // Session step gaps (in number of cards)
-export const SESSION_GAPS = [0, 5, 7, 10]; // step 0: learn, step 1: B delay, step 2: C delay
-export const SESSION_FORMATS = ['A', 'B', 'C', 'C']; // quiz format per step
+export const SESSION_GAPS = [0, 5, 7, 10]; // step 0: learn, step 1: B delay, step 2: C delay, step 3: D delay
+export const SESSION_FORMATS = ['A', 'B', 'C', 'D']; // quiz format per step (D = know/don't-know self-assessment)
+
+// D-mode gap when user taps "认识" — larger gap than C, word still returns but less often
+export const D_KNOW_GAP = 15;
 
 // In-session C injection
 export const B_DELAY = 5;          // cards after learning before B review

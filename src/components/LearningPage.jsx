@@ -9,7 +9,7 @@ import {
 } from '../utils/langHelpers';
 import {
   getDueReviewWords, calcBudget, buildInterleaved, getInterval,
-  getReviewFormat, SESSION_GAPS, SESSION_FORMATS,
+  getReviewFormat, SESSION_GAPS, SESSION_FORMATS, D_KNOW_GAP,
 } from '../utils/srs';
 
 function shuffle(arr) {
@@ -117,6 +117,7 @@ export default function LearningPage({
   const [sentenceTranslation, setSentenceTranslation] = useState('');
   const autoAdvanceTimer = useRef(null);
   const hasSpoken = useRef(false);
+  const dModeResultRef = useRef(null); // 'know' | 'dontknow' — set by D-mode buttons before advanceToNext
   const containerRef = useRef(null);
   const [contentH, setContentH] = useState(() => contentHFromParent || 795);
   const [animKey, setAnimKey] = useState(null);
@@ -147,8 +148,9 @@ export default function LearningPage({
   const reviewWordStatesRef = useRef({});  // wordId → {errorCount, sessionCorrect}
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
-  // Derived: quizFormat and currentWord — oral mode always uses C (text only, no images)
-  const quizFormat = isOralMode ? 'C' : (isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A'));
+  // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
+  const rawFormat = isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
+  const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
 
   // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
@@ -459,7 +461,11 @@ export default function LearningPage({
     if (!currentWord) return;
     const pool = sameCategoryWords.length >= 4 ? sameCategoryWords : allWordsFiltered;
 
-    if (quizFormat === 'B') {
+    if (quizFormat === 'D') {
+      // D mode: no options needed — just know/don't-know buttons
+      setOptions([]);
+      setImageOpts([]);
+    } else if (quizFormat === 'B') {
       setImageOpts(getImageOptions(currentWord, pool));
       setOptions([]);
     } else {
@@ -472,6 +478,7 @@ export default function LearningPage({
     setWrongImageIds(new Set());
     setShowSentence(false);
     hasSpoken.current = false;
+    dModeResultRef.current = null;
   }, [currentWord?.id, quizFormat]);
 
   // Phonetics (skip for oral phrases)
@@ -619,8 +626,31 @@ export default function LearningPage({
 
     } else if (card.type === 'sessionReview') {
       const step = card.step;
+      const isDMode = card.format === 'D';
+      const dResult = dModeResultRef.current; // 'know' | 'dontknow'
 
-      if (hadWrong) {
+      if (isDMode) {
+        // D mode (step 3): self-assessment — no wrong/right, just know/don't-know
+        dModeResultRef.current = null; // reset
+        if (dResult === 'know') {
+          // 认识: graduate to cross-session level 4, word still comes back but less frequently
+          updateWordSRS(card.word.id, {
+            srsLevel: 4,
+            nextReviewAt: now + getInterval(4),
+            lastReviewedAt: now,
+          }, storageKey);
+        } else {
+          // 不认识: reschedule D at same frequency as C (gap ~7), stays in session
+          const gap = SESSION_GAPS[2]; // same as C's gap = 7
+          pendingRef.current.push({
+            word: card.word,
+            step,
+            format: 'D',
+            dueAt: totalShownRef.current + gap,
+          });
+          updateWordSRS(card.word.id, { srsLevel: Math.max(step - 1, 0), lastReviewedAt: now }, storageKey);
+        }
+      } else if (hadWrong) {
         // Struggled: reschedule same step at half gap
         const gap = Math.max(3, Math.floor(SESSION_GAPS[step] / 2));
         pendingRef.current.push({
@@ -632,17 +662,18 @@ export default function LearningPage({
         updateWordSRS(card.word.id, { srsLevel: Math.max(step - 1, 0), lastReviewedAt: now }, storageKey);
       } else {
         if (step < 3) {
-          // Schedule next step
-          const nextStep = step + 1;
+          // Schedule next step — oral mode skips step 2 (C→C→D instead of A→B→C→D)
+          const nextStep = (isOralMode && step === 1) ? 3 : step + 1;
+          const nextFormat = isOralMode ? (nextStep === 3 ? 'D' : 'C') : SESSION_FORMATS[nextStep];
           pendingRef.current.push({
             word: card.word,
             step: nextStep,
-            format: SESSION_FORMATS[nextStep],
+            format: nextFormat,
             dueAt: totalShownRef.current + SESSION_GAPS[nextStep],
           });
           updateWordSRS(card.word.id, { srsLevel: step, lastReviewedAt: now }, storageKey);
         } else {
-          // Step 3 complete → graduate to cross-session level 4
+          // Step 3 complete (non-D format, shouldn't normally happen) → graduate
           updateWordSRS(card.word.id, {
             srsLevel: 4,
             nextReviewAt: now + getInterval(4),
@@ -716,6 +747,25 @@ export default function LearningPage({
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
     }
   }, [currentWord, isCorrect, advanceToNext, triggerAnim]);
+
+  // ── D mode handlers ──
+  const handleDKnow = useCallback(() => {
+    if (!currentWord) return;
+    triggerAnim('dKnow');
+    playCorrectSound();
+    dModeResultRef.current = 'know';
+    autoAdvanceTimer.current = setTimeout(advanceToNext, 600);
+  }, [currentWord, advanceToNext, triggerAnim]);
+
+  const handleDDontKnow = useCallback(() => {
+    if (!currentWord) return;
+    triggerAnim('dDontKnow');
+    playWrongSound();
+    dModeResultRef.current = 'dontknow';
+    // Show the answer briefly: reveal the sentence translation, then advance
+    setShowSentence(true);
+    autoAdvanceTimer.current = setTimeout(advanceToNext, 1200);
+  }, [currentWord, advanceToNext, triggerAnim]);
 
   const handleSpeak = useCallback(() => {
     if (currentWord) speakCurrent(displayWord);
@@ -1072,8 +1122,58 @@ export default function LearningPage({
          }}>
           <div className="relative px-[15px]" style={{ paddingTop: choicesPadTop, paddingBottom: 30 }}>
 
-          {/* 2 x 2 grid: image choices (B) or text choices (A/C) */}
-          {quizFormat === 'B' ? (
+          {/* 2 x 2 grid: image choices (B), text choices (A/C), or D-mode (know/don't-know) */}
+          {quizFormat === 'D' ? (
+            /* ── Format D: Know / Don't Know self-assessment ── */
+            <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 7 }}>
+              {/* Cat decor */}
+              {!isReview && showCatDecor && (
+                <img src="/assets/figma/word-decor.png" alt=""
+                  className="absolute pointer-events-none select-none"
+                  style={{ left: 30, top: choicesPadTop - 26, width: 52, zIndex: 5 }} />
+              )}
+              {[
+                { key: 'know', label: t.dKnow, handler: handleDKnow, animId: 'dKnow' },
+                { key: 'dontknow', label: t.dDontKnow, handler: handleDDontKnow, animId: 'dDontKnow' },
+              ].map(({ key, label, handler, animId }) => {
+                const isKnowFlash = key === 'know' && dModeResultRef.current === 'know';
+                const isDontKnowFlash = key === 'dontknow' && dModeResultRef.current === 'dontknow';
+                const isWiggling = animKey === animId;
+                return (
+                  <div key={key} className="relative" style={{
+                    height: 115,
+                    animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
+                  }}>
+                    {/* Background card */}
+                    <div
+                      className="absolute rounded-[8px]"
+                      style={{
+                        left: 2, right: 2, top: 3, bottom: 3,
+                        backgroundColor: isKnowFlash ? '#D4F0A9' : isDontKnowFlash ? '#FAD2CC' : '#ffffff',
+                        transition: 'background-color 0.15s',
+                      }}
+                    />
+                    {/* Decoration frame */}
+                    <img
+                      src="/assets/figma/text-container.png"
+                      alt=""
+                      className="absolute inset-0 w-full h-full pointer-events-none select-none object-fill"
+                      style={{ zIndex: 1 }}
+                    />
+                    {/* Clickable button */}
+                    <button
+                      onClick={handler}
+                      disabled={dModeResultRef.current !== null}
+                      className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
+                      style={{ fontSize: 24, zIndex: 2, transition: 'none' }}
+                    >
+                      {label}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : quizFormat === 'B' ? (
             /* ── Format B: Image choices with pic-container frame ── */
             <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 10 }}>
               {imageOpts.map((optWord, idx) => {

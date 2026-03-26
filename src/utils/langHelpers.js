@@ -114,6 +114,7 @@ export const UI_TEXT = {
     // Category
     allLevels: '全部难度', levelPrefix: '难度',
     ok: '确认', skip: '斩',
+    dKnow: '认识', dDontKnow: '不认识',
     categoryDone: '本节完成！', autoSwitching: '正在切换到其他分类…',
     loginDays: '累计登录 {n}天',
     devMode: '开发者模式：清除学习记录',
@@ -141,6 +142,7 @@ export const UI_TEXT = {
     cancel: 'Cancel', confirm: 'Switch',
     allLevels: 'All Levels', levelPrefix: 'Level',
     ok: 'OK', skip: 'Got it',
+    dKnow: 'Know', dDontKnow: "Don't know",
     categoryDone: 'Section complete!', autoSwitching: 'Switching to other words…',
     loginDays: 'Logged in {n} days',
     devMode: 'Dev Mode: Clear learning records',
@@ -168,6 +170,7 @@ export const UI_TEXT = {
     cancel: 'キャンセル', confirm: '切り替える',
     allLevels: '全レベル', levelPrefix: '難易度',
     ok: '確認', skip: '覚えた',
+    dKnow: '知ってる', dDontKnow: '知らない',
     categoryDone: 'セクション完了！', autoSwitching: '他のカテゴリーに切り替えています…',
     loginDays: '累計ログイン {n}日',
     devMode: '開発者モード：学習記録を消去',
