@@ -103,7 +103,7 @@ export default function App() {
   // Mobile: viewport narrower than the shell → use window.innerHeight for height
   // Desktop: fixed 841px phone shell, centered, with rounded corners
   const isMobile = viewportH > 0 && window.innerWidth < 500;
-  const shellH = isMobile ? viewportH : 841;
+  const shellH = isMobile ? viewportH : Math.min(841, viewportH);
 
   return (
     <div className="w-screen h-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
