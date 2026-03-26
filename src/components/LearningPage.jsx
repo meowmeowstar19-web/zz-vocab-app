@@ -187,7 +187,7 @@ export default function LearningPage({
   // Full (FULL_H): image=100%, choices=100%
   // Short 1 (S1_H): image=70%, choices=88%  (Figma short screen 1)
   // Short 2 (MIN_H): image=65%, choices=80% (Figma short screen 2)
-  const FULL_H = 800;
+  const FULL_H = 776;
   const S1_H = 630;
   const MIN_H = 530;
   const ULTRA_H = 430; // ultra-compact: choices would overflow into nav
@@ -243,7 +243,7 @@ export default function LearningPage({
 
   // Decoration thresholds
   const showCatDecor = contentH >= S1_H;       // cat on choices (hide at short screen 1)
-  const showBigNavDecor = contentH >= S1_H;    // large nav scene; frog only on truly short screens
+  const showBigNavDecor = contentH >= FULL_H;  // large nav scene → frog when adapting
   const isCompact = contentH < FULL_H;
   const navLeftDecorW = Math.round(responsive2(78, 52, 46));
 

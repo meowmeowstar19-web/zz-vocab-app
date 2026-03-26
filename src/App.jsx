@@ -47,17 +47,18 @@ export default function App() {
   const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
   const [navH, setNavH] = useState(57);
-  const [viewportH, setViewportH] = useState(() => window.innerHeight);
 
+  // Set --app-h CSS variable to window.innerHeight (fixes mobile Safari 100vh bug)
   useEffect(() => {
     const update = () => {
       setNavH(window.innerHeight < 833 ? 52 : 57);
-      setViewportH(window.innerHeight);
+      document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
     };
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
+
   // Persist category/level filters across tab switches
   const [learningCategory, setLearningCategory] = useState('all');
   const [learningLevel, setLearningLevel] = useState('beginner');
@@ -100,18 +101,11 @@ export default function App() {
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
 
-  // Mobile: viewport narrower than the shell → use window.innerHeight for height
-  // Desktop: fixed 841px phone shell, centered, with rounded corners
-  const isMobile = viewportH > 0 && window.innerWidth < 500;
-  const shellH = isMobile ? viewportH : Math.min(841, viewportH);
-
   return (
-    <div className="w-screen h-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
+    <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
       <div
-        className={`w-[402px] flex flex-col overflow-hidden relative bg-warm-bg ${
-          isMobile ? '' : 'rounded-[2rem] shadow-2xl border border-neutral-300'
-        }`}
-        style={{ height: shellH, maxHeight: isMobile ? viewportH : '100vh' }}
+        className="w-[402px] h-[841px] flex flex-col overflow-hidden rounded-[2rem] shadow-2xl border border-neutral-300 relative bg-warm-bg"
+        style={{ maxHeight: 'var(--app-h, 100vh)' }}
       >
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
