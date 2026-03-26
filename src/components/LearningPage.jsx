@@ -225,14 +225,28 @@ export default function LearningPage({
 
   // Word info section — ensure minimum gap between image and word
   const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTop = Math.max(16, Math.round(responsive2(32, 32, 16)));
+  const wordInfoPadTopBase = Math.max(16, Math.round(responsive2(32, 32, 16)));
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
+
+  // estimateLines helper for dynamic padding (used after displaySentence is defined)
+  const estimateLines = (text, fontSize) => {
+    if (!text) return 1;
+    const cjk = (text.match(/[\u3000-\u9fff\uff00-\uffef]/g) || []).length;
+    const other = text.length - cjk;
+    const textWidth = cjk * fontSize + other * fontSize * 0.55;
+    return Math.ceil(textWidth / 305);
+  };
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   const wordTextFS = Math.round(responsive2(24, 24, 19));
   const phoneticFS = Math.round(responsive2(16, 16, 13));
   const sentenceFS = Math.round(responsive2(16, 16, 13));
   const translationFS = Math.round(responsive2(15, 15, 11));
+
+  // Internal spacing within word info — shrink on short screens
+  const phoneticMT = Math.round(responsive2(6, 4, 2));
+  const sentenceMT = Math.round(responsive2(7, 4, 2));
+  const translationMT = Math.round(responsive2(5, 3, 1));
 
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
@@ -501,6 +515,11 @@ export default function LearningPage({
       .catch(() => {});
     return () => { cancelled = true; };
   }, [currentWord?.id, langKey, displaySentence, sentenceLang, nativeLang]);
+
+  // Dynamic padding: reduce wordInfoPadTop when sentences wrap to 2+ lines
+  const sentExtraLines = Math.max(0, estimateLines(displaySentence, sentenceFS) - 1);
+  const transExtraLines = (sentenceLang !== nativeLang) ? Math.max(0, estimateLines(sentenceTranslation, translationFS) - 1) : 0;
+  const wordInfoPadTop = Math.max(10, wordInfoPadTopBase - (sentExtraLines + transExtraLines) * 8);
 
   // Auto-speak on word change — always reset hasSpoken first, then speak only if tab is visible
   // reviewCard is included so the effect re-fires when the same word reappears (re-inserted after wrong answer)
@@ -946,7 +965,7 @@ export default function LearningPage({
         )}
 
         {/* ── WORD INFO ── */}
-        <div className="flex flex-col items-center px-6 overflow-hidden" style={{
+        <div className="flex flex-col items-center px-6" style={{
           height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
           paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(66, 24, 16)),
           paddingBottom: wordInfoPadBot,
@@ -966,7 +985,8 @@ export default function LearningPage({
           {/* Speaker + phonetic / reading */}
           <button
             onClick={handleSpeak}
-            className="flex items-center gap-1.5 mt-[6px] text-[#999] active:scale-95"
+            className="flex items-center gap-1.5 text-[#999] active:scale-95"
+            style={{ marginTop: phoneticMT }}
           >
             <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
@@ -980,7 +1000,7 @@ export default function LearningPage({
           <p
             className="text-textMain text-center leading-snug"
             style={{
-              marginTop: showBigImage ? 7 : 2,
+              marginTop: showBigImage ? sentenceMT : 2,
               fontSize: sentenceFS,
               fontWeight: 'normal',
               // Use a readable normal-weight font (not Arial Black which is ultra-bold)
@@ -994,15 +1014,16 @@ export default function LearningPage({
           {sentenceLang !== nativeLang && (
             quizFormat === 'A' ? (
               <span
-                className="mt-[5px] text-center leading-none px-2"
-                style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                className="text-center leading-none px-2"
+                style={{ marginTop: translationMT, fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 {sentenceTranslation || t.translating}
               </span>
             ) : (
               <button
                 onClick={() => setShowSentence(tt => !tt)}
-                className="mt-[8px] flex items-center justify-center active:scale-95"
+                className="flex items-center justify-center active:scale-95"
+                style={{ marginTop: translationMT + 3 }}
                 style={{ minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
