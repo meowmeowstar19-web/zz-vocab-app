@@ -693,6 +693,13 @@ export default function LearningPage({
     if (currentWord) speakCurrent(displayWord);
   }, [currentWord, displayWord, speakCurrent]);
 
+  // Auto-speak when a new word appears (study + review)
+  useEffect(() => {
+    if (currentWord && displayWord) {
+      speakWordByLang(displayWord, targetLang);
+    }
+  }, [currentWord?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleStar = useCallback(() => {
     if (!currentWord) return;
     toggleStar(currentWord.id, storageKey);
@@ -939,8 +946,8 @@ export default function LearningPage({
         )}
 
         {/* ── WORD INFO ── */}
-        <div className="shrink-0 flex flex-col items-center px-6" style={{
-          minHeight: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
+        <div className="flex flex-col items-center px-6 overflow-hidden" style={{
+          height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
           paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(66, 24, 16)),
           paddingBottom: wordInfoPadBot,
         }}>
