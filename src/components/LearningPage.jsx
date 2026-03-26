@@ -228,14 +228,9 @@ export default function LearningPage({
   const wordInfoPadTopBase = Math.max(20, Math.round(responsive2(32, 32, 24)));
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
 
-  // estimateLines helper for dynamic padding (used after displaySentence is defined)
-  const estimateLines = (text, fontSize) => {
-    if (!text) return 1;
-    const cjk = (text.match(/[\u3000-\u9fff\uff00-\uffef]/g) || []).length;
-    const other = text.length - cjk;
-    const textWidth = cjk * fontSize * 0.85 + other * fontSize * 0.55;
-    return Math.ceil(textWidth / 304);
-  };
+  // Measure actual word info overflow via ref to adjust padding dynamically
+  const wordInfoRef = useRef(null);
+  const [wordInfoOverflow, setWordInfoOverflow] = useState(0);
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   const wordTextFS = Math.round(responsive2(24, 24, 19));
@@ -516,10 +511,16 @@ export default function LearningPage({
     return () => { cancelled = true; };
   }, [currentWord?.id, langKey, displaySentence, sentenceLang, nativeLang]);
 
-  // Dynamic padding: reduce wordInfoPadTop when sentences wrap to 2+ lines
-  const sentExtraLines = Math.max(0, estimateLines(displaySentence, sentenceFS) - 1);
-  const transExtraLines = (sentenceLang !== nativeLang) ? Math.max(0, estimateLines(sentenceTranslation, translationFS) - 1) : 0;
-  const wordInfoPadTop = Math.max(10, wordInfoPadTopBase - (sentExtraLines + transExtraLines) * 8);
+  // Measure word info overflow after render — reduce padding if content overflows fixed height
+  useLayoutEffect(() => {
+    const el = wordInfoRef.current;
+    if (!el) { setWordInfoOverflow(0); return; }
+    const overflow = el.scrollHeight - el.clientHeight;
+    setWordInfoOverflow(overflow > 2 ? overflow : 0);
+  }, [displaySentence, sentenceTranslation, wordInfoPadTopBase]);
+  // Reduce padding by half the overflow (split between top/bottom), cap reduction at 12px
+  const padReduce = Math.min(12, Math.round(wordInfoOverflow / 2));
+  const wordInfoPadTop = Math.max(16, wordInfoPadTopBase - padReduce);
 
   // Auto-speak on word change — always reset hasSpoken first, then speak only if tab is visible
   // reviewCard is included so the effect re-fires when the same word reappears (re-inserted after wrong answer)
@@ -965,7 +966,7 @@ export default function LearningPage({
         )}
 
         {/* ── WORD INFO ── */}
-        <div className="flex flex-col items-center px-6" style={{
+        <div ref={wordInfoRef} className="flex flex-col items-center px-6" style={{
           height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
           paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(66, 24, 16)),
           paddingBottom: wordInfoPadBot,
