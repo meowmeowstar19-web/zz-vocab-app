@@ -243,7 +243,7 @@ export default function LearningPage({
 
   // Decoration thresholds
   const showCatDecor = contentH >= S1_H;       // cat on choices (hide at short screen 1)
-  const showBigNavDecor = contentH >= FULL_H;  // large nav scene → frog when adapting
+  const showBigNavDecor = contentH >= S1_H;    // large nav scene; frog only on truly short screens
   const isCompact = contentH < FULL_H;
   const navLeftDecorW = Math.round(responsive2(78, 52, 46));
 
