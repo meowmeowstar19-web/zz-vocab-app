@@ -101,7 +101,7 @@ export default function App() {
 
   return (
     <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg" style={{ maxHeight: vpH }}>
+      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
