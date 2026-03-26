@@ -85,6 +85,7 @@ export default function LearningPage({
   selectedCategory = 'all', selectedLevel = 'beginner',
   onCategoryChange, onLevelChange,
   isVisible = true,
+  contentHFromParent,
 }) {
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
   const storageKey = targetLang; // progress keyed by target language only
@@ -109,7 +110,7 @@ export default function LearningPage({
   const autoAdvanceTimer = useRef(null);
   const hasSpoken = useRef(false);
   const containerRef = useRef(null);
-  const [contentH, setContentH] = useState(795);
+  const [contentH, setContentH] = useState(() => contentHFromParent || 795);
   const [animKey, setAnimKey] = useState(null);
   const animTimerRef = useRef(null);
 
