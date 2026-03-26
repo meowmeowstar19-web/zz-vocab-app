@@ -101,7 +101,7 @@ export default function App() {
   const activeTab = reviewMode ? 'wordlist' : page;
 
   return (
-    <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
+    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: 'var(--app-h, 100vh)' }}>
       <div className="w-[402px] h-[841px] flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg" style={{ maxHeight: 'var(--app-h, 100vh)' }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
