@@ -48,17 +48,16 @@ export default function App() {
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
   const [navH, setNavH] = useState(57);
 
-  // Set --app-h CSS variable to window.innerHeight (fixes mobile Safari 100vh bug)
   useEffect(() => {
     const update = () => {
       setNavH(window.innerHeight < 833 ? 52 : 57);
+      // Set CSS variable to actual viewport height (fixes mobile Safari 100vh bug)
       document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
     };
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-
   // Persist category/level filters across tab switches
   const [learningCategory, setLearningCategory] = useState('all');
   const [learningLevel, setLearningLevel] = useState('beginner');
@@ -103,10 +102,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden">
-      <div
-        className="w-[402px] h-[841px] flex flex-col overflow-hidden rounded-[2rem] shadow-2xl border border-neutral-300 relative bg-warm-bg"
-        style={{ maxHeight: 'var(--app-h, 100vh)' }}
-      >
+      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden shadow-2xl border border-neutral-300 relative bg-warm-bg" style={{ maxHeight: 'var(--app-h, 100vh)' }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
