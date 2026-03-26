@@ -225,14 +225,14 @@ export default function LearningPage({
 
   // Word info section — ensure minimum gap between image and word
   const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTop = Math.max(16, Math.round(responsive2(25, 25, 16)));
+  const wordInfoPadTop = Math.max(16, Math.round(responsive2(32, 32, 16)));
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   const wordTextFS = Math.round(responsive2(24, 24, 19));
   const phoneticFS = Math.round(responsive2(16, 16, 13));
   const sentenceFS = Math.round(responsive2(16, 16, 13));
-  const translationFS = Math.round(responsive2(14, 14, 11));
+  const translationFS = Math.round(responsive2(15, 15, 11));
 
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);

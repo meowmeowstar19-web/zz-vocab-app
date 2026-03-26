@@ -205,7 +205,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
         </div>
 
         {/* ===== FILTER BUTTONS ===== */}
-        <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide justify-center">
           {FILTERS.map(f => {
             const isActive = filter === f.key;
             return (
