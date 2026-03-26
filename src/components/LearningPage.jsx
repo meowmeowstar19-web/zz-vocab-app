@@ -233,8 +233,8 @@ export default function LearningPage({
     if (!text) return 1;
     const cjk = (text.match(/[\u3000-\u9fff\uff00-\uffef]/g) || []).length;
     const other = text.length - cjk;
-    const textWidth = cjk * fontSize + other * fontSize * 0.55;
-    return Math.ceil(textWidth / 305);
+    const textWidth = cjk * fontSize * 0.85 + other * fontSize * 0.55;
+    return Math.ceil(textWidth / 304);
   };
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
