@@ -973,7 +973,7 @@ export default function LearningPage({
           <p
             className="text-textMain text-center leading-snug"
             style={{
-              marginTop: showBigImage ? 5 : 2,
+              marginTop: showBigImage ? 7 : 2,
               fontSize: sentenceFS,
               fontWeight: 'normal',
               // Use a readable normal-weight font (not Arial Black which is ultra-bold)
