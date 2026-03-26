@@ -225,7 +225,7 @@ export default function LearningPage({
 
   // Word info section — ensure minimum gap between image and word
   const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTopBase = Math.max(16, Math.round(responsive2(32, 32, 16)));
+  const wordInfoPadTopBase = Math.max(20, Math.round(responsive2(32, 32, 24)));
   const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
 
   // estimateLines helper for dynamic padding (used after displaySentence is defined)
