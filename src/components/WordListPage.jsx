@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { words } from '../data/words';
+import { oralPhrases } from '../data/oralPhrases';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import { phoneticMap } from '../data/phonetics';
@@ -104,9 +105,15 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     }
   }, [initialFilter, langKey]);
 
-  const eligibleWords = useMemo(() => {
-    return words.filter(w => isWordAvailable(w, nativeLang, targetLang));
+  // Include both regular words and oral phrases (oral only for zh-en)
+  const allWords = useMemo(() => {
+    const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
+    return jaInvolved ? words : [...words, ...oralPhrases];
   }, [nativeLang, targetLang]);
+
+  const eligibleWords = useMemo(() => {
+    return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
+  }, [nativeLang, targetLang, allWords]);
 
   const totalLearning = useMemo(() => {
     const prog = progress;
@@ -384,12 +391,14 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         style={{ width: '85%' }}
         onClick={e => e.stopPropagation()}
       >
-        <img
-          src={`/images/${encodeURIComponent(word.img)}`}
-          alt={displayText}
-          className="w-full rounded-xl"
-          style={{ maxHeight: 280, objectFit: 'contain' }}
-        />
+        {word.img && (
+          <img
+            src={`/images/${encodeURIComponent(word.img)}`}
+            alt={displayText}
+            className="w-full rounded-xl"
+            style={{ maxHeight: 280, objectFit: 'contain' }}
+          />
+        )}
         <p
           className="text-center mt-4"
           style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { words, wordsShuffled, categories } from '../data/words';
+import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
@@ -72,8 +73,9 @@ function buildReviewQueueFromWords(eligibleWords, progress, wordStates = {}) {
   return result;
 }
 
-const LEVELS = ['all', 'beginner', 'intermediate', 'advanced'];
+const LEVELS = ['all', 'beginner', 'intermediate', 'advanced', 'oral'];
 const LEVEL_LABELS = { all: '全部难度', beginner: 'Level 1', intermediate: 'Level 2', advanced: 'Level 3' };
+const ORAL_LEVEL_LABEL = { zh: '日常口语', en: 'Daily Oral', ja: '日常会話' };
 const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
 // Module-level cache for sentence translations (persists for session)
@@ -90,7 +92,13 @@ export default function LearningPage({
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
   const storageKey = targetLang; // progress keyed by target language only
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
-  const catLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
+  const isOralMode = selectedLevel === 'oral';
+  const catLabels = isOralMode
+    ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
+    : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
+  const activeWords = isOralMode ? oralPhrases : words;
+  const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsShuffled;
+  const activeCategories = isOralMode ? oralCategories : categories;
 
   const [showCategories, setShowCategories] = useState(false);
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
@@ -139,13 +147,13 @@ export default function LearningPage({
   const reviewWordStatesRef = useRef({});  // wordId → {errorCount, sessionCorrect}
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
-  // Derived: quizFormat and currentWord
-  const quizFormat = isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
+  // Derived: quizFormat and currentWord — oral mode always uses C (text only, no images)
+  const quizFormat = isOralMode ? 'C' : (isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A'));
 
   // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
-    return words.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang]);
+    return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
+  }, [nativeLang, targetLang, isOralMode]);
 
   // ── Review Queue Initialization & helpers ──
   const showNextReviewCard = useCallback((queue, pointer, wordStates) => {
@@ -273,11 +281,11 @@ export default function LearningPage({
   const wordPool = useMemo(() => {
     if (!isReview) return []; // not used in SRS mode
     const prog = progress;
-    let pool = selectedCategory === 'all' ? wordsShuffled : words.filter(w => w.category === selectedCategory);
+    let pool = selectedCategory === 'all' ? activeWordsShuffled : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all') pool = pool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
     return shuffle(pool.filter(w => prog[w.id] && !prog[w.id].mastered));
-  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
 
   // ── SRS Session Initialization (learning mode only) ──
   const showNextCard = useCallback(() => {
@@ -334,10 +342,10 @@ export default function LearningPage({
 
     // New words (filtered by category/level)
     let newPool = selectedCategory === 'all'
-      ? [...wordsShuffled]
-      : words.filter(w => w.category === selectedCategory);
+      ? [...activeWordsShuffled]
+      : activeWords.filter(w => w.category === selectedCategory);
     newPool = newPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all') newPool = newPool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') newPool = newPool.filter(w => w.level === selectedLevel);
     newPool = newPool.filter(w => !prog[w.id]?.timestamp);
     newPool = shuffle(newPool);
 
@@ -380,7 +388,7 @@ export default function LearningPage({
     if (unlearned.length === 0) return; // truly all done — show the all-done screen
 
     // Current category/level exhausted but more words exist globally
-    completedCatNameRef.current = (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh)[selectedCategory] || '';
+    completedCatNameRef.current = catLabels[selectedCategory] || '';
     setCategoryDoneVisible(true);
 
     categoryAutoSwitchRef.current = setTimeout(() => {
@@ -388,7 +396,7 @@ export default function LearningPage({
       setCategoryDoneVisible(false);
       // Preserve current difficulty level if there are still unlearned words at that level
       const progNow = getProgress(storageKey);
-      const hasUnlearnedAtLevel = selectedLevel === 'all'
+      const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
         ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
         : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
       onCategoryChange?.('all');
@@ -424,10 +432,10 @@ export default function LearningPage({
   }, [currentWord, targetLang]);
 
   const sameCategoryWords = useMemo(() => {
-    if (!currentWord) return words;
-    const base = words.filter(w => w.category === currentWord.category);
+    if (!currentWord) return activeWords;
+    const base = activeWords.filter(w => w.category === currentWord.category);
     return base.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [currentWord, nativeLang, targetLang]);
+  }, [currentWord, nativeLang, targetLang, isOralMode]);
 
   const isWordStarred = useMemo(() => {
     if (!currentWord) return false;
@@ -435,7 +443,7 @@ export default function LearningPage({
   }, [currentWord, progress]);
 
   const tagColorMap = useMemo(() => {
-    const cats = categories.filter(c => c !== 'all');
+    const cats = activeCategories.filter(c => c !== 'all');
     const map = {};
     cats.forEach((cat, idx) => {
       const gridPos = idx + 1;
@@ -444,7 +452,7 @@ export default function LearningPage({
       map[cat] = TAG_COLORS_BASE[(gridCol + gridRow) % TAG_COLORS_BASE.length];
     });
     return map;
-  }, []);
+  }, [isOralMode]);
 
   // ── Generate options when word or format changes ──
   useEffect(() => {
@@ -466,9 +474,9 @@ export default function LearningPage({
     hasSpoken.current = false;
   }, [currentWord?.id, quizFormat]);
 
-  // Phonetics
+  // Phonetics (skip for oral phrases)
   useEffect(() => {
-    if (!currentWord) { setPhonetic(''); return; }
+    if (!currentWord || isOralMode) { setPhonetic(''); return; }
     const staticPhonetic = getPhonetic(currentWord, targetLang);
     if (staticPhonetic !== null) { setPhonetic(staticPhonetic); return; }
     setPhonetic('');
@@ -770,9 +778,9 @@ export default function LearningPage({
       return total > 0 ? `${Math.min(pos, total)}/${total}` : '0/0';
     }
     // SRS mode: learned/total in current category+level filter
-    let pool = selectedCategory === 'all' ? [...words] : words.filter(w => w.category === selectedCategory);
+    let pool = selectedCategory === 'all' ? [...activeWords] : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all') pool = pool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
     const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
     return `${learned}/${total}`;
@@ -799,7 +807,9 @@ export default function LearningPage({
 
   const levelDisplayText = pendingLevel === 'all'
     ? t.allLevels
-    : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
+    : pendingLevel === 'oral'
+      ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh)
+      : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
 
   // ── Category done popup (more words exist in other categories) ──
   if (!currentWord && categoryDoneVisible) {
@@ -968,7 +978,7 @@ export default function LearningPage({
         {/* ── WORD INFO ── */}
         <div ref={wordInfoRef} className="flex flex-col items-center px-6" style={{
           height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
-          paddingTop: showBigImage ? wordInfoPadTop : Math.round(responsive2(66, 24, 16)),
+          paddingTop: showBigImage ? wordInfoPadTop : 96,
           paddingBottom: wordInfoPadBot,
         }}>
           {/* Main word display */}
@@ -983,36 +993,40 @@ export default function LearningPage({
             {displayWord.toLowerCase()}
           </span>
 
-          {/* Speaker + phonetic / reading */}
-          <button
-            onClick={handleSpeak}
-            className="flex items-center gap-1.5 text-[#999] active:scale-95"
-            style={{ marginTop: phoneticMT }}
-          >
-            <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
-            {phonetic && (
-              <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
-                {phonetic}
-              </span>
-            )}
-          </button>
+          {/* Speaker + phonetic / reading — hide entirely when no phonetic (e.g. oral mode) */}
+          {(!isOralMode || phonetic) && (
+            <button
+              onClick={handleSpeak}
+              className="flex items-center gap-1.5 text-[#999] active:scale-95"
+              style={{ marginTop: phoneticMT }}
+            >
+              <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+              {phonetic && (
+                <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
+                  {phonetic}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Example sentence */}
-          <p
-            className="text-textMain text-center leading-snug"
-            style={{
-              marginTop: showBigImage ? sentenceMT : 2,
-              fontSize: sentenceFS,
-              fontWeight: 'normal',
-              // Use a readable normal-weight font (not Arial Black which is ultra-bold)
-              fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
-            }}
-          >
-            {displaySentence}
-          </p>
+          {displaySentence && (
+            <p
+              className="text-textMain text-center leading-snug"
+              style={{
+                marginTop: showBigImage ? sentenceMT : 2,
+                fontSize: sentenceFS,
+                fontWeight: 'normal',
+                // Use a readable normal-weight font (not Arial Black which is ultra-bold)
+                fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
+              }}
+            >
+              {displaySentence}
+            </p>
+          )}
 
           {/* Translation — always visible in format A; cover in other formats */}
-          {sentenceLang !== nativeLang && (
+          {displaySentence && sentenceLang !== nativeLang && (
             quizFormat === 'A' ? (
               <span
                 className="text-center leading-none px-2"
@@ -1152,7 +1166,7 @@ export default function LearningPage({
                       onClick={() => handleOptionClick(option)}
                       disabled={!!isCorrect || isThisWrong}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: 20, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 17, zIndex: 2, transition: 'none' }}
                     >
                       {option}
                     </button>
@@ -1215,47 +1229,72 @@ export default function LearningPage({
               </svg>
             </button>
 
-            <div className="relative mb-4">
-              <select
-                value={pendingLevel}
-                onChange={(e) => setPendingLevel(e.target.value)}
-                className="w-full appearance-none bg-white border-2 border-black rounded-full px-4 text-[14px] font-medium text-textMain focus:outline-none"
-                style={{ height: 34 }}
-              >
-                {LEVELS.map(l => (
-                  <option key={l} value={l}>
-                    {l === 'all' ? t.allLevels : `${t.levelPrefix}: ${LEVEL_LABELS[l]}`}
-                  </option>
-                ))}
-              </select>
-              <svg className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="#2A2A2A" strokeWidth="2">
-                <polyline points="1 1 7 7 13 1" />
-              </svg>
-            </div>
+            {(() => {
+              const pendingIsOral = pendingLevel === 'oral';
+              const pendingCats = pendingIsOral ? oralCategories : categories;
+              const pendingCatLabels = pendingIsOral
+                ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
+                : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
+              const pendingTagColors = {};
+              pendingCats.filter(c => c !== 'all').forEach((cat, idx) => {
+                const gridPos = idx + 1;
+                pendingTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
+              });
+              // Filter LEVELS: hide 'oral' when ja is involved
+              const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
+              const availableLevels = jaInvolved ? LEVELS.filter(l => l !== 'oral') : LEVELS;
+              return (
+                <>
+                  <div className="relative mb-4">
+                    <select
+                      value={pendingLevel}
+                      onChange={(e) => {
+                        const newLevel = e.target.value;
+                        const wasOral = pendingLevel === 'oral';
+                        const isNowOral = newLevel === 'oral';
+                        setPendingLevel(newLevel);
+                        if (wasOral !== isNowOral) setPendingCategory('all');
+                      }}
+                      className="w-full appearance-none bg-white border-2 border-black rounded-full px-4 text-[14px] font-medium text-textMain focus:outline-none"
+                      style={{ height: 34 }}
+                    >
+                      {availableLevels.map(l => (
+                        <option key={l} value={l}>
+                          {l === 'all' ? t.allLevels : l === 'oral' ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh) : `${t.levelPrefix}: ${LEVEL_LABELS[l]}`}
+                        </option>
+                      ))}
+                    </select>
+                    <svg className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="#2A2A2A" strokeWidth="2">
+                      <polyline points="1 1 7 7 13 1" />
+                    </svg>
+                  </div>
 
-            <div className="flex flex-wrap gap-2.5 mb-4">
-              {categories.map((cat) => {
-                const isSelected = pendingCategory === cat;
-                const bgColor = isSelected
-                  ? '#1b1b1b'
-                  : cat === 'all' ? '#ffffff' : tagColorMap[cat];
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setPendingCategory(cat)}
-                    className="px-4 rounded-full text-[14px] font-medium border-2 border-black"
-                    style={{
-                      height: 32,
-                      backgroundColor: bgColor,
-                      color: isSelected ? '#ffffff' : '#000000',
-                      lineHeight: '28px',
-                    }}
-                  >
-                    {catLabels[cat]}
-                  </button>
-                );
-              })}
-            </div>
+                  <div className="flex flex-wrap gap-2.5 mb-4">
+                    {pendingCats.map((cat) => {
+                      const isSelected = pendingCategory === cat;
+                      const bgColor = isSelected
+                        ? '#1b1b1b'
+                        : cat === 'all' ? '#ffffff' : pendingTagColors[cat];
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => setPendingCategory(cat)}
+                          className="px-4 rounded-full text-[14px] font-medium border-2 border-black"
+                          style={{
+                            height: 32,
+                            backgroundColor: bgColor,
+                            color: isSelected ? '#ffffff' : '#000000',
+                            lineHeight: '28px',
+                          }}
+                        >
+                          {pendingCatLabels[cat]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="flex justify-center">
               <button
