@@ -245,7 +245,7 @@ export default function LearningPage({
   const imgSkipTop_full = Math.round(26 + 145 + 10 / 2 - 85 / 2);
 
   // Decoration thresholds
-  const showCatDecor = contentH >= S1_H;       // cat on choices (hide at short screen 1)
+  const showCatDecor = contentH >= 550;        // cat on choices (hide only on very short screens)
   const showBigNavDecor = contentH >= FULL_H;  // large nav scene → frog when adapting
   const isCompact = contentH < FULL_H;
   const navLeftDecorW = Math.round(responsive2(78, 52, 46));
