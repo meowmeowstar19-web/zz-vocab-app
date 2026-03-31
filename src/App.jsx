@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
+import WelcomePage from './components/WelcomePage';
 import { migrateOldProgress, migrateProgressToTargetOnly } from './utils/storage';
 import { UI_TEXT } from './utils/langHelpers';
 
@@ -40,11 +41,12 @@ migrateOldProgress();
 migrateProgressToTargetOnly();
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('app_logged_in') === 'true');
   const [page, setPage] = useState('learn');
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListFilter, setWordListFilter] = useState(null);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
-  const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
+    const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
   const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
   const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
   const [vpH, setVpH] = useState(() => window.innerHeight);
@@ -85,6 +87,16 @@ export default function App() {
     setPage('wordlist');
   };
 
+  const handleLogin = () => {
+    localStorage.setItem('app_logged_in', 'true');
+    setIsLoggedIn(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('app_logged_in');
+    setIsLoggedIn(false);
+  };
+
   const handleLanguageChange = ({ native, target }) => {
     if (native !== undefined) {
       setNativeLang(native);
@@ -98,6 +110,17 @@ export default function App() {
 
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
+
+  // Show login page if not logged in
+  if (!isLoggedIn) {
+    return (
+      <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+          <WelcomePage onLogin={handleLogin} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
@@ -134,6 +157,7 @@ export default function App() {
               nativeLang={nativeLang}
               targetLang={targetLang}
               onLanguageChange={handleLanguageChange}
+              onLogout={handleLogout}
             />
           </div>
         </div>

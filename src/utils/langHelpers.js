@@ -119,6 +119,7 @@ export const UI_TEXT = {
     loginDays: '累计登录 {n}天',
     devMode: '开发者模式：清除学习记录',
     devModeConfirm: '确定要清除所有学习记录吗？此操作不可撤销。',
+    logout: '退出登录', logoutConfirm: '确定要退出登录吗？',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -147,6 +148,7 @@ export const UI_TEXT = {
     loginDays: 'Logged in {n} days',
     devMode: 'Dev Mode: Clear learning records',
     devModeConfirm: 'Clear all learning records? This cannot be undone.',
+    logout: 'Log out', logoutConfirm: 'Are you sure you want to log out?',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -175,6 +177,7 @@ export const UI_TEXT = {
     loginDays: '累計ログイン {n}日',
     devMode: '開発者モード：学習記録を消去',
     devModeConfirm: '全ての学習記録を消去しますか？この操作は取り消せません。',
+    logout: 'ログアウト', logoutConfirm: 'ログアウトしますか？',
   },
 };
 

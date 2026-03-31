@@ -30,7 +30,7 @@ function ChevronDown() {
   );
 }
 
-export default function SettingsPage({ nativeLang, targetLang, onLanguageChange }) {
+export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout }) {
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
@@ -157,6 +157,29 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange 
             <ChevronDown />
           </span>
         </button>
+
+        {/* Logout button — yellow pill matching Figma */}
+        {onLogout && (
+          <div className="absolute flex justify-center" style={{ top: 365, left: 0, right: 0 }}>
+            <button
+              onClick={() => {
+                if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
+                  onLogout();
+                }
+              }}
+              className="active:scale-95 transition-transform"
+              style={{
+                width: 128, height: 48,
+                backgroundColor: '#ffd016',
+                border: '2px solid #000',
+                borderRadius: 100,
+                fontSize: 20, color: '#000',
+              }}
+            >
+              {t.logout || '退出'}
+            </button>
+          </div>
+        )}
 
         {/* Dev mode: clear all progress */}
         <button
