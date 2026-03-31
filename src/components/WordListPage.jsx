@@ -71,11 +71,11 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const FILTERS = useMemo(() => [
     { key: 'time', label: t.timeOrder },
     { key: 'random', label: t.randomOrder },
+    { key: 'reverseRandom', label: t.reverseRandom },
     { key: 'mastered', label: t.mastered },
   ], [t]);
 
   const [filter, setFilter] = useState(initialFilter || 'time');
-  const [timeAsc, setTimeAsc] = useState(false); // false = newest first, true = oldest first
   const [progress, setProgress] = useState(() => getProgress(langKey));
   const [revealedWords, setRevealedWords] = useState(new Set());
   const [translationCache, setTranslationCache] = useState(() => new Map(_translationCache));
@@ -132,19 +132,15 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     if (showMastered) {
       list.sort((a, b) => (prog[b.id]?.masteredAt || 0) - (prog[a.id]?.masteredAt || 0));
     } else if (filter === 'time') {
-      if (timeAsc) {
-        list.sort((a, b) => (prog[a.id]?.timestamp || 0) - (prog[b.id]?.timestamp || 0));
-      } else {
-        list.sort((a, b) => (prog[b.id]?.timestamp || 0) - (prog[a.id]?.timestamp || 0));
-      }
-    } else if (filter === 'random') {
+      list.sort((a, b) => (prog[b.id]?.timestamp || 0) - (prog[a.id]?.timestamp || 0));
+    } else if (filter === 'random' || filter === 'reverseRandom') {
       for (let i = list.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [list[i], list[j]] = [list[j], list[i]];
       }
     }
     return list;
-  }, [progress, filter, randomKey, eligibleWords, timeAsc]);
+  }, [progress, filter, randomKey, eligibleWords]);
 
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
@@ -219,14 +215,8 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
               <button
                 key={f.key}
                 onClick={() => {
-                  if (f.key === 'time' && filter === 'time') {
-                    // Toggle between newest-first and oldest-first
-                    setTimeAsc(prev => !prev);
-                  } else {
-                    setFilter(f.key);
-                    if (f.key === 'time') setTimeAsc(false); // reset to newest-first when switching to time
-                  }
-                  if (f.key === 'random') {
+                  setFilter(f.key);
+                  if (f.key === 'random' || f.key === 'reverseRandom') {
                     setRandomKey(k => k + 1);
                     setRevealedWords(new Set());
                   }
@@ -241,7 +231,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                   color: isActive ? '#ffffff' : '#000000',
                 }}
               >
-                {f.key === 'time' ? `${f.label} ${timeAsc ? '↑' : '↓'}` : f.label}
+                {f.label}
               </button>
             );
           })}
@@ -268,8 +258,13 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                 ? pendingMasteredWords.get(word.id)
                 : progress[word.id]?.mastered;
               const isLeaving = leavingWords.has(word.id);
-              const displayText = getWordText(word, targetLang) || word.en;
-              const nativeText = getWordText(word, nativeLang);
+              const isReverse = filter === 'reverseRandom';
+              const displayText = isReverse
+                ? (getWordText(word, nativeLang) || word.en)
+                : (getWordText(word, targetLang) || word.en);
+              const nativeText = isReverse
+                ? (getWordText(word, targetLang) || word.en)
+                : getWordText(word, nativeLang);
 
               return (
                 <div
@@ -297,7 +292,10 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                     <div className="flex-1 ml-2.5 min-w-0">
                       <span
                         className="text-black font-normal"
-                        style={{ fontSize: isTargetJa ? 20 : 18, fontFamily: targetFont }}
+                        style={{
+                          fontSize: (isReverse ? (nativeLang === 'ja') : isTargetJa) ? 20 : 18,
+                          fontFamily: isReverse ? getFontFamily(nativeLang) : targetFont,
+                        }}
                       >
                         {displayText}
                       </span>

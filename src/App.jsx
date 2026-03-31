@@ -57,9 +57,18 @@ export default function App() {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-  // Persist category/level filters across tab switches
-  const [learningCategory, setLearningCategory] = useState('all');
-  const [learningLevel, setLearningLevel] = useState('beginner');
+  // Persist category/level filters across tab switches AND page refreshes
+  const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
+  const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
+
+  const handleCategoryChange = (cat) => {
+    setLearningCategory(cat);
+    localStorage.setItem('app_learning_category', cat);
+  };
+  const handleLevelChange = (lvl) => {
+    setLearningLevel(lvl);
+    localStorage.setItem('app_learning_level', lvl);
+  };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
@@ -114,9 +123,9 @@ export default function App() {
               targetLang={targetLang}
               selectedCategory={learningCategory}
               selectedLevel={learningLevel}
-              onCategoryChange={setLearningCategory}
+              onCategoryChange={handleCategoryChange}
               contentHFromParent={Math.max(0, vpH - navH - 2)}
-              onLevelChange={setLearningLevel}
+              onLevelChange={handleLevelChange}
               isVisible={page === 'learn' || reviewMode}
             />
           </div>

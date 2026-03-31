@@ -640,12 +640,12 @@ export default function LearningPage({
             lastReviewedAt: now,
           }, storageKey);
         } else {
-          // 不认识: reschedule D at same frequency as C (gap ~7), stays in session
-          const gap = SESSION_GAPS[2]; // same as C's gap = 7
+          // 不认识: reschedule as B (image quiz) so user re-learns the word
+          const gap = SESSION_GAPS[1]; // B's gap = 5
           pendingRef.current.push({
             word: card.word,
-            step,
-            format: 'D',
+            step: 1,
+            format: 'B',
             dueAt: totalShownRef.current + gap,
           });
           updateWordSRS(card.word.id, { srsLevel: Math.max(step - 1, 0), lastReviewedAt: now }, storageKey);
@@ -731,6 +731,7 @@ export default function LearningPage({
       setIsCorrect(false);
       playWrongSound();
       setWrongSelections(prev => new Set([...prev, option]));
+      setShowSentence(true); // auto-reveal translation on wrong answer
     }
   }, [currentWord, isCorrect, advanceToNext, nativeLang, triggerAnim]);
 
@@ -745,6 +746,7 @@ export default function LearningPage({
       setIsCorrect(false);
       playWrongSound();
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
+      setShowSentence(true); // auto-reveal translation on wrong answer
     }
   }, [currentWord, isCorrect, advanceToNext, triggerAnim]);
 
@@ -1030,6 +1032,8 @@ export default function LearningPage({
           height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
           paddingTop: showBigImage ? wordInfoPadTop : 96,
           paddingBottom: wordInfoPadBot,
+          overflow: 'visible',
+          zIndex: 5,
         }}>
           {/* Main word display */}
           <span
@@ -1059,12 +1063,12 @@ export default function LearningPage({
             </button>
           )}
 
-          {/* Example sentence */}
-          {displaySentence && (
+          {/* Example sentence — hidden in D mode */}
+          {displaySentence && quizFormat !== 'D' && (
             <p
               className="text-textMain text-center leading-snug"
               style={{
-                marginTop: showBigImage ? sentenceMT : 2,
+                marginTop: showBigImage ? sentenceMT : 5,
                 fontSize: sentenceFS,
                 fontWeight: 'normal',
                 // Use a readable normal-weight font (not Arial Black which is ultra-bold)
@@ -1075,8 +1079,8 @@ export default function LearningPage({
             </p>
           )}
 
-          {/* Translation — always visible in format A; cover in other formats */}
-          {displaySentence && sentenceLang !== nativeLang && (
+          {/* Translation — always visible in format A; cover in B/C; hidden in D */}
+          {displaySentence && quizFormat !== 'D' && sentenceLang !== nativeLang && (
             quizFormat === 'A' ? (
               <span
                 className="text-center leading-none px-2"
@@ -1088,8 +1092,7 @@ export default function LearningPage({
               <button
                 onClick={() => setShowSentence(tt => !tt)}
                 className="flex items-center justify-center active:scale-95"
-                style={{ marginTop: translationMT + 3 }}
-                style={{ minWidth: 234, height: 24, flexShrink: 0 }}
+                style={{ marginTop: translationMT + 3, paddingTop: 3, minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
                   <span style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
@@ -1124,18 +1127,12 @@ export default function LearningPage({
 
           {/* 2 x 2 grid: image choices (B), text choices (A/C), or D-mode (know/don't-know) */}
           {quizFormat === 'D' ? (
-            /* ── Format D: Know / Don't Know self-assessment ── */
+            /* ── Format D: Know / Don't Know — identical to C layout, just 2 buttons ── */
             <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 7 }}>
-              {/* Cat decor */}
-              {!isReview && showCatDecor && (
-                <img src="/assets/figma/word-decor.png" alt=""
-                  className="absolute pointer-events-none select-none"
-                  style={{ left: 30, top: choicesPadTop - 26, width: 52, zIndex: 5 }} />
-              )}
               {[
-                { key: 'know', label: t.dKnow, handler: handleDKnow, animId: 'dKnow' },
-                { key: 'dontknow', label: t.dDontKnow, handler: handleDDontKnow, animId: 'dDontKnow' },
-              ].map(({ key, label, handler, animId }) => {
+                { key: 'know', label: t.dKnow, handler: handleDKnow, animId: 'dKnow', idx: 0 },
+                { key: 'dontknow', label: t.dDontKnow, handler: handleDDontKnow, animId: 'dDontKnow', idx: 1 },
+              ].map(({ key, label, handler, animId, idx }) => {
                 const isKnowFlash = key === 'know' && dModeResultRef.current === 'know';
                 const isDontKnowFlash = key === 'dontknow' && dModeResultRef.current === 'dontknow';
                 const isWiggling = animKey === animId;
@@ -1144,6 +1141,12 @@ export default function LearningPage({
                     height: 115,
                     animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
                   }}>
+                    {/* Cat decor on top-left cell — same as C mode */}
+                    {idx === 0 && !isReview && showCatDecor && (
+                      <img src="/assets/figma/word-decor.png" alt=""
+                        className="absolute pointer-events-none select-none"
+                        style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
+                    )}
                     {/* Background card */}
                     <div
                       className="absolute rounded-[8px]"
@@ -1153,7 +1156,7 @@ export default function LearningPage({
                         transition: 'background-color 0.15s',
                       }}
                     />
-                    {/* Decoration frame */}
+                    {/* Decoration frame — same as C mode */}
                     <img
                       src="/assets/figma/text-container.png"
                       alt=""
@@ -1165,7 +1168,7 @@ export default function LearningPage({
                       onClick={handler}
                       disabled={dModeResultRef.current !== null}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: 24, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 17, zIndex: 2, padding: 10, transition: 'none' }}
                     >
                       {label}
                     </button>
@@ -1266,7 +1269,7 @@ export default function LearningPage({
                       onClick={() => handleOptionClick(option)}
                       disabled={!!isCorrect || isThisWrong}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: 17, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 17, zIndex: 2, padding: 10, transition: 'none' }}
                     >
                       {option}
                     </button>
