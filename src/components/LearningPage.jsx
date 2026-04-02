@@ -773,12 +773,6 @@ export default function LearningPage({
     if (currentWord) speakCurrent(displayWord);
   }, [currentWord, displayWord, speakCurrent]);
 
-  // Auto-speak when a new word appears (study + review)
-  useEffect(() => {
-    if (currentWord && displayWord) {
-      speakWordByLang(displayWord, targetLang);
-    }
-  }, [currentWord?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStar = useCallback(() => {
     if (!currentWord) return;
