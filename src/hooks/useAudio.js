@@ -8,7 +8,11 @@ function getAudioCtx() {
   return audioCtx;
 }
 
+let _lastSpeak = { text: '', time: 0 };
 export function speakWord(text, lang = 'en-US') {
+  const now = Date.now();
+  if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
+  _lastSpeak = { text, time: now };
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
