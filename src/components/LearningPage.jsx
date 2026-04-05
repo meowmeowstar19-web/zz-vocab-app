@@ -78,6 +78,28 @@ const LEVEL_LABELS = { all: '全部难度', beginner: 'Level 1', intermediate: '
 const ORAL_LEVEL_LABEL = { zh: '日常口语', en: 'Daily Oral', ja: '日常会話' };
 const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
+// Tab labels for category modal
+const CATEGORY_TAB_LABELS = {
+  zh: { level: '难度', detail: '详细分类', oral: '日常口语' },
+  en: { level: 'Level', detail: 'Categories', oral: 'Phrases' },
+  ja: { level: '難易度', detail: 'カテゴリー', oral: '日常会話' },
+};
+
+// Representative image for each category (first word's image)
+const CATEGORY_IMAGES = {
+  animal: 'alpaca.jpg', food: 'banana.jpg', daily: 'bandaid.jpg',
+  nature: 'baobab tree.jpg', science: 'amino acid chain.jpg', art: 'Girl with a Pearl Earring 1.jpg',
+  landmark: 'Abu Simbel.jpg', game: 'checkers.jpg', people: 'Abraham Lincoln.jpg',
+  myth: 'Diao Chan.jpg', fashion: 'chanel bag.jpg',
+};
+
+// Detail note text
+const DETAIL_NOTE = {
+  zh: '注意：在该分类下，学习模式不会开启其它类别的单词复习，如果要复习其它类别的单词，请前往单词本界面',
+  en: 'Note: In this category, learning mode will not include reviews from other categories. To review other categories, please go to the word list.',
+  ja: '注意：このカテゴリーでは、他のカテゴリーの単語復習は行われません。他のカテゴリーを復習するには、単語帳画面へ。',
+};
+
 // Module-level cache for sentence translations (persists for session)
 const _sentenceCache = new Map();
 
@@ -101,6 +123,7 @@ export default function LearningPage({
   const activeCategories = isOralMode ? oralCategories : categories;
 
   const [showCategories, setShowCategories] = useState(false);
+  const [categoryTab, setCategoryTab] = useState('level'); // 'level' | 'detail' | 'oral'
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
 
@@ -854,6 +877,16 @@ export default function LearningPage({
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
     setPendingLevel(selectedLevel);
+    // Set initial tab based on current mode, with current selection preserved
+    if (selectedLevel === 'oral') {
+      setCategoryTab('oral');
+    } else if (selectedCategory !== 'all') {
+      setCategoryTab('detail');
+    } else {
+      setCategoryTab('level');
+      // If current level is 'all', auto-select first level so something is checked
+      if (selectedLevel === 'all') setPendingLevel('beginner');
+    }
     setShowCategories(true);
   }, [selectedCategory, selectedLevel]);
 
@@ -1328,111 +1361,231 @@ export default function LearningPage({
         </div>
       </div>
 
-      {/* ── CATEGORY MODAL ── */}
-      {showCategories && (
-        <div className="absolute inset-0 flex flex-col" style={{ zIndex: 50 }}>
-          <div
-            className="bg-white px-6 pt-2 pb-5 shadow-lg"
-            style={{ animation: 'categoryExpand 0.25s ease-out', transformOrigin: 'top left' }}
-          >
-            <button
-              onClick={() => setShowCategories(false)}
-              className="w-[30px] h-[30px] mb-4 active:scale-90"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
+      {/* ── CATEGORY MODAL (full-page) ── */}
+      {showCategories && (() => {
+        const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
+        const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
+        // Available tabs: hide 'oral' when ja is involved
+        const tabs = jaInvolved
+          ? [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }]
+          : [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+        const detailCatLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
+        const oralCatLabels = ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh;
+        // Tag colors for oral pills
+        const oralTagColors = {};
+        oralCategories.filter(c => c !== 'all').forEach((cat, idx) => {
+          const gridPos = idx + 1;
+          oralTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
+        });
 
-            {(() => {
-              const pendingIsOral = pendingLevel === 'oral';
-              const pendingCats = pendingIsOral ? oralCategories : categories;
-              const pendingCatLabels = pendingIsOral
-                ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
-                : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-              const pendingTagColors = {};
-              pendingCats.filter(c => c !== 'all').forEach((cat, idx) => {
-                const gridPos = idx + 1;
-                pendingTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
-              });
-              // Filter LEVELS: hide 'oral' when ja is involved
-              const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
-              const availableLevels = jaInvolved ? LEVELS.filter(l => l !== 'oral') : LEVELS;
-              return (
-                <>
-                  <div className="relative mb-4">
-                    <select
-                      value={pendingLevel}
-                      onChange={(e) => {
-                        const newLevel = e.target.value;
-                        const wasOral = pendingLevel === 'oral';
-                        const isNowOral = newLevel === 'oral';
-                        setPendingLevel(newLevel);
-                        if (wasOral !== isNowOral) setPendingCategory('all');
+        const levelItems = [
+          { key: 'beginner', label: 'Level 1', num: '1' },
+          { key: 'intermediate', label: 'Level 2', num: '2' },
+          { key: 'advanced', label: 'Level 3', num: '3' },
+        ];
+        const detailCats = categories.filter(c => c !== 'all');
+
+        return (
+          <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50 }}>
+            {/* Background illustration */}
+            <img
+              src="/assets/figma/category-bg.png"
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ zIndex: 0 }}
+            />
+
+            {/* Content layer */}
+            <div className="relative flex flex-col h-full" style={{ zIndex: 1 }}>
+              {/* ── Top bar: back arrow + 3 tabs (centered) ── */}
+              <div className="shrink-0 flex items-center justify-center px-3 gap-1.5" style={{ paddingTop: 15, paddingBottom: 10, position: 'relative' }}>
+                <button
+                  onClick={() => setShowCategories(false)}
+                  className="w-[24px] h-[24px] flex items-center justify-center active:scale-90"
+                  style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)' }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+                {tabs.map(tab => {
+                  const isActive = categoryTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      onClick={() => {
+                        if (categoryTab !== tab.key) {
+                          setCategoryTab(tab.key);
+                          // Auto-select first item when switching to a new tab
+                          if (tab.key === 'level') {
+                            setPendingLevel('beginner');
+                            setPendingCategory('all');
+                          } else if (tab.key === 'detail') {
+                            setPendingCategory(categories.find(c => c !== 'all') || 'animal');
+                            setPendingLevel('all');
+                          } else if (tab.key === 'oral') {
+                            setPendingCategory('all');
+                            setPendingLevel('oral');
+                          }
+                        }
                       }}
-                      className="w-full appearance-none bg-white border-2 border-black rounded-full px-4 text-[14px] font-medium text-textMain focus:outline-none"
-                      style={{ height: 34 }}
+                      className="rounded-[5px] text-[14px] font-medium border-[1.5px] border-black"
+                      style={{
+                        height: 32,
+                        paddingLeft: 12, paddingRight: 12,
+                        backgroundColor: isActive ? '#000' : '#fff',
+                        color: isActive ? '#fff' : '#000',
+                      }}
                     >
-                      {availableLevels.map(l => (
-                        <option key={l} value={l}>
-                          {l === 'all' ? t.allLevels : l === 'oral' ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh) : `${t.levelPrefix}: ${LEVEL_LABELS[l]}`}
-                        </option>
-                      ))}
-                    </select>
-                    <svg className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="#2A2A2A" strokeWidth="2">
-                      <polyline points="1 1 7 7 13 1" />
-                    </svg>
-                  </div>
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-                  <div className="flex flex-wrap gap-2.5 mb-4">
-                    {pendingCats.map((cat) => {
-                      const isSelected = pendingCategory === cat;
-                      const bgColor = isSelected
-                        ? '#1b1b1b'
-                        : cat === 'all' ? '#ffffff' : pendingTagColors[cat];
-                      return (
-                        <button
-                          key={cat}
-                          onClick={() => setPendingCategory(cat)}
-                          className="px-4 rounded-full text-[14px] font-medium border-2 border-black"
-                          style={{
-                            height: 32,
-                            backgroundColor: bgColor,
-                            color: isSelected ? '#ffffff' : '#000000',
-                            lineHeight: '28px',
-                          }}
-                        >
-                          {pendingCatLabels[cat]}
-                        </button>
-                      );
-                    })}
+              {/* ── Scrollable content area ── */}
+              <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {/* === LEVEL TAB === */}
+                {categoryTab === 'level' && (
+                  <div className="pt-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      {levelItems.map(lv => {
+                        const isSelected = pendingLevel === lv.key && categoryTab === 'level';
+                        return (
+                          <button
+                            key={lv.key}
+                            onClick={() => {
+                              setPendingLevel(lv.key);
+                              setPendingCategory('all');
+                            }}
+                            className="relative flex flex-col items-center active:scale-95"
+                          >
+                            <div
+                              className="w-[115px] h-[115px] rounded-[10px] border-[1.5px] border-black bg-white flex items-center justify-center"
+                              style={isSelected ? { borderWidth: 3, borderColor: '#ffd016' } : {}}
+                            >
+                              <span className="text-[64px] font-normal text-black leading-none">{lv.num}</span>
+                            </div>
+                            {/* Check badge */}
+                            {isSelected && (
+                              <div style={{
+                                position: 'absolute', top: -4, right: -4,
+                                width: 22, height: 22, borderRadius: '50%',
+                                backgroundColor: '#ffd016', border: '2px solid #000',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+                                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </div>
+                            )}
+                            <span className="text-[14px] font-medium text-black mt-1.5">{lv.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </>
-              );
-            })()}
+                )}
 
-            <div className="flex justify-center">
-              <button
-                onClick={handleConfirmCategories}
-                className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
-                style={{
-                  width: 130, height: 39,
-                  backgroundColor: '#ffd016',
-                }}
-              >
-                <span className="text-[18px] font-normal text-black">{t.ok}</span>
-              </button>
+                {/* === DETAIL CATEGORY TAB === */}
+                {categoryTab === 'detail' && (
+                  <div className="pt-1">
+                    <p className="text-[14px] text-black leading-[20px] mb-3 px-1 text-center">
+                      {DETAIL_NOTE[nativeLang] || DETAIL_NOTE.zh}
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {detailCats.map(cat => {
+                        const isSelected = pendingCategory === cat && categoryTab === 'detail';
+                        const imgFile = CATEGORY_IMAGES[cat];
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => {
+                              setPendingCategory(cat);
+                              setPendingLevel('all');
+                            }}
+                            className="relative flex flex-col items-center active:scale-95"
+                          >
+                            <div
+                              className="w-[115px] h-[115px] rounded-[10px] border-[1.5px] border-black overflow-hidden bg-white"
+                              style={isSelected ? { borderWidth: 3, borderColor: '#ffd016' } : {}}
+                            >
+                              {imgFile && (
+                                <img
+                                  src={`/images/${encodeURIComponent(imgFile)}`}
+                                  alt={detailCatLabels[cat]}
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                            </div>
+                            {/* Check badge */}
+                            {isSelected && (
+                              <div style={{
+                                position: 'absolute', top: -4, right: -4,
+                                width: 22, height: 22, borderRadius: '50%',
+                                backgroundColor: '#ffd016', border: '2px solid #000',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+                                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </div>
+                            )}
+                            <span className="text-[14px] font-medium text-black mt-1.5">{detailCatLabels[cat]}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* === ORAL TAB === */}
+                {categoryTab === 'oral' && (
+                  <div className="pt-3">
+                    <div className="flex flex-wrap gap-2.5 justify-center">
+                      {oralCategories.map(cat => {
+                        const isSelected = pendingCategory === cat && categoryTab === 'oral';
+                        const bgColor = isSelected
+                          ? '#1b1b1b'
+                          : cat === 'all' ? '#ffffff' : oralTagColors[cat];
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => {
+                              setPendingCategory(cat);
+                              setPendingLevel('oral');
+                            }}
+                            className="px-4 rounded-full text-[14px] font-medium border-2 border-black active:scale-95"
+                            style={{
+                              height: 34,
+                              backgroundColor: bgColor,
+                              color: isSelected ? '#fff' : '#000',
+                              lineHeight: '30px',
+                            }}
+                          >
+                            {oralCatLabels[cat]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Confirm button ── */}
+              <div className="shrink-0 flex justify-center pb-6 pt-3">
+                <button
+                  onClick={handleConfirmCategories}
+                  className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
+                  style={{ width: 130, height: 42, backgroundColor: '#ffd016' }}
+                >
+                  <span className="text-[18px] font-normal text-black">{t.ok}</span>
+                </button>
+              </div>
             </div>
           </div>
-
-          <div
-            className="flex-1"
-            style={{ backgroundColor: 'rgba(0,0,0,0.3)', animation: 'fadeIn 0.2s ease-out' }}
-            onClick={() => setShowCategories(false)}
-          />
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
