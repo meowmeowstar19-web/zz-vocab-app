@@ -151,6 +151,8 @@ export default function LearningPage({
   // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
   const rawFormat = isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
   const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
+  // Current step: 0 = first encounter (new), 1+ = session review
+  const currentStep = isReview ? null : (srsCard?.step ?? 0);
 
   // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
@@ -243,10 +245,12 @@ export default function LearningPage({
   const [wordInfoOverflow, setWordInfoOverflow] = useState(0);
 
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
-  const wordTextFS = Math.round(responsive2(24, 24, 19));
+  // CJK (zh/ja) text gets -2px for visual balance
+  const isCJK = (lang) => lang === 'zh' || lang === 'ja';
+  const wordTextFS = Math.round(responsive2(24, 24, 19)) - (isCJK(targetLang) ? 2 : 0);
   const phoneticFS = Math.round(responsive2(16, 16, 13));
-  const sentenceFS = Math.round(responsive2(16, 16, 13));
-  const translationFS = Math.round(responsive2(15, 15, 11));
+  const sentenceFS_base = Math.round(responsive2(16, 16, 13));
+  const translationFS_base = Math.round(responsive2(15, 15, 11));
 
   // Internal spacing within word info — shrink on short screens
   const phoneticMT = Math.round(responsive2(6, 4, 2));
@@ -421,6 +425,8 @@ export default function LearningPage({
 
   const displaySentence = useMemo(() => {
     if (!currentWord) return '';
+    // Oral phrases: use sentenceZh when target is Chinese
+    if (currentWord.sentenceZh && targetLang === 'zh') return currentWord.sentenceZh;
     const sentence = getSentence(currentWord, targetLang);
     if (!sentence && targetLang === 'zh') return currentWord.sentence || '';
     return sentence;
@@ -428,6 +434,8 @@ export default function LearningPage({
 
   const sentenceLang = useMemo(() => {
     if (!currentWord) return targetLang;
+    // Oral phrases: sentenceZh is Chinese
+    if (currentWord.sentenceZh && targetLang === 'zh') return 'zh';
     const sentence = getSentence(currentWord, targetLang);
     if (!sentence && targetLang === 'zh') return 'en';
     return targetLang;
@@ -504,14 +512,25 @@ export default function LearningPage({
     return () => { cancelled = true; };
   }, [currentWord?.id, targetLang]);
 
-  // Sentence translation
+  // Sentence translation — translate to whichever language differs from sentenceLang
+  const translationLang = sentenceLang !== nativeLang ? nativeLang : targetLang;
+  const needsTranslation = sentenceLang !== translationLang;
+
   useEffect(() => {
-    if (!currentWord || !displaySentence) { setSentenceTranslation(''); return; }
-    if (sentenceLang === nativeLang) { setSentenceTranslation(''); return; }
+    if (!currentWord || !displaySentence || !needsTranslation) { setSentenceTranslation(''); return; }
+    // Oral phrases: use built-in translations directly
+    if (currentWord.sentenceZh && translationLang === 'zh') {
+      setSentenceTranslation(currentWord.sentenceZh);
+      return;
+    }
+    if (currentWord.sentence && currentWord.sentenceZh && translationLang === 'en') {
+      setSentenceTranslation(currentWord.sentence);
+      return;
+    }
     const cacheKey = `${currentWord.id}_${langKey}`;
     if (_sentenceCache.has(cacheKey)) { setSentenceTranslation(_sentenceCache.get(cacheKey)); return; }
     setSentenceTranslation('');
-    const langpair = getTranslationPair(sentenceLang, nativeLang);
+    const langpair = getTranslationPair(sentenceLang, translationLang);
     let cancelled = false;
     fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(displaySentence)}&langpair=${langpair}`)
       .then(r => r.ok ? r.json() : null)
@@ -524,7 +543,7 @@ export default function LearningPage({
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [currentWord?.id, langKey, displaySentence, sentenceLang, nativeLang]);
+  }, [currentWord?.id, langKey, displaySentence, sentenceLang, translationLang, needsTranslation]);
 
   // Measure word info overflow after render — reduce padding if content overflows fixed height
   useLayoutEffect(() => {
@@ -1062,8 +1081,8 @@ export default function LearningPage({
             <p
               className="text-textMain text-center leading-snug"
               style={{
-                marginTop: showBigImage ? sentenceMT : 5,
-                fontSize: sentenceFS,
+                marginTop: sentenceMT,
+                fontSize: sentenceFS_base - (isCJK(sentenceLang) ? 2 : 0),
                 fontWeight: 'normal',
                 // Use a readable normal-weight font (not Arial Black which is ultra-bold)
                 fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
@@ -1073,12 +1092,12 @@ export default function LearningPage({
             </p>
           )}
 
-          {/* Translation — always visible in format A; cover in B/C; hidden in D */}
-          {displaySentence && quizFormat !== 'D' && sentenceLang !== nativeLang && (
-            quizFormat === 'A' ? (
+          {/* Translation — always visible in format A (& oral C step 0); cover in B/C; hidden in D */}
+          {displaySentence && quizFormat !== 'D' && needsTranslation && (
+            quizFormat === 'A' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
               <span
                 className="text-center leading-none px-2"
-                style={{ marginTop: translationMT, fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                style={{ marginTop: translationMT, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 {sentenceTranslation || t.translating}
               </span>
@@ -1089,7 +1108,7 @@ export default function LearningPage({
                 style={{ marginTop: translationMT + 3, paddingTop: 3, minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
-                  <span style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
+                  <span style={{ fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
                     {sentenceTranslation || t.translating}
                   </span>
                 ) : (
