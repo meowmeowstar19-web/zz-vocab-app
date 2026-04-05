@@ -1056,7 +1056,7 @@ export default function LearningPage({
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
-          paddingTop: showBigImage ? 8 : 96,
+          paddingTop: showBigImage ? 24 : 96,
           paddingBottom: 4,
           overflow: 'visible',
           zIndex: 5,
