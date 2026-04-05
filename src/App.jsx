@@ -60,6 +60,7 @@ export default function App() {
   // Persist category/level filters across tab switches AND page refreshes
   const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
   const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
 
   const handleCategoryChange = (cat) => {
     setLearningCategory(cat);
@@ -124,9 +125,10 @@ export default function App() {
               selectedCategory={learningCategory}
               selectedLevel={learningLevel}
               onCategoryChange={handleCategoryChange}
-              contentHFromParent={Math.max(0, vpH - navH - 2)}
+              contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
               onLevelChange={handleLevelChange}
               isVisible={page === 'learn' || reviewMode}
+              onCategoryModalChange={setCategoryModalOpen}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
@@ -148,7 +150,7 @@ export default function App() {
         </div>
 
         {/* Bottom tab bar */}
-        <div className="shrink-0 relative overflow-visible" style={{ height: navH, backgroundColor: '#2b2a26' }}>
+        <div className="shrink-0 relative overflow-visible" style={{ height: categoryModalOpen ? 0 : navH, backgroundColor: '#2b2a26', overflow: categoryModalOpen ? 'hidden' : undefined }}>
           {/* Nav separator line at top */}
           <img
             src="/assets/figma/nav-separator.png"

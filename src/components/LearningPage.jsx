@@ -110,6 +110,7 @@ export default function LearningPage({
   onCategoryChange, onLevelChange,
   isVisible = true,
   contentHFromParent,
+  onCategoryModalChange,
 }) {
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
   const storageKey = targetLang; // progress keyed by target language only
@@ -122,7 +123,11 @@ export default function LearningPage({
   const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsShuffled;
   const activeCategories = isOralMode ? oralCategories : categories;
 
-  const [showCategories, setShowCategories] = useState(false);
+  const [showCategories, _setShowCategories] = useState(false);
+  const setShowCategories = useCallback((val) => {
+    _setShowCategories(val);
+    onCategoryModalChange?.(val);
+  }, [onCategoryModalChange]);
   const [categoryTab, setCategoryTab] = useState('level'); // 'level' | 'detail' | 'oral'
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
@@ -258,15 +263,6 @@ export default function LearningPage({
   const frameH = imgSize + Math.round(47 * imgScale);
   const imgRadius = Math.round(20 * imgScale);
 
-  // Word info section — ensure minimum gap between image and word
-  const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTopBase = Math.max(20, Math.round(responsive2(32, 32, 24)));
-  const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
-
-  // Measure actual word info overflow via ref to adjust padding dynamically
-  const wordInfoRef = useRef(null);
-  const [wordInfoOverflow, setWordInfoOverflow] = useState(0);
-
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   // CJK (zh/ja) text gets -2px for visual balance
   const isCJK = (lang) => lang === 'zh' || lang === 'ja';
@@ -275,10 +271,6 @@ export default function LearningPage({
   const sentenceFS_base = Math.round(responsive2(16, 16, 13));
   const translationFS_base = Math.round(responsive2(15, 15, 11));
 
-  // Internal spacing within word info — shrink on short screens
-  const phoneticMT = Math.round(responsive2(6, 4, 2));
-  const sentenceMT = Math.round(responsive2(7, 4, 2));
-  const translationMT = Math.round(responsive2(5, 3, 1));
 
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
@@ -567,17 +559,6 @@ export default function LearningPage({
       .catch(() => {});
     return () => { cancelled = true; };
   }, [currentWord?.id, langKey, displaySentence, sentenceLang, translationLang, needsTranslation]);
-
-  // Measure word info overflow after render — reduce padding if content overflows fixed height
-  useLayoutEffect(() => {
-    const el = wordInfoRef.current;
-    if (!el) { setWordInfoOverflow(0); return; }
-    const overflow = el.scrollHeight - el.clientHeight;
-    setWordInfoOverflow(overflow > 2 ? overflow : 0);
-  }, [displaySentence, sentenceTranslation, wordInfoPadTopBase]);
-  // Reduce padding by half the overflow (split between top/bottom), cap reduction at 12px
-  const padReduce = Math.min(12, Math.round(wordInfoOverflow / 2));
-  const wordInfoPadTop = Math.max(16, wordInfoPadTopBase - padReduce);
 
   // Auto-speak on word change — always reset hasSpoken first, then speak only if tab is visible
   // reviewCard is included so the effect re-fires when the same word reappears (re-inserted after wrong answer)
@@ -1074,50 +1055,48 @@ export default function LearningPage({
         )}
 
         {/* ── WORD INFO ── */}
-        <div ref={wordInfoRef} className="flex flex-col items-center px-6" style={{
-          height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
-          paddingTop: showBigImage ? wordInfoPadTop : 96,
-          paddingBottom: wordInfoPadBot,
+        <div className="shrink-0 flex flex-col items-center px-6" style={{
+          paddingTop: showBigImage ? 8 : 96,
+          paddingBottom: 4,
           overflow: 'visible',
           zIndex: 5,
         }}>
           {/* Main word display */}
           <span
-            className="leading-tight text-textMain text-center"
+            className="text-textMain text-center"
             style={{
               fontSize: wordTextFS,
               fontFamily: targetFont,
               fontWeight: 900,
+              lineHeight: isCJK(targetLang) ? 1.5 : 1.25,
             }}
           >
             {displayWord.toLowerCase()}
           </span>
 
-          {/* Speaker + phonetic / reading — hide entirely when no phonetic (e.g. oral mode) */}
-          {(!isOralMode || phonetic) && (
-            <button
-              onClick={handleSpeak}
-              className="flex items-center gap-1.5 text-[#999] active:scale-95"
-              style={{ marginTop: phoneticMT }}
-            >
-              <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
-              {phonetic && (
-                <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
-                  {phonetic}
-                </span>
-              )}
-            </button>
-          )}
+          {/* Speaker + phonetic / reading */}
+          <button
+            onClick={handleSpeak}
+            className="flex items-center gap-1.5 text-[#999] active:scale-95"
+            style={{ marginTop: 5 }}
+          >
+            <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+            {phonetic && (
+              <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
+                {phonetic}
+              </span>
+            )}
+          </button>
 
           {/* Example sentence — hidden in D mode */}
           {displaySentence && quizFormat !== 'D' && (
             <p
-              className="text-textMain text-center leading-snug"
+              className="text-textMain text-center"
               style={{
-                marginTop: sentenceMT,
+                marginTop: 6,
                 fontSize: sentenceFS_base - (isCJK(sentenceLang) ? 2 : 0),
                 fontWeight: 'normal',
-                // Use a readable normal-weight font (not Arial Black which is ultra-bold)
+                lineHeight: isCJK(sentenceLang) ? 1.5 : 1.25,
                 fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
               }}
             >
@@ -1128,22 +1107,22 @@ export default function LearningPage({
           {/* Translation — always visible in format A (& oral C step 0); cover in B/C; hidden in D */}
           {displaySentence && quizFormat !== 'D' && needsTranslation && (
             quizFormat === 'A' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
-              <span
-                className="text-center leading-none px-2"
-                style={{ marginTop: translationMT, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              <p
+                className="text-center px-2"
+                style={{ marginTop: 5, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }}
               >
                 {sentenceTranslation || t.translating}
-              </span>
+              </p>
             ) : (
               <button
                 onClick={() => setShowSentence(tt => !tt)}
                 className="flex items-center justify-center active:scale-95"
-                style={{ marginTop: translationMT + 3, paddingTop: 3, minWidth: 234, height: 24, flexShrink: 0 }}
+                style={{ marginTop: 6, minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
-                  <span style={{ fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
+                  <p style={{ fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }} className="text-center px-2">
                     {sentenceTranslation || t.translating}
-                  </span>
+                  </p>
                 ) : (
                   <div className="rounded-sm" style={{
                     width: 268, height: 24,
@@ -1570,17 +1549,17 @@ export default function LearningPage({
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* ── Confirm button ── */}
-              <div className="shrink-0 flex justify-center pb-6 pt-3">
-                <button
-                  onClick={handleConfirmCategories}
-                  className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
-                  style={{ width: 130, height: 42, backgroundColor: '#ffd016' }}
-                >
-                  <span className="text-[18px] font-normal text-black">{t.ok}</span>
-                </button>
+                {/* ── Confirm button ── */}
+                <div className="flex justify-center pt-5 pb-6">
+                  <button
+                    onClick={handleConfirmCategories}
+                    className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
+                    style={{ width: 130, height: 42, backgroundColor: '#ffd016' }}
+                  >
+                    <span className="text-[18px] font-normal text-black">{t.ok}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
