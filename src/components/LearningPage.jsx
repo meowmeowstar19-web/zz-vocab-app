@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { words, wordsShuffled, categories } from '../data/words';
 import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
@@ -86,23 +87,8 @@ const CATEGORY_TAB_LABELS = {
   ja: { level: '難易度', detail: 'カテゴリー', oral: '日常会話' },
 };
 
-// Representative image for each category
-const CATEGORY_IMAGES = {
-  adjective: 'good.jpg', animal: 'pig.jpg', body: 'eye.jpg',
-  clothes: 'pants.jpg', food: 'mushroom.jpg',
-  daily: 'bandaid.jpg', nature: 'baobab tree.jpg', science: 'amino acid chain.jpg',
-  art: 'Girl with a Pearl Earring 1.jpg', landmark: 'Abu Simbel.jpg',
-  game: 'checkers.jpg', people: 'Abraham Lincoln.jpg',
-  myth: 'Diao Chan.jpg', fashion: 'chanel bag.jpg',
-};
-
-// Representative image for each oral category
-const ORAL_CATEGORY_IMAGES = {
-  everyday: 'orange.jpg',
-  food: 'hungry.jpg',
-  emotions: 'durian.jpg',
-  opinions: 'cherry.jpg',
-};
+// Category cover images are auto-generated in src/data/categoryCovers.js
+// from the "Cover For" column in update_data_folder/Vocab_Confirmed.xlsx.
 
 // Detail note text
 const DETAIL_NOTE = {
@@ -1616,7 +1602,7 @@ export default function LearningPage({
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
                         {detailCats.map((cat, idx) => {
                           const isSelected = pendingCategory === cat && categoryTab === 'detail';
-                          const imgFile = CATEGORY_IMAGES[cat] || dynamicCatImages[cat];
+                          const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
                           const pool = vocabPool.filter(w => w.category === cat);
                           const prog = getCatProgress(pool);
                           const rowIdx = Math.floor(idx / 3);
@@ -1644,7 +1630,7 @@ export default function LearningPage({
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
                       {oralCats.map((cat, idx) => {
                         const isSelected = pendingCategory === cat && categoryTab === 'oral';
-                        const imgFile = ORAL_CATEGORY_IMAGES[cat];
+                        const imgFile = oralCategoryCovers[cat];
                         const pool = oralPhrases.filter(w => w.category === cat);
                         const prog = getCatProgress(pool);
                         const rowIdx = Math.floor(idx / 3);
@@ -1674,7 +1660,7 @@ export default function LearningPage({
                 <img src="/assets/figma/categroy-decor-1.png" alt="" className="pointer-events-none"
                   style={{ position: 'absolute', left: 13, bottom: 16, width: 71, height: 112 }} />
                 <img src="/assets/figma/categroy-decor-2.png" alt="" className="pointer-events-none"
-                  style={{ position: 'absolute', right: 10, bottom: 16, width: 55, height: 56 }} />
+                  style={{ position: 'absolute', right: 15, bottom: 20, width: 40, height: 57 }} />
                 <button
                   onClick={handleConfirmCategories}
                   className="flex items-center justify-center active:scale-95"
@@ -1682,7 +1668,7 @@ export default function LearningPage({
                     width: 158, height: 51, borderRadius: 100,
                     backgroundColor: '#ffd016', border: '2px solid #000',
                     position: 'relative', zIndex: 1,
-                    transform: 'translateX(8px)',
+                    transform: 'translateX(11px)',
                   }}
                 >
                   <span style={{ fontSize: 24, fontWeight: 400, color: '#000' }}>{t.ok}</span>

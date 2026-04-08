@@ -1,1 +1,13 @@
 .vercel
+node_modules
+dist
+
+# macOS
+.DS_Store
+
+# Excel lock files (LibreOffice/Excel creates these when the file is open)
+.~lock.*#
+~$*
+
+# Archived originals from sync-data.mjs (we keep the compressed versions in public/images/)
+update_data_folder/_processed_images/

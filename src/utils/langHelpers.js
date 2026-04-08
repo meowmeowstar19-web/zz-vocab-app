@@ -1,6 +1,9 @@
 import { jaData } from '../data/jaData';
 import { phoneticMap } from '../data/phonetics';
 import { pinyinMap } from '../data/pinyin';
+import { CATEGORY_LABELS } from '../data/categoryLabels';
+
+export { CATEGORY_LABELS };
 
 // ── Language metadata ──
 export const LANGUAGES = {
@@ -179,9 +182,5 @@ export const UI_TEXT = {
   },
 };
 
-// ── Category labels in each language ──
-export const CATEGORY_LABELS = {
-  zh: { all: '全部', adjective: '形容词', animal: '动物', body: '身体', clothes: '服饰', food: '食物' },
-  en: { all: 'All', adjective: 'Adjectives', animal: 'Animals', body: 'Body', clothes: 'Clothes', food: 'Food' },
-  ja: { all: '全て', adjective: '形容詞', animal: '動物', body: '体', clothes: '服', food: '食べ物' },
-};
+// CATEGORY_LABELS is imported from src/data/categoryLabels.js (auto-generated)
+// and re-exported at the top of this file for backwards compatibility.
