@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { words, wordsShuffled, categories } from '../data/words';
+import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
@@ -85,11 +86,13 @@ const CATEGORY_TAB_LABELS = {
   ja: { level: '難易度', detail: 'カテゴリー', oral: '日常会話' },
 };
 
-// Representative image for each category (first word's image)
+// Representative image for each category
 const CATEGORY_IMAGES = {
-  animal: 'alpaca.jpg', food: 'banana.jpg', daily: 'bandaid.jpg',
-  nature: 'baobab tree.jpg', science: 'amino acid chain.jpg', art: 'Girl with a Pearl Earring 1.jpg',
-  landmark: 'Abu Simbel.jpg', game: 'checkers.jpg', people: 'Abraham Lincoln.jpg',
+  adjective: 'good.jpg', animal: 'bird.jpg', body: 'eye.jpg',
+  clothes: 'pants.jpg', food: 'mushroom.jpg',
+  daily: 'bandaid.jpg', nature: 'baobab tree.jpg', science: 'amino acid chain.jpg',
+  art: 'Girl with a Pearl Earring 1.jpg', landmark: 'Abu Simbel.jpg',
+  game: 'checkers.jpg', people: 'Abraham Lincoln.jpg',
   myth: 'Diao Chan.jpg', fashion: 'chanel bag.jpg',
 };
 
@@ -225,6 +228,7 @@ export default function LearningPage({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
 
   // ── Continuous responsive scaling (two-segment, matches Figma reference) ──
   // Full (FULL_H): image=100%, choices=100%
@@ -533,15 +537,20 @@ export default function LearningPage({
 
   useEffect(() => {
     if (!currentWord || !displaySentence || !needsTranslation) { setSentenceTranslation(''); return; }
-    // Oral phrases: use built-in translations directly
-    if (currentWord.sentenceZh && translationLang === 'zh') {
+    // Use pre-loaded translations: Chinese, English, Japanese sentences are all in word data
+    if (translationLang === 'zh' && currentWord.sentenceZh) {
       setSentenceTranslation(currentWord.sentenceZh);
       return;
     }
-    if (currentWord.sentence && currentWord.sentenceZh && translationLang === 'en') {
+    if (translationLang === 'en' && currentWord.sentence) {
       setSentenceTranslation(currentWord.sentence);
       return;
     }
+    if (translationLang === 'ja') {
+      const jaSentence = jaData[currentWord.en]?.sentence;
+      if (jaSentence) { setSentenceTranslation(jaSentence); return; }
+    }
+    // Fallback to API for any missing translations
     const cacheKey = `${currentWord.id}_${langKey}`;
     if (_sentenceCache.has(cacheKey)) { setSentenceTranslation(_sentenceCache.get(cacheKey)); return; }
     setSentenceTranslation('');
@@ -1002,7 +1011,10 @@ export default function LearningPage({
       )}
 
       {/* ── CONTENT ── */}
-      <div ref={containerRef} className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
+      <div ref={containerRef} className="relative flex flex-col h-full" style={{
+        zIndex: 2,
+        paddingBottom: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
+      }}>
 
         {/* ── TOP BAR ── */}
         <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
@@ -1054,9 +1066,11 @@ export default function LearningPage({
           </div>
         )}
 
+        {/* ── WORD INFO TOP SPACER (shrinks when sentence is long, so content moves up) ── */}
+        <div style={{ flexShrink: 1, height: showBigImage ? 36 : 96, minHeight: 0 }} />
+
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
-          paddingTop: showBigImage ? 24 : 96,
           paddingBottom: 4,
           overflow: 'visible',
           zIndex: 5,
@@ -1136,13 +1150,11 @@ export default function LearningPage({
           )}
         </div>
 
-        {/* ── SPACER ── */}
-        <div className="flex-1 min-h-0" />
-
-        {/* ── CHOICES AREA (uniformly scaled) ── */}
-        <div className="shrink-0" style={{
+        {/* ── CHOICES AREA (absolutely pinned to bottom, never moves) ── */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
           height: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
-          position: 'relative', zIndex: 4, overflow: 'visible',
+          zIndex: 4, overflow: 'visible',
         }}>
          <div style={{
            transform: choiceScale < 0.995 ? `scale(${choiceScale})` : undefined,
@@ -1357,12 +1369,20 @@ export default function LearningPage({
           oralTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
         });
 
-        const levelItems = [
+        // Dynamic levels: only show levels that have words
+        const allLevelDefs = [
           { key: 'beginner', label: 'Level 1', num: '1' },
           { key: 'intermediate', label: 'Level 2', num: '2' },
           { key: 'advanced', label: 'Level 3', num: '3' },
         ];
-        const detailCats = categories.filter(c => c !== 'all');
+        const levelItems = allLevelDefs.filter(lv => allWordsFiltered.some(w => w.level === lv.key));
+        // Dynamic categories: only show categories that have words, with first word's image as representative
+        const detailCats = categories.filter(c => c !== 'all' && allWordsFiltered.some(w => w.category === c));
+        const dynamicCatImages = {};
+        detailCats.forEach(cat => {
+          const firstWord = allWordsFiltered.find(w => w.category === cat);
+          if (firstWord) dynamicCatImages[cat] = firstWord.img;
+        });
 
         return (
           <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50 }}>
@@ -1475,7 +1495,7 @@ export default function LearningPage({
                     <div className="grid grid-cols-3 gap-3">
                       {detailCats.map(cat => {
                         const isSelected = pendingCategory === cat && categoryTab === 'detail';
-                        const imgFile = CATEGORY_IMAGES[cat];
+                        const imgFile = CATEGORY_IMAGES[cat] || dynamicCatImages[cat];
                         return (
                           <button
                             key={cat}
