@@ -9,9 +9,9 @@ export const vocabCategoryCovers = {
   body: 'eye.jpg',
   clothes: 'pants.jpg',
   food: 'mushroom.jpg',
-  numbers: 'ten.jpg',
+  numbers: 'eight.jpg',
   people: 'father.jpg',
-  places: 'airport.jpg',
+  places: 'bank.jpg',
 };
 
 // Representative image for each oral category (uses a vocab word's image)
