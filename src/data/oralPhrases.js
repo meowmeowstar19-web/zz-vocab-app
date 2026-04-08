@@ -171,6 +171,7 @@ const raw = [
   ['hold on a sec', '等一下下～', 'everyday', 'The loading bar said hold on a sec and then froze for ten minutes.', '进度条小声说"等一下下～"，然后一卡就是十分钟。'],
   ['rest up', '好好休息一下', 'everyday', 'The lunchbox decided to rest up before its next big food fight.', '午餐盒决定好好休息一下，养精蓄锐迎接下一场大食战。'],
   ['make it a habit', '养成习惯', 'everyday', 'The lunchbox made it a habit to demand cookies at noon, every single day.', '午餐盒养成习惯，每天中午准时嚷嚷要吃饼干。'],
+  ['the pipes are banging', '水管嗡嗡响死了', 'everyday', 'The magazine rack groaned, "The pipes are banging again — I can\'t focus on my reading!"', '杂志架嘟囔着："水管嗡嗡响死了，害我没法专心看书啦！"'],
   ['make do with', '将就用吧', 'everyday', 'The magic mirror had no princesses around, so it made do with trolls.', '魔镜身边没有公主，只好将就用巨魔凑合看看。'],
   ['I\'m out', '我撤了！', 'everyday', 'The magic mirror took one look at Snow White\'s stepmother and said, "Yeah, I\'m out."', '魔镜瞥了眼白雪公主的继母，翻了个白眼说："我撤了！"'],
   ['put it back where you found it', '从哪拿的放哪去', 'everyday', 'The mailbox watched the wind scatter all the letters and screamed, "Put them back where you found them!"', '信箱看着风把信吹得满天飞，急得大喊："从哪拿的放哪去！"'],
