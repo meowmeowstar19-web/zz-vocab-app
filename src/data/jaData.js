@@ -17,7 +17,6 @@ export const jaData = {
   'fast': { ja: 'はやい', reading: 'hayai', sentence: 'スニーカーは走るのが速すぎて、自分の靴ひもが追いつかないんだって！' },
   'good': { ja: 'いい', reading: 'ii', sentence: '「A+」の答案用紙はとっても誇らしくて、金メダルをかけているよ！' },
   'happy': { ja: 'うれしい', reading: 'ureshii', sentence: '歯ブラシは汚れた歯を見つけてうれしすぎて、その場でビクトリーダンスを踊っているんだって！' },
-  'hot': { ja: 'あつい', reading: 'atsui', sentence: '唐辛子は辛すぎて、自分の舌をうちわで冷やそうとしているんだって。' },
   'hungry': { ja: 'おなかがすいた', reading: 'onaka ga suita', sentence: 'お腹ぺこぺこのハンバーガーは、もっとポテトが食べたくて夢を見ているんだよ！' },
   'sad': { ja: 'かなしい', reading: 'kanashii', sentence: '悲しい雨雲は泣きすぎて、自分だけのプールを作っちゃったんだって！' },
   'sick': { ja: 'びょうき', reading: 'byōki', sentence: '体温計は自分も体調が悪くて、自分自身が熱を出しているんだよ。' },
