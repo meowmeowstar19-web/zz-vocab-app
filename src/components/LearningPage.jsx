@@ -77,25 +77,18 @@ function buildReviewQueueFromWords(eligibleWords, progress, wordStates = {}) {
 
 const LEVELS = ['all', 'beginner', 'intermediate', 'advanced', 'oral'];
 const LEVEL_LABELS = { all: '全部难度', beginner: 'Level 1', intermediate: 'Level 2', advanced: 'Level 3' };
-const ORAL_LEVEL_LABEL = { zh: '日常口语', en: 'Daily Oral', ja: '日常会話' };
+const ORAL_LEVEL_LABEL = { zh: '口语', en: 'Speaking', ja: '会話' };
 const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
 // Tab labels for category modal
 const CATEGORY_TAB_LABELS = {
-  zh: { level: '难度', detail: '详细分类', oral: '日常口语' },
-  en: { level: 'Level', detail: 'Categories', oral: 'Phrases' },
-  ja: { level: '難易度', detail: 'カテゴリー', oral: '日常会話' },
+  zh: { level: '难度', detail: '主题', oral: '口语' },
+  en: { level: 'Level', detail: 'Themes', oral: 'Speaking' },
+  ja: { level: '難易度', detail: 'テーマ', oral: '会話' },
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
 // from the "Cover For" column in update_data_folder/Vocab_Confirmed.xlsx.
-
-// Detail note text
-const DETAIL_NOTE = {
-  zh: '注意：在该分类下，学习模式不会开启其它类别的单词复习，如果要复习其它类别的单词，请前往单词本界面',
-  en: 'Note: In this category, learning mode will not include reviews from other categories. To review other categories, please go to the word list.',
-  ja: '注意：このカテゴリーでは、他のカテゴリーの単語復習は行われません。他のカテゴリーを復習するには、単語帳画面へ。',
-};
 
 // Module-level cache for sentence translations (persists for session)
 const _sentenceCache = new Map();
@@ -359,17 +352,21 @@ export default function LearningPage({
 
     const prog = getProgress(storageKey);
 
-    // New words (filtered by category/level)
-    let newPool = selectedCategory === 'all'
-      ? [...activeWordsShuffled]
+    // Full pool for the currently selected subcategory (level OR detail OR oral cat).
+    // New words and due-review words are BOTH drawn from here — reviews never cross
+    // into other subcategories, so studying "adjectives" won't surface "animals" reviews.
+    let subcatPool = selectedCategory === 'all'
+      ? [...activeWords]
       : activeWords.filter(w => w.category === selectedCategory);
-    newPool = newPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') newPool = newPool.filter(w => w.level === selectedLevel);
-    newPool = newPool.filter(w => !prog[w.id]?.timestamp);
+    subcatPool = subcatPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') subcatPool = subcatPool.filter(w => w.level === selectedLevel);
+
+    // New words (not yet learned) within this subcategory
+    let newPool = subcatPool.filter(w => !prog[w.id]?.timestamp);
     newPool = shuffle(newPool);
 
-    // Due review words (global across categories)
-    const dueWords = getDueReviewWords(prog, allWordsFiltered);
+    // Due review words — restricted to this subcategory only
+    const dueWords = getDueReviewWords(prog, subcatPool);
     const { reviewBudget } = calcBudget(dueWords.length);
 
     // Use ALL available new words — session continues until category is truly exhausted
@@ -1371,6 +1368,22 @@ export default function LearningPage({
         const tabs = jaInvolved
           ? [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }]
           : [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+        // Uniform tab width: within a language, all tabs share the widest label's width.
+        // CJK chars are roughly twice as wide as Latin letters at the same font size,
+        // so we approximate per-char pixel widths (14px font, weight 500).
+        const approxLabelWidth = (s) => {
+          let w = 0;
+          for (const ch of s) {
+            const code = ch.charCodeAt(0);
+            if (code > 0x2e80) w += 15;            // CJK / kana
+            else if (/[A-Z]/.test(ch)) w += 9.5;   // uppercase Latin
+            else if (/[a-z]/.test(ch)) w += 7.5;   // lowercase Latin
+            else w += 6;                            // digits/punct
+          }
+          return Math.ceil(w);
+        };
+        const tabInnerW = Math.max(...tabs.map(t => approxLabelWidth(t.label)));
+        const tabWidth = tabInnerW + 32 + 3; // + paddingX (16*2) + border (1.5*2)
         const detailCatLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
         const oralCatLabels = ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh;
 
@@ -1533,7 +1546,7 @@ export default function LearningPage({
                         }
                       }}
                       style={{
-                        height: 32, paddingLeft: 16, paddingRight: 16,
+                        width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
                         backgroundColor: isActive ? '#FFD016' : '#fbf2e2',
                         color: '#000',
@@ -1592,13 +1605,6 @@ export default function LearningPage({
                   {/* === DETAIL CATEGORY TAB === */}
                   {categoryTab === 'detail' && (
                     <>
-                      <p style={{
-                        fontSize: 12, fontWeight: 500, color: '#000', lineHeight: '18px',
-                        letterSpacing: 0.1, textAlign: 'center', marginBottom: 12,
-                        padding: '0 12px',
-                      }}>
-                        {DETAIL_NOTE[nativeLang] || DETAIL_NOTE.zh}
-                      </p>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
                         {detailCats.map((cat, idx) => {
                           const isSelected = pendingCategory === cat && categoryTab === 'detail';

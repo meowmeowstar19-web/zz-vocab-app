@@ -27,6 +27,7 @@ const ORAL_XLSX = join(DATA_DIR, 'Daily_Expressions.xlsx');
 const IMG_IN = join(DATA_DIR, 'updated_image');
 const IMG_OUT = join(ROOT, 'public', 'images');
 const PROCESSED_DIR = join(DATA_DIR, '_processed_images');
+const DELETED_DIR = join(DATA_DIR, 'deleted_image');
 const SRC_DATA = join(ROOT, 'src', 'data');
 
 const AUTO_PUSH = process.argv.includes('--auto');
@@ -631,11 +632,71 @@ async function processImages(words) {
   return { processed, unmatched: unmatchedList.length };
 }
 
+// ── Archive orphan images (words deleted from Excel) ───────────────────────
+// Any .jpg in public/images/ whose stem no longer matches a word in the Excel
+// is moved to update_data_folder/deleted_image/<timestamp>/ so it can be
+// recovered locally. Git will record the deletion from public/images/.
+function archiveDeletedImages(words) {
+  log.section('Checking for deleted words');
+
+  if (!existsSync(IMG_OUT)) {
+    log.info('public/images/ does not exist — nothing to check');
+    return { archived: 0 };
+  }
+
+  // Safety: if the words list is suspiciously empty, bail out so we don't
+  // nuke every image because of an Excel parse error.
+  if (!words || words.length === 0) {
+    log.warn('Word list is empty — skipping deletion check as a safety measure');
+    return { archived: 0 };
+  }
+
+  const validStems = new Set(words.map(w => w.en.toLowerCase()));
+  const files = readdirSync(IMG_OUT).filter(f =>
+    !f.startsWith('.') && extname(f).toLowerCase() === '.jpg'
+  );
+
+  const orphans = files.filter(f => {
+    const stem = basename(f, extname(f)).toLowerCase();
+    return !validStems.has(stem);
+  });
+
+  if (orphans.length === 0) {
+    log.ok('No orphan images — everything in public/images/ is still in Excel');
+    return { archived: 0 };
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const archiveDir = join(DELETED_DIR, stamp);
+  ensureDir(archiveDir);
+
+  let archived = 0;
+  for (const file of orphans) {
+    const src = join(IMG_OUT, file);
+    const dst = join(archiveDir, file);
+    try {
+      renameSync(src, dst);
+      archived++;
+      log.ok(`Archived ${file.padEnd(32)} → deleted_image/${stamp}/${file}`);
+    } catch (e) {
+      // Fallback: cross-device rename can fail — copy + unlink would be
+      // needed, but DELETED_DIR is on the same filesystem, so just log.
+      log.err(`Failed to archive ${file}: ${e.message}`);
+    }
+  }
+
+  log.ok(`Archived ${archived} deleted image(s) to deleted_image/${stamp}/`);
+  return { archived };
+}
+
 // ── Git commit & push ───────────────────────────────────────────────────────
 function gitCommitAndPush(summary) {
   log.section('Git commit & push');
   try {
-    execSync('git add public/images src/data update_data_folder', { cwd: ROOT, stdio: 'pipe' });
+    // Stage EVERYTHING (data files, code changes, assets, etc.) so a single
+    // click of update.command pushes all local work to GitHub → Vercel.
+    // Anything that shouldn't be pushed must be listed in .gitignore.
+    execSync('git add -A', { cwd: ROOT, stdio: 'pipe' });
     const status = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' });
     if (!status.trim()) {
       log.info('Nothing to commit — everything up to date');
@@ -669,8 +730,15 @@ async function main() {
   writeCategoryCoversJs(covers);
 
   const { processed, unmatched } = await processImages(words);
+  const { archived } = archiveDeletedImages(words);
 
-  const summary = `${words.length} words · ${phrases.length} phrases · ${processed} new images`;
+  const parts = [
+    `${words.length} words`,
+    `${phrases.length} phrases`,
+    `${processed} new images`,
+  ];
+  if (archived > 0) parts.push(`${archived} deleted`);
+  const summary = parts.join(' · ');
 
   if (AUTO_PUSH) {
     gitCommitAndPush(summary);
