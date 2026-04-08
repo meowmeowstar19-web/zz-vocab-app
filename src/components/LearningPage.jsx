@@ -1437,8 +1437,8 @@ export default function LearningPage({
           <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
               position: 'relative',
-              width: 102, backgroundColor: '#fbf2e2',
-              border: isSelected ? '3px solid #ffd016' : '1.5px solid #000',
+              width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
+              border: `2px solid ${isSelected ? '#ffd016' : '#000'}`,
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '6px 6px 8px',
             }}>
@@ -1522,7 +1522,7 @@ export default function LearningPage({
 
               {/* ── Fixed top: Blue header bar ── */}
               <div className="shrink-0" style={{
-                backgroundColor: '#b1cfe1', borderBottom: '2px solid #000',
+                backgroundColor: '#646464', borderBottom: '2px solid #000',
                 padding: '17px 16px 14px', position: 'relative', zIndex: 3,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               }}>
@@ -1549,8 +1549,8 @@ export default function LearningPage({
                       style={{
                         height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
-                        backgroundColor: isActive ? '#000' : '#fbf2e2',
-                        color: isActive ? '#fff' : '#000',
+                        backgroundColor: isActive ? '#FFD016' : '#fbf2e2',
+                        color: '#000',
                         fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}
                     >
@@ -1672,7 +1672,7 @@ export default function LearningPage({
               <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 20 }}>
                 {/* Decorations */}
                 <img src="/assets/figma/categroy-decor-1.png" alt="" className="pointer-events-none"
-                  style={{ position: 'absolute', left: 10, bottom: 16, width: 71, height: 112 }} />
+                  style={{ position: 'absolute', left: 13, bottom: 16, width: 71, height: 112 }} />
                 <img src="/assets/figma/categroy-decor-2.png" alt="" className="pointer-events-none"
                   style={{ position: 'absolute', right: 10, bottom: 16, width: 55, height: 56 }} />
                 <button
@@ -1682,6 +1682,7 @@ export default function LearningPage({
                     width: 158, height: 51, borderRadius: 100,
                     backgroundColor: '#ffd016', border: '2px solid #000',
                     position: 'relative', zIndex: 1,
+                    transform: 'translateX(8px)',
                   }}
                 >
                   <span style={{ fontSize: 24, fontWeight: 400, color: '#000' }}>{t.ok}</span>
