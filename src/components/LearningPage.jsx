@@ -88,12 +88,20 @@ const CATEGORY_TAB_LABELS = {
 
 // Representative image for each category
 const CATEGORY_IMAGES = {
-  adjective: 'good.jpg', animal: 'bird.jpg', body: 'eye.jpg',
+  adjective: 'good.jpg', animal: 'pig.jpg', body: 'eye.jpg',
   clothes: 'pants.jpg', food: 'mushroom.jpg',
   daily: 'bandaid.jpg', nature: 'baobab tree.jpg', science: 'amino acid chain.jpg',
   art: 'Girl with a Pearl Earring 1.jpg', landmark: 'Abu Simbel.jpg',
   game: 'checkers.jpg', people: 'Abraham Lincoln.jpg',
   myth: 'Diao Chan.jpg', fashion: 'chanel bag.jpg',
+};
+
+// Representative image for each oral category
+const ORAL_CATEGORY_IMAGES = {
+  everyday: 'orange.jpg',
+  food: 'hungry.jpg',
+  emotions: 'durian.jpg',
+  opinions: 'cherry.jpg',
 };
 
 // Detail note text
@@ -419,8 +427,28 @@ export default function LearningPage({
     categoryAutoSwitchRef.current = setTimeout(() => {
       categoryAutoSwitchRef.current = null;
       setCategoryDoneVisible(false);
-      // Preserve current difficulty level if there are still unlearned words at that level
       const progNow = getProgress(storageKey);
+
+      // If under a specific category (detail or oral), find the next category with unlearned words
+      if (selectedCategory !== 'all') {
+        const catList = isOralMode
+          ? oralCategories.filter(c => c !== 'all')
+          : categories.filter(c => c !== 'all');
+        const currentIdx = catList.indexOf(selectedCategory);
+        // Search from after current, then wrap around
+        const ordered = [...catList.slice(currentIdx + 1), ...catList.slice(0, currentIdx)];
+        const nextCat = ordered.find(cat => {
+          return allWordsFiltered.some(w => w.category === cat && !progNow[w.id]?.timestamp);
+        });
+        if (nextCat) {
+          onCategoryChange?.(nextCat);
+          onLevelChange?.(selectedLevel);
+          resetSrsSession();
+          return;
+        }
+      }
+
+      // Fallback: switch to 'all' if no next category found
       const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
         ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
         : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
@@ -1352,58 +1380,111 @@ export default function LearningPage({
         </div>
       </div>
 
-      {/* ── CATEGORY MODAL (full-page) ── */}
+      {/* ── CATEGORY MODAL (full-page, Figma redesign) ── */}
       {showCategories && (() => {
         const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
         const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
-        // Available tabs: hide 'oral' when ja is involved
         const tabs = jaInvolved
           ? [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }]
           : [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
         const detailCatLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
         const oralCatLabels = ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh;
-        // Tag colors for oral pills
-        const oralTagColors = {};
-        oralCategories.filter(c => c !== 'all').forEach((cat, idx) => {
-          const gridPos = idx + 1;
-          oralTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
-        });
 
-        // Dynamic levels: only show levels that have words
+        // BUG FIX: Use vocab words pool for level/detail tabs regardless of current mode
+        const vocabPool = words.filter(w => isWordAvailable(w, nativeLang, targetLang));
+
         const allLevelDefs = [
           { key: 'beginner', label: 'Level 1', num: '1' },
           { key: 'intermediate', label: 'Level 2', num: '2' },
           { key: 'advanced', label: 'Level 3', num: '3' },
         ];
-        const levelItems = allLevelDefs.filter(lv => allWordsFiltered.some(w => w.level === lv.key));
-        // Dynamic categories: only show categories that have words, with first word's image as representative
-        const detailCats = categories.filter(c => c !== 'all' && allWordsFiltered.some(w => w.category === c));
+        const levelItems = allLevelDefs.filter(lv => vocabPool.some(w => w.level === lv.key));
+        const detailCats = categories.filter(c => c !== 'all' && vocabPool.some(w => w.category === c));
         const dynamicCatImages = {};
         detailCats.forEach(cat => {
-          const firstWord = allWordsFiltered.find(w => w.category === cat);
+          const firstWord = vocabPool.find(w => w.category === cat);
           if (firstWord) dynamicCatImages[cat] = firstWord.img;
         });
+        const oralCats = oralCategories.filter(c => c !== 'all');
+
+        // Progress helper: count learned / total for a word pool
+        const getCatProgress = (wordPool) => {
+          const learned = wordPool.filter(w => progress[w.id]?.timestamp).length;
+          return { learned, total: wordPool.length };
+        };
+
+        // Shared card renderer with progress bar (matches Figma card: ~108x auto)
+        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog) => (
+          <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95">
+            <div style={{
+              width: 102, backgroundColor: '#fbf2e2',
+              border: isSelected ? '3px solid #ffd016' : '1.5px solid #000',
+              borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              padding: '6px 6px 8px',
+            }}>
+              {/* Category image */}
+              <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: '#e8dcc8', flexShrink: 0 }}>
+                {imgSrc ? (
+                  <img src={imgSrc} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
+                  </div>
+                )}
+              </div>
+              {/* Progress bar */}
+              <div style={{
+                width: 75, height: 12, borderRadius: 100,
+                backgroundColor: '#f0dac2', border: '1.5px solid #000',
+                marginTop: 10, position: 'relative', overflow: 'hidden',
+              }}>
+                <div style={{
+                  height: '100%', borderRadius: 100, backgroundColor: '#ffcc00',
+                  width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
+                }} />
+              </div>
+              {/* Progress text */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 2, lineHeight: '18px' }}>
+                {prog.learned}/{prog.total}
+              </span>
+              {/* Category label */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 1, lineHeight: '18px', textAlign: 'center' }}>
+                {label}
+              </span>
+            </div>
+            {/* Selection check badge */}
+            {isSelected && (
+              <div style={{
+                position: 'absolute', top: -4, right: 4,
+                width: 22, height: 22, borderRadius: '50%',
+                backgroundColor: '#ffd016', border: '2px solid #000',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </button>
+        );
 
         return (
-          <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50 }}>
-            {/* Background illustration */}
-            <img
-              src="/assets/figma/category-bg.png"
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-              style={{ zIndex: 0 }}
-            />
+          <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
+            {/* Content layer — fixed shell */}
+            <div className="relative flex flex-col h-full">
 
-            {/* Content layer */}
-            <div className="relative flex flex-col h-full" style={{ zIndex: 1 }}>
-              {/* ── Top bar: back arrow + 3 tabs (centered) ── */}
-              <div className="shrink-0 flex items-center justify-center px-3 gap-1.5" style={{ paddingTop: 15, paddingBottom: 10, position: 'relative' }}>
+              {/* ── Fixed top: Blue header bar ── */}
+              <div className="shrink-0" style={{
+                backgroundColor: '#b1cfe1', borderBottom: '2px solid #000',
+                padding: '17px 16px 14px', position: 'relative', zIndex: 3,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              }}>
                 <button
                   onClick={() => setShowCategories(false)}
-                  className="w-[24px] h-[24px] flex items-center justify-center active:scale-90"
-                  style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)' }}
+                  className="flex items-center justify-center active:scale-90"
+                  style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="15 18 9 12 15 6" />
                   </svg>
                 </button>
@@ -1415,25 +1496,17 @@ export default function LearningPage({
                       onClick={() => {
                         if (categoryTab !== tab.key) {
                           setCategoryTab(tab.key);
-                          // Auto-select first item when switching to a new tab
-                          if (tab.key === 'level') {
-                            setPendingLevel('beginner');
-                            setPendingCategory('all');
-                          } else if (tab.key === 'detail') {
-                            setPendingCategory(categories.find(c => c !== 'all') || 'animal');
-                            setPendingLevel('all');
-                          } else if (tab.key === 'oral') {
-                            setPendingCategory('all');
-                            setPendingLevel('oral');
-                          }
+                          if (tab.key === 'level') { setPendingLevel('beginner'); setPendingCategory('all'); }
+                          else if (tab.key === 'detail') { setPendingCategory(categories.find(c => c !== 'all') || 'animal'); setPendingLevel('all'); }
+                          else if (tab.key === 'oral') { setPendingCategory(oralCats[0] || 'everyday'); setPendingLevel('oral'); }
                         }
                       }}
-                      className="rounded-[5px] text-[14px] font-medium border-[1.5px] border-black"
                       style={{
-                        height: 32,
-                        paddingLeft: 12, paddingRight: 12,
-                        backgroundColor: isActive ? '#000' : '#fff',
+                        height: 32, paddingLeft: 16, paddingRight: 16,
+                        borderRadius: 8, border: '1.5px solid #000',
+                        backgroundColor: isActive ? '#000' : '#fbf2e2',
                         color: isActive ? '#fff' : '#000',
+                        fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}
                     >
                       {tab.label}
@@ -1442,144 +1515,108 @@ export default function LearningPage({
                 })}
               </div>
 
-              {/* ── Scrollable content area ── */}
-              <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
-                {/* === LEVEL TAB === */}
-                {categoryTab === 'level' && (
-                  <div className="pt-3">
-                    <div className="grid grid-cols-3 gap-3">
+              {/* Dog mascot decoration overlapping header */}
+              <img src="/assets/figma/categroy-decor-3.png" alt="" className="pointer-events-none"
+                style={{ position: 'absolute', left: 14, top: 48, width: 43, height: 58, zIndex: 2 }} />
+
+              {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
+              <div className="flex-1 relative overflow-hidden" style={{
+                margin: '20px 13px 10px',
+                border: '2px solid #000', borderRadius: 10,
+              }}>
+                {/* Beach background image inside the frame */}
+                <img
+                  src="/assets/figma/category-bg.png" alt=""
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  style={{ zIndex: 0 }}
+                />
+
+                {/* Scrollable card area inside the frame */}
+                <div className="relative h-full overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
+
+                  {/* === LEVEL TAB === */}
+                  {categoryTab === 'level' && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
                       {levelItems.map(lv => {
                         const isSelected = pendingLevel === lv.key && categoryTab === 'level';
-                        return (
-                          <button
-                            key={lv.key}
-                            onClick={() => {
-                              setPendingLevel(lv.key);
-                              setPendingCategory('all');
-                            }}
-                            className="relative flex flex-col items-center active:scale-95"
-                          >
-                            <div
-                              className="w-[115px] h-[115px] rounded-[10px] border-[1.5px] border-black bg-white flex items-center justify-center"
-                              style={isSelected ? { borderWidth: 3, borderColor: '#ffd016' } : {}}
-                            >
-                              <span className="text-[64px] font-normal text-black leading-none">{lv.num}</span>
-                            </div>
-                            {/* Check badge */}
-                            {isSelected && (
-                              <div style={{
-                                position: 'absolute', top: -4, right: -4,
-                                width: 22, height: 22, borderRadius: '50%',
-                                backgroundColor: '#ffd016', border: '2px solid #000',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              }}>
-                                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
-                                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </div>
-                            )}
-                            <span className="text-[14px] font-medium text-black mt-1.5">{lv.label}</span>
-                          </button>
+                        const pool = vocabPool.filter(w => w.level === lv.key);
+                        const prog = getCatProgress(pool);
+                        return renderCatCard(
+                          lv.key, null, lv.label, isSelected,
+                          () => { setPendingLevel(lv.key); setPendingCategory('all'); },
+                          prog,
                         );
                       })}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* === DETAIL CATEGORY TAB === */}
-                {categoryTab === 'detail' && (
-                  <div className="pt-1">
-                    <p className="text-[14px] text-black leading-[20px] mb-3 px-1 text-center">
-                      {DETAIL_NOTE[nativeLang] || DETAIL_NOTE.zh}
-                    </p>
-                    <div className="grid grid-cols-3 gap-3">
-                      {detailCats.map(cat => {
-                        const isSelected = pendingCategory === cat && categoryTab === 'detail';
-                        const imgFile = CATEGORY_IMAGES[cat] || dynamicCatImages[cat];
-                        return (
-                          <button
-                            key={cat}
-                            onClick={() => {
-                              setPendingCategory(cat);
-                              setPendingLevel('all');
-                            }}
-                            className="relative flex flex-col items-center active:scale-95"
-                          >
-                            <div
-                              className="w-[115px] h-[115px] rounded-[10px] border-[1.5px] border-black overflow-hidden bg-white"
-                              style={isSelected ? { borderWidth: 3, borderColor: '#ffd016' } : {}}
-                            >
-                              {imgFile && (
-                                <img
-                                  src={`/images/${encodeURIComponent(imgFile)}`}
-                                  alt={detailCatLabels[cat]}
-                                  className="w-full h-full object-cover"
-                                />
-                              )}
-                            </div>
-                            {/* Check badge */}
-                            {isSelected && (
-                              <div style={{
-                                position: 'absolute', top: -4, right: -4,
-                                width: 22, height: 22, borderRadius: '50%',
-                                backgroundColor: '#ffd016', border: '2px solid #000',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              }}>
-                                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
-                                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </div>
-                            )}
-                            <span className="text-[14px] font-medium text-black mt-1.5">{detailCatLabels[cat]}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                  {/* === DETAIL CATEGORY TAB === */}
+                  {categoryTab === 'detail' && (
+                    <>
+                      <p style={{
+                        fontSize: 12, fontWeight: 500, color: '#000', lineHeight: '18px',
+                        letterSpacing: 0.1, textAlign: 'center', marginBottom: 12,
+                        padding: '0 12px',
+                      }}>
+                        {DETAIL_NOTE[nativeLang] || DETAIL_NOTE.zh}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
+                        {detailCats.map(cat => {
+                          const isSelected = pendingCategory === cat && categoryTab === 'detail';
+                          const imgFile = CATEGORY_IMAGES[cat] || dynamicCatImages[cat];
+                          const pool = vocabPool.filter(w => w.category === cat);
+                          const prog = getCatProgress(pool);
+                          return renderCatCard(
+                            cat,
+                            imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                            detailCatLabels[cat], isSelected,
+                            () => { setPendingCategory(cat); setPendingLevel('all'); },
+                            prog,
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
 
-                {/* === ORAL TAB === */}
-                {categoryTab === 'oral' && (
-                  <div className="pt-3">
-                    <div className="flex flex-wrap gap-2.5 justify-center">
-                      {oralCategories.map(cat => {
+                  {/* === ORAL TAB === */}
+                  {categoryTab === 'oral' && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
+                      {oralCats.map(cat => {
                         const isSelected = pendingCategory === cat && categoryTab === 'oral';
-                        const bgColor = isSelected
-                          ? '#1b1b1b'
-                          : cat === 'all' ? '#ffffff' : oralTagColors[cat];
-                        return (
-                          <button
-                            key={cat}
-                            onClick={() => {
-                              setPendingCategory(cat);
-                              setPendingLevel('oral');
-                            }}
-                            className="px-4 rounded-full text-[14px] font-medium border-2 border-black active:scale-95"
-                            style={{
-                              height: 34,
-                              backgroundColor: bgColor,
-                              color: isSelected ? '#fff' : '#000',
-                              lineHeight: '30px',
-                            }}
-                          >
-                            {oralCatLabels[cat]}
-                          </button>
+                        const imgFile = ORAL_CATEGORY_IMAGES[cat];
+                        const pool = oralPhrases.filter(w => w.category === cat);
+                        const prog = getCatProgress(pool);
+                        return renderCatCard(
+                          cat,
+                          imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          oralCatLabels[cat], isSelected,
+                          () => { setPendingCategory(cat); setPendingLevel('oral'); },
+                          prog,
                         );
                       })}
                     </div>
-                  </div>
-                )}
-
-                {/* ── Confirm button ── */}
-                <div className="flex justify-center pt-5 pb-6">
-                  <button
-                    onClick={handleConfirmCategories}
-                    className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
-                    style={{ width: 130, height: 42, backgroundColor: '#ffd016' }}
-                  >
-                    <span className="text-[18px] font-normal text-black">{t.ok}</span>
-                  </button>
+                  )}
                 </div>
+              </div>
+
+              {/* ── Fixed bottom: decorations + confirm button ── */}
+              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 20 }}>
+                {/* Decorations */}
+                <img src="/assets/figma/categroy-decor-1.png" alt="" className="pointer-events-none"
+                  style={{ position: 'absolute', left: 10, bottom: 16, width: 71, height: 112 }} />
+                <img src="/assets/figma/categroy-decor-2.png" alt="" className="pointer-events-none"
+                  style={{ position: 'absolute', right: 10, bottom: 16, width: 55, height: 56 }} />
+                <button
+                  onClick={handleConfirmCategories}
+                  className="flex items-center justify-center active:scale-95"
+                  style={{
+                    width: 158, height: 51, borderRadius: 100,
+                    backgroundColor: '#ffd016', border: '2px solid #000',
+                    position: 'relative', zIndex: 1,
+                  }}
+                >
+                  <span style={{ fontSize: 24, fontWeight: 400, color: '#000' }}>{t.ok}</span>
+                </button>
               </div>
             </div>
           </div>

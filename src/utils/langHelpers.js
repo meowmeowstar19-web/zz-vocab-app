@@ -24,7 +24,8 @@ export function getSentence(word, lang) {
   if (!word) return '';
   if (lang === 'en') return word.sentence || '';
   if (lang === 'ja') return jaData[word.en]?.sentence || '';
-  return ''; // zh: no Chinese sentences in data
+  if (lang === 'zh') return word.sentenceZh || '';
+  return '';
 }
 
 // ── Katakana → Hiragana auto-conversion ──
@@ -180,7 +181,7 @@ export const UI_TEXT = {
 
 // ── Category labels in each language ──
 export const CATEGORY_LABELS = {
-  zh: { all: '全部', animal: '动物', food: '食物', daily: '生活用品', nature: '自然', science: '科学', art: '艺术', landmark: '建筑', game: '游戏', people: '人物', myth: '神话', fashion: '服饰' },
-  en: { all: 'All', animal: 'Animals', food: 'Food', daily: 'Daily', nature: 'Nature', science: 'Science', art: 'Art', landmark: 'Landmarks', game: 'Games', people: 'People', myth: 'Mythology', fashion: 'Fashion' },
-  ja: { all: '全て', animal: '動物', food: '食べ物', daily: '日用品', nature: '自然', science: '科学', art: '芸術', landmark: '建築', game: 'ゲーム', people: '人物', myth: '神話', fashion: 'ファッション' },
+  zh: { all: '全部', adjective: '形容词', animal: '动物', body: '身体', clothes: '服饰', food: '食物' },
+  en: { all: 'All', adjective: 'Adjectives', animal: 'Animals', body: 'Body', clothes: 'Clothes', food: 'Food' },
+  ja: { all: '全て', adjective: '形容詞', animal: '動物', body: '体', clothes: '服', food: '食べ物' },
 };
