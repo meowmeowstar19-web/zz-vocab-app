@@ -1047,10 +1047,8 @@ export default function LearningPage({
         {/* ── TOP BAR ── */}
         <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
           {isReview ? (
-            <button onClick={onExitReview} className="w-[18px] h-[18px] flex items-center justify-center active:scale-90">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
+            <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+              <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
             </button>
           ) : (
             <button
@@ -1413,15 +1411,62 @@ export default function LearningPage({
           return { learned, total: wordPool.length };
         };
 
+        // Per-row decoration picker (matches Figma 343:232 spec):
+        // For each row of 3 cards → at most 1 letter at top-right, at most 1 star
+        // (BL or TR). If both would land on same card at TR, star moves to BL.
+        const getRowDecor = (rowSeed) => {
+          let h = 0;
+          const s = String(rowSeed || 'x');
+          for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+          const next = () => { h = (h * 9301 + 49297) & 0x7fffffff; return h; };
+          const letterPick = next() % 4; // 0:none 1..3:card idx+1
+          const starPick = next() % 4;
+          let starAtTR = (next() % 2) === 1;
+          if (letterPick !== 0 && starPick === letterPick && starAtTR) starAtTR = false;
+          return {
+            letterIdx: letterPick === 0 ? -1 : letterPick - 1,
+            starIdx: starPick === 0 ? -1 : starPick - 1,
+            starAtTR,
+          };
+        };
+
         // Shared card renderer with progress bar (matches Figma card: ~108x auto)
-        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog) => (
-          <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95">
+        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog, decor = {}) => {
+          const { hasLetter = false, hasStar = false, starAtTR = false } = decor;
+          return (
+          <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
+              position: 'relative',
               width: 102, backgroundColor: '#fbf2e2',
               border: isSelected ? '3px solid #ffd016' : '1.5px solid #000',
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '6px 6px 8px',
             }}>
+              {/* Letter decoration — top-right corner, rotated 38.7deg (Figma 402:418) */}
+              {hasLetter && (
+                <div className="pointer-events-none select-none" style={{
+                  position: 'absolute', right: -8, top: -11,
+                  width: 24, height: 24,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  zIndex: 3,
+                }}>
+                  <img src="/assets/figma/frame-decor-letter.png" alt=""
+                    style={{ width: 18, height: 15, display: 'block', transform: 'rotate(38.7deg)' }} />
+                </div>
+              )}
+              {/* Star decoration — BL or TR corner, rotated -50.81deg (Figma 425:231) */}
+              {hasStar && (
+                <div className="pointer-events-none select-none" style={{
+                  position: 'absolute',
+                  ...(starAtTR ? { right: -9, top: -11 } : { left: -9, bottom: -11 }),
+                  width: 29, height: 29,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  zIndex: 3,
+                }}>
+                  <img src="/assets/figma/frame-decor-stas.png" alt=""
+                    style={{ width: 20, height: 21, display: 'block', transform: 'rotate(-50.81deg)' }} />
+                </div>
+              )}
               {/* Category image */}
               <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: '#e8dcc8', flexShrink: 0 }}>
                 {imgSrc ? (
@@ -1452,13 +1497,14 @@ export default function LearningPage({
                 {label}
               </span>
             </div>
-            {/* Selection check badge */}
+            {/* Selection check badge — sits above corner decorations, at the very corner */}
             {isSelected && (
               <div style={{
-                position: 'absolute', top: -4, right: 4,
+                position: 'absolute', top: -8, right: -8,
                 width: 22, height: 22, borderRadius: '50%',
                 backgroundColor: '#ffd016', border: '2px solid #000',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                zIndex: 5,
               }}>
                 <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
                   <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -1466,7 +1512,8 @@ export default function LearningPage({
               </div>
             )}
           </button>
-        );
+          );
+        };
 
         return (
           <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
@@ -1482,11 +1529,9 @@ export default function LearningPage({
                 <button
                   onClick={() => setShowCategories(false)}
                   className="flex items-center justify-center active:scale-90"
-                  style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
+                  style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 18 9 12 15 6" />
-                  </svg>
+                  <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
                 </button>
                 {tabs.map(tab => {
                   const isActive = categoryTab === tab.key;
@@ -1537,14 +1582,22 @@ export default function LearningPage({
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
-                      {levelItems.map(lv => {
+                      {levelItems.map((lv, idx) => {
                         const isSelected = pendingLevel === lv.key && categoryTab === 'level';
                         const pool = vocabPool.filter(w => w.level === lv.key);
                         const prog = getCatProgress(pool);
+                        const rowIdx = Math.floor(idx / 3);
+                        const colIdx = idx % 3;
+                        const row = getRowDecor(`level-${rowIdx}`);
+                        const decor = {
+                          hasLetter: row.letterIdx === colIdx,
+                          hasStar: row.starIdx === colIdx,
+                          starAtTR: row.starAtTR,
+                        };
                         return renderCatCard(
                           lv.key, null, lv.label, isSelected,
                           () => { setPendingLevel(lv.key); setPendingCategory('all'); },
-                          prog,
+                          prog, decor,
                         );
                       })}
                     </div>
@@ -1561,17 +1614,25 @@ export default function LearningPage({
                         {DETAIL_NOTE[nativeLang] || DETAIL_NOTE.zh}
                       </p>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
-                        {detailCats.map(cat => {
+                        {detailCats.map((cat, idx) => {
                           const isSelected = pendingCategory === cat && categoryTab === 'detail';
                           const imgFile = CATEGORY_IMAGES[cat] || dynamicCatImages[cat];
                           const pool = vocabPool.filter(w => w.category === cat);
                           const prog = getCatProgress(pool);
+                          const rowIdx = Math.floor(idx / 3);
+                          const colIdx = idx % 3;
+                          const row = getRowDecor(`detail-${rowIdx}`);
+                          const decor = {
+                            hasLetter: row.letterIdx === colIdx,
+                            hasStar: row.starIdx === colIdx,
+                            starAtTR: row.starAtTR,
+                          };
                           return renderCatCard(
                             cat,
                             imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
                             detailCatLabels[cat], isSelected,
                             () => { setPendingCategory(cat); setPendingLevel('all'); },
-                            prog,
+                            prog, decor,
                           );
                         })}
                       </div>
@@ -1581,17 +1642,25 @@ export default function LearningPage({
                   {/* === ORAL TAB === */}
                   {categoryTab === 'oral' && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
-                      {oralCats.map(cat => {
+                      {oralCats.map((cat, idx) => {
                         const isSelected = pendingCategory === cat && categoryTab === 'oral';
                         const imgFile = ORAL_CATEGORY_IMAGES[cat];
                         const pool = oralPhrases.filter(w => w.category === cat);
                         const prog = getCatProgress(pool);
+                        const rowIdx = Math.floor(idx / 3);
+                        const colIdx = idx % 3;
+                        const row = getRowDecor(`oral-${rowIdx}`);
+                        const decor = {
+                          hasLetter: row.letterIdx === colIdx,
+                          hasStar: row.starIdx === colIdx,
+                          starAtTR: row.starAtTR,
+                        };
                         return renderCatCard(
                           cat,
                           imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
                           oralCatLabels[cat], isSelected,
                           () => { setPendingCategory(cat); setPendingLevel('oral'); },
-                          prog,
+                          prog, decor,
                         );
                       })}
                     </div>
