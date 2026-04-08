@@ -1426,7 +1426,7 @@ export default function LearningPage({
               width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
               border: `2px solid ${isSelected ? '#ffd016' : '#000'}`,
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
-              padding: '6px 6px 8px',
+              padding: '4px 6px 8px',
             }}>
               {/* Letter decoration — top-right corner, rotated 38.7deg (Figma 402:418) */}
               {hasLetter && (
