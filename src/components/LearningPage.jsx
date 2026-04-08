@@ -1039,7 +1039,7 @@ export default function LearningPage({
           ) : (
             <button
               onClick={handleOpenCategories}
-              className="w-[36px] h-[36px] active:scale-90"
+              className="w-[30px] h-[30px] active:scale-90"
             >
               <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
             </button>
