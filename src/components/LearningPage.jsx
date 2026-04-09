@@ -1661,7 +1661,11 @@ export default function LearningPage({
               </div>
 
               {/* ── Fixed bottom: decorations + confirm button ── */}
-              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 20 }}>
+              {/* zIndex: 3 so the rabbit ears (decor-1) and decor-2 stay on top
+                  of the scrollable card grid above, which lives in a z-index:1
+                  stacking context. Without this, on short screens the rabbit's
+                  ears get covered by category cards extending down. */}
+              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 20, zIndex: 3 }}>
                 {/* Decorations */}
                 <img src="/assets/figma/categroy-decor-1.png" alt="" className="pointer-events-none"
                   style={{ position: 'absolute', left: 13, bottom: 16, width: 71, height: 112 }} />
