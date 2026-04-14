@@ -4,18 +4,22 @@
 
 // Representative image for each vocab category (detail tab in category modal)
 export const vocabCategoryCovers = {
-  animal: 'bird.jpg',
-  food: 'beef.jpg',
-  places: 'bank.jpg',
-  body: 'hand.jpg',
-  clothes: 'hat.jpg',
-  colors: 'pink.jpg',
+  animal: 'pig.jpg',
+  adjective: 'good.jpg',
+  food: 'mushroom.jpg',
+  places: 'airport.jpg',
+  body: 'eye.jpg',
+  clothes: 'pants.jpg',
+  colors: 'blue.jpg',
+  items: 'computer.jpg',
+  nature: 'rain.jpg',
+  numbers: 'eight.jpg',
 };
 
 // Representative image for each oral category (uses a vocab word's image)
 export const oralCategoryCovers = {
-  everyday: 'cake.jpg',
-  opinions: 'elephant.jpg',
-  food: 'beef.jpg',
-  emotions: 'bear.jpg',
+  everyday: 'orange.jpg',
+  opinions: 'cherry.jpg',
+  food: 'hungry.jpg',
+  emotions: 'durian.jpg',
 };

@@ -3,7 +3,7 @@
 // To add translations for new categories: edit CATEGORY_LABELS_DICT in scripts/sync-data.mjs
 
 export const CATEGORY_LABELS = {
-  zh: { all: '全部', animal: '动物', food: '食物', places: '地点', body: '身体', clothes: '服饰', colors: '颜色' },
-  en: { all: 'All', animal: 'Animals', food: 'Food', places: 'Places', body: 'Body', clothes: 'Clothes', colors: 'Colors' },
-  ja: { all: '全て', animal: '動物', food: '食べ物', places: '場所', body: '体', clothes: '服', colors: '色' },
+  zh: { all: '全部', animal: '动物', adjective: '形容词', food: '食物', places: '地点', body: '身体', clothes: '服饰', colors: '颜色', items: '物品', nature: '自然', numbers: '数字' },
+  en: { all: 'All', animal: 'Animals', adjective: 'Adjectives', food: 'Food', places: 'Places', body: 'Body', clothes: 'Clothes', colors: 'Colors', items: 'Items', nature: 'Nature', numbers: 'Numbers' },
+  ja: { all: '全て', animal: '動物', adjective: '形容詞', food: '食べ物', places: '場所', body: '体', clothes: '服', colors: '色', items: 'もの', nature: '自然', numbers: '数字' },
 };
