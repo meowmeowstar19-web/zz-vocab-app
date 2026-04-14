@@ -164,15 +164,14 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   }, [progress, langKey]);
 
   const handleTapWord = useCallback((word) => {
-    if (revealedWords.has(word.id)) {
-      setPopupWord(word);
-      speakWordByLang(getWordText(word, targetLang) || word.en, targetLang);
-    } else {
+    if (!revealedWords.has(word.id)) {
       setRevealedWords(prev => new Set(prev).add(word.id));
       prefetchTranslation(word, targetLang, nativeLang, (cacheKey, tt) => {
         setTranslationCache(prev => new Map(prev).set(cacheKey, tt));
       });
     }
+    setPopupWord(word);
+    speakWordByLang(getWordText(word, targetLang) || word.en, targetLang);
   }, [revealedWords, targetLang, nativeLang]);
 
   const handleSpeak = useCallback((e, word) => {
@@ -180,6 +179,16 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     const text = getWordText(word, targetLang) || word.en;
     speakWordByLang(text, targetLang);
   }, [targetLang]);
+
+  // Preload images (first 20) + translations (all) so popup opens instantly
+  useEffect(() => {
+    wordList.forEach((w, i) => {
+      if (i < 20 && w.img) preloadImage(`/images/${encodeURIComponent(w.img)}`);
+      prefetchTranslation(w, targetLang, nativeLang, (cacheKey, tt) => {
+        setTranslationCache(prev => new Map(prev).set(cacheKey, tt));
+      });
+    });
+  }, [wordList, targetLang, nativeLang]);
 
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
@@ -358,6 +367,15 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   );
 }
 
+/* ── Image preload cache ── */
+const _imgPreloaded = new Set();
+function preloadImage(src) {
+  if (!src || _imgPreloaded.has(src)) return;
+  const img = new Image();
+  img.src = src;
+  _imgPreloaded.add(src);
+}
+
 /* ── Popup component ── */
 function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang }) {
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
@@ -375,23 +393,50 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
+  const imgSrc = word.img ? `/images/${encodeURIComponent(word.img)}` : null;
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!imgSrc || _imgPreloaded.has(imgSrc)) {
+      // No image or already cached — show immediately
+      setReady(true);
+      return;
+    }
+    const img = new Image();
+    img.src = imgSrc;
+    img.onload = () => { _imgPreloaded.add(imgSrc); setReady(true); };
+    img.onerror = () => setReady(true);
+    // If image loads within 30ms it's from cache; otherwise show after brief wait
+    const timer = setTimeout(() => setReady(true), 150);
+    return () => clearTimeout(timer);
+  }, [imgSrc]);
+
   const handleSpeak = () => {
     speakWordByLang(displayText, targetLang);
   };
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="absolute inset-0 z-50 flex items-center justify-center"
+      style={{
+        backgroundColor: ready ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0)',
+        transition: 'background-color 0.2s ease',
+      }}
       onClick={onClose}
     >
       <div
         className="bg-white rounded-2xl p-4 shadow-xl"
-        style={{ width: '85%' }}
+        style={{
+          width: '85%',
+          opacity: ready ? 1 : 0,
+          transform: ready ? 'scale(1)' : 'scale(0.95)',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+        }}
         onClick={e => e.stopPropagation()}
       >
-        {word.img && (
+        {imgSrc && (
           <img
-            src={`/images/${encodeURIComponent(word.img)}`}
+            src={imgSrc}
             alt={displayText}
             className="w-full rounded-xl"
             style={{ maxHeight: 280, objectFit: 'contain' }}
@@ -425,9 +470,9 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             {displaySentence}
           </p>
         )}
-        {cachedTranslation && sentenceLang !== nativeLang && (
-          <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1">
-            {cachedTranslation}
+        {displaySentence && sentenceLang !== nativeLang && (
+          <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
+            {cachedTranslation || '\u00A0'}
           </p>
         )}
         <button

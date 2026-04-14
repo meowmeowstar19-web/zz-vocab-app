@@ -1580,7 +1580,7 @@ export default function LearningPage({
 
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
                       {levelItems.map((lv, idx) => {
                         const isSelected = pendingLevel === lv.key && categoryTab === 'level';
                         const pool = vocabPool.filter(w => w.level === lv.key);
@@ -1605,7 +1605,7 @@ export default function LearningPage({
                   {/* === DETAIL CATEGORY TAB === */}
                   {categoryTab === 'detail' && (
                     <>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
                         {detailCats.map((cat, idx) => {
                           const isSelected = pendingCategory === cat && categoryTab === 'detail';
                           const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
@@ -1633,7 +1633,7 @@ export default function LearningPage({
 
                   {/* === ORAL TAB === */}
                   {categoryTab === 'oral' && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
                       {oralCats.map((cat, idx) => {
                         const isSelected = pendingCategory === cat && categoryTab === 'oral';
                         const imgFile = oralCategoryCovers[cat];
