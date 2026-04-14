@@ -88,7 +88,7 @@ const CATEGORY_TAB_LABELS = {
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
-// from the "Cover For" column in update_data_folder/Vocab_Confirmed.xlsx.
+// from the "Cover For" column in update_data_folder/WordList.xlsx.
 
 // Module-level cache for sentence translations (persists for session)
 const _sentenceCache = new Map();

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Double-click this file to sync data & push to Vercel.
-# It reads Vocab_Confirmed.xlsx + Daily_Expressions.xlsx + updated_image/,
+# It reads WordList.xlsx + Daily_Expressions.xlsx + updated_image/,
 # regenerates src/data/*.js, compresses images to public/images/,
 # then git commits and pushes (Vercel auto-deploys in ~30s).
 

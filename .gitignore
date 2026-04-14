@@ -12,7 +12,7 @@ dist
 # Archived originals from sync-data.mjs (we keep the compressed versions in public/images/)
 update_data_folder/_processed_images/
 
-# Images of words deleted from Vocab_Confirmed.xlsx (kept locally for recovery)
+# Images of words deleted from WordList.xlsx (kept locally for recovery)
 update_data_folder/deleted_image/
 
 # Local scratch / work-in-progress files (not used by the app)
