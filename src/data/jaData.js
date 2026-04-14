@@ -6,6 +6,7 @@
 // - sentence: example sentence in Japanese
 
 export const jaData = {
+  'bird': { ja: 'とり', reading: 'tori', sentence: 'ちいさいジェットパックをつけた小鳥さんが、『飛ぶのめんどくさいんだよねえ』ってやってるんだって！' },
   'pineapple': { ja: 'パイナップル', reading: 'painappuru', sentence: 'ぱいなっぷるちゃん、おしゃれなあたらしいヘアスタイルをきこなしてるの。' },
   'watermelon': { ja: 'スイカ', reading: 'suika', sentence: 'すいかちゃん、しましまがはいっているとやせてみえるとおもってるんだって。' },
   'carrot': { ja: 'にんじん', reading: 'ninjin', sentence: 'にんじんくん、じぶんをこうつうコーンだとおもいこんで、くるまをしきはじめちゃった。' },

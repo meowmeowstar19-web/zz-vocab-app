@@ -83,8 +83,8 @@ const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 // Tab labels for category modal
 const CATEGORY_TAB_LABELS = {
   zh: { level: '难度', detail: '主题', oral: '口语' },
-  en: { level: 'Level', detail: 'Themes', oral: 'Speaking' },
-  ja: { level: '難易度', detail: 'テーマ', oral: '会話' },
+  en: { level: 'Level', detail: 'Theme', oral: 'Oral' },
+  ja: { level: '難度', detail: 'テーマ', oral: '会話' },
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
