@@ -14,7 +14,6 @@ export const vocabCategoryCovers = {
   object: 'trophy.jpg',
   number: 'eight.jpg',
   action: 'eat.jpg',
-  day: 'monday.jpg',
   time: 'today.jpg',
   transport: 'taxi.jpg',
 };
