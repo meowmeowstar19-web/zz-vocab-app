@@ -4,18 +4,18 @@
 
 // Representative image for each vocab category (detail tab in category modal)
 export const vocabCategoryCovers = {
-  animal: 'pig.jpg',
-  adjective: 'good.jpg',
-  food: 'mushroom.jpg',
-  place: 'restaurant.jpg',
-  people: 'hat.jpg',
-  color: 'green.jpg',
-  nature: 'snowflake.jpg',
-  object: 'scale.jpg',
-  number: 'six.jpg',
-  action: 'wake up.jpg',
+  animal: 'bird.jpg',
+  adjective: 'cheap.jpg',
+  food: 'cherry.jpg',
+  place: 'bank.jpg',
+  people: 'sister.jpg',
+  color: 'pink.jpg',
+  nature: 'wind.jpg',
+  object: 'trophy.jpg',
+  number: 'eight.jpg',
+  action: 'eat.jpg',
   day: 'monday.jpg',
-  time: 'now.jpg',
+  time: 'today.jpg',
   transport: 'taxi.jpg',
 };
 

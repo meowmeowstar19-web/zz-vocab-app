@@ -3,7 +3,7 @@
 // To add translations for new categories: edit CATEGORY_LABELS_DICT in scripts/sync-data.mjs
 
 export const CATEGORY_LABELS = {
-  zh: { all: '全部', animal: '动物', adjective: '形容词', food: '食物', place: 'Place', people: '人物', color: 'Color', nature: '自然', object: 'Object', number: 'Number', action: 'Action', day: 'Day', time: 'Time', transport: '交通' },
-  en: { all: 'All', animal: 'Animals', adjective: 'Adjectives', food: 'Food', place: 'Place', people: 'People', color: 'Color', nature: 'Nature', object: 'Object', number: 'Number', action: 'Action', day: 'Day', time: 'Time', transport: 'Transport' },
-  ja: { all: '全て', animal: '動物', adjective: '形容詞', food: '食べ物', place: 'Place', people: '人物', color: 'Color', nature: '自然', object: 'Object', number: 'Number', action: 'Action', day: 'Day', time: 'Time', transport: '乗り物' },
+  zh: { all: '全部', animal: '动物', adjective: '形容词', food: '食物', place: '地点', people: '人物', color: '颜色', nature: '自然', object: '物品', number: '数字', action: '动作', day: '星期', time: '时间', transport: '交通' },
+  en: { all: 'All', animal: 'Animals', adjective: 'Adjectives', food: 'Food', place: 'Places', people: 'People', color: 'Colors', nature: 'Nature', object: 'Objects', number: 'Numbers', action: 'Actions', day: 'Days', time: 'Time', transport: 'Transport' },
+  ja: { all: '全て', animal: '動物', adjective: '形容詞', food: '食べ物', place: '場所', people: '人物', color: '色', nature: '自然', object: 'もの', number: '数字', action: '動作', day: '曜日', time: '時間', transport: '乗り物' },
 };
