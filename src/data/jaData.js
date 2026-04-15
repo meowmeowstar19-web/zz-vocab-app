@@ -39,6 +39,7 @@ export const jaData = {
   'elephant': { ja: 'ぞう', reading: 'zō', sentence: 'ぞうさんがくさいくつしたのにおはなをおさえてるよ。' },
   'fish': { ja: 'さかな', reading: 'sakana', sentence: 'おさかなさんがレインコートをきて、みずのなかでもぬれないようにしてるよ！' },
   'monkey': { ja: 'さる', reading: 'saru', sentence: 'おさるさんがなが〜いしっぽでアイスクリームをぬすんでるの！' },
+  'rabbit': { ja: 'うさぎ', reading: 'usagi', sentence: 'うさぎさんがながいみみをきれいなリボンにむすんでるよ！' },
   'shark': { ja: 'さめ', reading: 'same', sentence: 'さめさんがディスコパーティーのために、はにキラキラのグリッターをつけてるの。' },
   'sheep': { ja: 'ひつじ', reading: 'hitsuji', sentence: 'ひつじさんがくもになりたくて、いっしょうけんめいたかくとんでるよ！' },
   'starfish': { ja: 'ひとで', reading: 'hitode', sentence: 'ひとでさんがうみのみんなとハイタッチしてるの。' },
@@ -164,4 +165,5 @@ export const jaData = {
   'three': { ja: 'さん', reading: 'san', sentence: '3くんはふっくらマルハナバチで、おもたくてとべないんだって。' },
   'two': { ja: 'に', reading: 'ni', sentence: '2くんはきいろいあひるで、ちいさいオレンジいろのくちばしがとってもかわいいよ。' },
   'zero': { ja: 'ぜろ', reading: 'zero', sentence: '0くんはピンクのフロスティングがのった、おおきなドーナツなんだ。' },
+  'grey': { ja: 'グレー', reading: 'gurē', sentence: '灰色の雲さんが、『あ、あたし、大きいくしゃみを止めてるんだ、雨がね』ってぎゅっとしてるんだよ。' },
 };
