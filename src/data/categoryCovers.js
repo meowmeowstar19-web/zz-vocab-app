@@ -7,13 +7,16 @@ export const vocabCategoryCovers = {
   animal: 'pig.jpg',
   adjective: 'good.jpg',
   food: 'mushroom.jpg',
-  places: 'airport.jpg',
-  body: 'eye.jpg',
-  clothes: 'pants.jpg',
-  colors: 'blue.jpg',
-  items: 'computer.jpg',
-  nature: 'rain.jpg',
-  numbers: 'eight.jpg',
+  place: 'restaurant.jpg',
+  people: 'hat.jpg',
+  color: 'green.jpg',
+  nature: 'snowflake.jpg',
+  object: 'scale.jpg',
+  number: 'six.jpg',
+  action: 'wake up.jpg',
+  day: 'monday.jpg',
+  time: 'now.jpg',
+  transport: 'taxi.jpg',
 };
 
 // Representative image for each oral category (uses a vocab word's image)
