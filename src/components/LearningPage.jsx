@@ -82,9 +82,9 @@ const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
 // Tab labels for category modal
 const CATEGORY_TAB_LABELS = {
-  zh: { level: '难度', detail: '主题', oral: '口语' },
-  en: { level: 'Level', detail: 'Theme', oral: 'Phrases' },
-  ja: { level: '難度', detail: 'テーマ', oral: '会話' },
+  zh: { level: '难度', detail: '单词', oral: '口语' },
+  en: { level: 'Level', detail: 'Words', oral: 'Phrases' },
+  ja: { level: '難度', detail: '単語', oral: '会話' },
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
@@ -118,7 +118,7 @@ export default function LearningPage({
     _setShowCategories(val);
     onCategoryModalChange?.(val);
   }, [onCategoryModalChange]);
-  const [categoryTab, setCategoryTab] = useState('level'); // 'level' | 'detail' | 'oral'
+  const [categoryTab, setCategoryTab] = useState('detail'); // 'detail' | 'oral' (level tab hidden)
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
 
@@ -878,15 +878,11 @@ export default function LearningPage({
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
     setPendingLevel(selectedLevel);
-    // Set initial tab based on current mode, with current selection preserved
+    // Set initial tab based on current mode (level tab hidden, default to detail)
     if (selectedLevel === 'oral') {
       setCategoryTab('oral');
-    } else if (selectedCategory !== 'all') {
-      setCategoryTab('detail');
     } else {
-      setCategoryTab('level');
-      // If current level is 'all', auto-select first level so something is checked
-      if (selectedLevel === 'all') setPendingLevel('beginner');
+      setCategoryTab('detail');
     }
     setShowCategories(true);
   }, [selectedCategory, selectedLevel]);
@@ -1365,9 +1361,10 @@ export default function LearningPage({
       {showCategories && (() => {
         const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
         const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
+        // Level tab temporarily hidden
         const tabs = jaInvolved
-          ? [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }]
-          : [{ key: 'level', label: tabLabels.level }, { key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+          ? [{ key: 'detail', label: tabLabels.detail }]
+          : [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
         // Uniform tab width: within a language, all tabs share the widest label's width.
         // CJK chars are roughly twice as wide as Latin letters at the same font size,
         // so we approximate per-char pixel widths (14px font, weight 500).
@@ -1430,8 +1427,9 @@ export default function LearningPage({
         };
 
         // Shared card renderer with progress bar (matches Figma card: ~108x auto)
-        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog, decor = {}) => {
+        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog, decor = {}, opts = {}) => {
           const { hasLetter = false, hasStar = false, starAtTR = false } = decor;
+          const { imageContain = false } = opts;
           return (
           <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
@@ -1467,13 +1465,15 @@ export default function LearningPage({
                 </div>
               )}
               {/* Category image */}
-              <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: '#e8dcc8', flexShrink: 0 }}>
+              <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: imageContain ? '#fff' : '#e8dcc8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {imgSrc ? (
-                  <img src={imgSrc} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  imageContain ? (
+                    <img src={imgSrc} alt={label} style={{ width: '55%', height: '68%', objectFit: 'contain' }} />
+                  ) : (
+                    <img src={imgSrc} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )
                 ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
-                  </div>
+                  <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
                 )}
               </div>
               {/* Progress bar */}
@@ -1540,8 +1540,7 @@ export default function LearningPage({
                       onClick={() => {
                         if (categoryTab !== tab.key) {
                           setCategoryTab(tab.key);
-                          if (tab.key === 'level') { setPendingLevel('beginner'); setPendingCategory('all'); }
-                          else if (tab.key === 'detail') { setPendingCategory(categories.find(c => c !== 'all') || 'animal'); setPendingLevel('all'); }
+                          if (tab.key === 'detail') { setPendingCategory('all'); setPendingLevel('all'); }
                           else if (tab.key === 'oral') { setPendingCategory(oralCats[0] || 'everyday'); setPendingLevel('oral'); }
                         }
                       }}
@@ -1603,33 +1602,44 @@ export default function LearningPage({
                   )}
 
                   {/* === DETAIL CATEGORY TAB === */}
-                  {categoryTab === 'detail' && (
-                    <>
+                  {categoryTab === 'detail' && (() => {
+                    // Build items: "all" card first, followed by each concrete category
+                    const detailItems = [
+                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: vocabPool },
+                      ...detailCats.map(cat => {
+                        const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
+                        return {
+                          key: cat,
+                          label: detailCatLabels[cat],
+                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          pool: vocabPool.filter(w => w.category === cat),
+                        };
+                      }),
+                    ];
+                    return (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
-                        {detailCats.map((cat, idx) => {
-                          const isSelected = pendingCategory === cat && categoryTab === 'detail';
-                          const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
-                          const pool = vocabPool.filter(w => w.category === cat);
-                          const prog = getCatProgress(pool);
+                        {detailItems.map((item, idx) => {
+                          const isSelected = pendingCategory === item.key && categoryTab === 'detail';
+                          const prog = getCatProgress(item.pool);
                           const rowIdx = Math.floor(idx / 3);
                           const colIdx = idx % 3;
                           const row = getRowDecor(`detail-${rowIdx}`);
                           const decor = {
                             hasLetter: row.letterIdx === colIdx,
-                            hasStar: row.starIdx === colIdx,
+                            // Suppress star on row 0 (keeps the "全部" card area clean)
+                            hasStar: rowIdx !== 0 && row.starIdx === colIdx,
                             starAtTR: row.starAtTR,
                           };
                           return renderCatCard(
-                            cat,
-                            imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
-                            detailCatLabels[cat], isSelected,
-                            () => { setPendingCategory(cat); setPendingLevel('all'); },
+                            item.key, item.imgSrc, item.label, isSelected,
+                            () => { setPendingCategory(item.key); setPendingLevel('all'); },
                             prog, decor,
+                            { imageContain: item.key === 'all' },
                           );
                         })}
                       </div>
-                    </>
-                  )}
+                    );
+                  })()}
 
                   {/* === ORAL TAB === */}
                   {categoryTab === 'oral' && (
