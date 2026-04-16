@@ -121,6 +121,24 @@ export default function LearningPage({
   const [categoryTab, setCategoryTab] = useState('detail'); // 'detail' | 'oral' (level tab hidden)
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
+  const selectedCatCardRef = useRef(null);
+  const catScrollContainerRef = useRef(null);
+
+  // Scroll the currently-selected category card into view *within the modal's
+  // inner scroll container* when the modal opens. Using scrollIntoView scrolls
+  // every scrollable ancestor (including the outer page), so we compute the
+  // offset manually and only move the inner container.
+  useLayoutEffect(() => {
+    if (!showCategories) return;
+    const container = catScrollContainerRef.current;
+    const card = selectedCatCardRef.current;
+    if (!container || !card) return;
+    const cardRect = card.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const cardTopInContainer = (cardRect.top - containerRect.top) + container.scrollTop;
+    const target = cardTopInContainer - (container.clientHeight - cardRect.height) / 2;
+    container.scrollTop = Math.max(0, target);
+  }, [showCategories, categoryTab]);
 
   // categoryReviewMode: true when the user enters a small category that is already
   // fully learned. The session then runs the *review queue* algorithm restricted to
@@ -211,8 +229,23 @@ export default function LearningPage({
     }
     const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
     if (eligible.length === 0) { setReviewCard(null); return; }
-    // Load persisted word states so card types (B/C/A) and error weights survive re-entry
+    // Load persisted word states so card types (B/C/A) and error weights survive re-entry.
     const savedStates = getReviewWordStates(storageKey);
+    // categoryReviewMode fresh-start rule: if EVERY in-scope word is already
+    // "review-mastered" from a prior completed cycle (sessionCorrect >= 2 & no
+    // outstanding errors), zero those words out so the user gets a fresh B→C pass.
+    // Partial progress is preserved — that handles the "exited mid-review, resume"
+    // case required by the spec.
+    if (categoryReviewMode) {
+      const allAlreadyMastered = eligible.every(w => {
+        const s = savedStates[w.id];
+        return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+      });
+      if (allAlreadyMastered) {
+        for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
+        saveReviewWordStates(savedStates, storageKey);
+      }
+    }
     reviewWordStatesRef.current = savedStates;
     const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
     reviewQueueRef.current = queue;
@@ -369,7 +402,15 @@ export default function LearningPage({
       return;
     }
 
-    // Session done
+    // Session done — clear loading flag so the category-done popup is allowed to fire
+    // eslint-disable-next-line no-console
+    console.log('[SRS done]', {
+      totalShown: totalShownRef.current,
+      baseQueueLength: baseQueueRef.current.length,
+      baseIdx: baseIdxRef.current,
+      pendingLength: pendingRef.current.length,
+    });
+    sessionLoadingRef.current = false;
     setSrsCard(null);
   }, []);
 
@@ -411,6 +452,26 @@ export default function LearningPage({
     const reviewSlice = dueWords.slice(0, reviewBudget);
 
     const queue = buildInterleaved(newPool, reviewSlice, prog);
+
+    // eslint-disable-next-line no-console
+    console.log('[SRS init]', {
+      category: selectedCategory,
+      level: selectedLevel,
+      subcatPoolSize: subcatPool.length,
+      subcatPoolIds: subcatPool.map(w => w.id),
+      newPoolIds: newPool.map(w => w.id),
+      dueWordIds: dueWords.map(w => w.id),
+      reviewBudget,
+      queue: queue.map(c => `${c.word.id}(${c.type}/${c.format})`),
+      progressSnapshot: Object.fromEntries(
+        subcatPool.map(w => [w.id, {
+          timestamp: !!prog[w.id]?.timestamp,
+          mastered: !!prog[w.id]?.mastered,
+          srsLevel: prog[w.id]?.srsLevel,
+          nextReviewAt: prog[w.id]?.nextReviewAt,
+        }])
+      ),
+    });
 
     baseQueueRef.current = queue;
     baseIdxRef.current = 0;
@@ -514,7 +575,9 @@ export default function LearningPage({
     setShowSentence(false);
     hasSpoken.current = false;
     dModeResultRef.current = null;
-  }, [currentWord?.id, quizFormat]);
+    // srsCard/reviewCard refs change even when same word re-appears — required so
+    // state resets when a word cycles back (e.g. cycle rebuild → Monday again).
+  }, [currentWord?.id, quizFormat, srsCard, reviewCard]);
 
   // Phonetics (skip for oral phrases)
   useEffect(() => {
@@ -630,19 +693,37 @@ export default function LearningPage({
 
       reviewPointerRef.current++;
 
-      // If cycle exhausted:
-      // · categoryReviewMode → show the category-done popup (2-button choice: review again / learn new)
-      // · global review mode → rebuild queue from all eligible words, continue immediately
+      // If cycle exhausted, decide whether to continue (rebuild queue) or finish.
+      // · categoryReviewMode → finish only once every in-scope word is "review-mastered"
+      //   (sessionCorrect >= 2 && errorCount === 0). This guarantees at least a B pass
+      //   followed by a C pass — matching the word-list review algorithm. If any word
+      //   hasn't reached that state yet, rebuild the queue and keep cycling.
+      // · global review mode → rebuild indefinitely, user exits manually.
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
-        if (categoryReviewMode) {
-          completedCatNameRef.current = catLabels[selectedCategory] || '';
-          setCategoryCycleDone(true);
-          setReviewCard(null);
-          return;
-        }
         const prog = getProgress(storageKey);
-        const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+        let basePool = allWordsFiltered;
+        if (categoryReviewMode && selectedCategory !== 'all') {
+          basePool = basePool.filter(w => w.category === selectedCategory);
+          if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+            basePool = basePool.filter(w => w.level === selectedLevel);
+          }
+        }
+        const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) { setReviewCard(null); return; }
+
+        if (categoryReviewMode) {
+          const allMastered = eligible.every(w => {
+            const s = reviewWordStatesRef.current[w.id];
+            return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+          });
+          if (allMastered) {
+            completedCatNameRef.current = catLabels[selectedCategory] || '';
+            setCategoryCycleDone(true);
+            setReviewCard(null);
+            return;
+          }
+        }
+
         const queue = buildReviewQueueFromWords(eligible, prog, reviewWordStatesRef.current);
         reviewQueueRef.current = queue;
         reviewPointerRef.current = 0;
@@ -852,13 +933,19 @@ export default function LearningPage({
         if (eligible.length === 0) { setReviewCard(null); return; }
         if (reviewPointerRef.current >= reviewQueueRef.current.length) {
           if (categoryReviewMode) {
-            completedCatNameRef.current = catLabels[selectedCategory] || '';
-            setCategoryCycleDone(true);
-            setReviewCard(null);
-            setProgress(prog);
-            return;
+            const allMastered = eligible.every(w => {
+              const s = reviewWordStatesRef.current[w.id];
+              return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+            });
+            if (allMastered) {
+              completedCatNameRef.current = catLabels[selectedCategory] || '';
+              setCategoryCycleDone(true);
+              setReviewCard(null);
+              setProgress(prog);
+              return;
+            }
           }
-          const queue = buildReviewQueueFromWords(eligible, prog);
+          const queue = buildReviewQueueFromWords(eligible, prog, reviewWordStatesRef.current);
           reviewQueueRef.current = queue;
           reviewPointerRef.current = 0;
           // Word states kept across cycles
@@ -880,9 +967,17 @@ export default function LearningPage({
   // Counter text
   const counterText = useMemo(() => {
     if (effectiveIsReview) {
-      const total = reviewQueueRef.current.length;
-      const pos = reviewPointerRef.current + 1;
-      return total > 0 ? `${Math.min(pos, total)}/${total}` : '0/0';
+      // Denominator: unique words in the review queue (constant across wrong-answer re-inserts,
+      // because splice inserts the SAME word object so its id is already in the set).
+      // Numerator: unique words the user has already moved past at least once.
+      const queue = reviewQueueRef.current;
+      const pointer = reviewPointerRef.current;
+      if (queue.length === 0) return '0/0';
+      const totalIds = new Set();
+      for (const w of queue) totalIds.add(w.id);
+      const pastIds = new Set();
+      for (let i = 0; i < pointer; i++) pastIds.add(queue[i].id);
+      return `${pastIds.size}/${totalIds.size}`;
     }
     // SRS mode: learned/total in current category+level filter
     let pool = selectedCategory === 'all' ? [...activeWords] : activeWords.filter(w => w.category === selectedCategory);
@@ -937,8 +1032,11 @@ export default function LearningPage({
     const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
     if (eligible.length === 0) { setReviewCard(null); return; }
 
-    // Keep persisted word states so B→C progression carries across cycles
+    // "重新复习" = explicit fresh cycle. Zero out the review states for in-scope words
+    // so each one enters in B format and must pass through B → C again to finish.
     const savedStates = getReviewWordStates(storageKey);
+    for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
+    saveReviewWordStates(savedStates, storageKey);
     reviewWordStatesRef.current = savedStates;
     const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
     reviewQueueRef.current = queue;
@@ -974,38 +1072,89 @@ export default function LearningPage({
 
   // ── Category done popup (more words exist in other categories) ──
   // Fires from TWO sources: SRS session exhausted (categoryDoneVisible) or
-  // review cycle finished (categoryCycleDone). Same UI — 2 buttons, user choice.
+  // review cycle finished (categoryCycleDone). Preserves the outer learning
+  // layout (background, decorations, top bar with category button & counter) —
+  // only the word-card + choices area is replaced by the popup card.
   if (!currentWord && (categoryDoneVisible || categoryCycleDone)) {
     return (
-      <div className="flex flex-col h-full relative">
-        <div className="absolute inset-0 z-0">
-          <img src="/assets/figma/study_background.jpg" alt="" className="w-full h-full object-cover" />
-        </div>
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
-          <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
-            style={{ border: '2px solid #000', maxWidth: 320 }}>
-            <div className="text-5xl mb-3">🎊</div>
-            <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
-            {completedCatNameRef.current && (
-              <div className="text-textSub text-sm mt-1">
-                {completedCatNameRef.current}{t.allLearned}
+      <div className="relative flex flex-col h-full">
+        {/* ── BACKGROUND ── */}
+        <img
+          src={isReview ? '/assets/figma/vocablist-study-background.jpg' : '/assets/figma/study_background.jpg'}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{ zIndex: 0 }}
+        />
+
+        {/* ── DECORATIVE OVERLAYS (normal mode only) ── */}
+        {!isReview && (
+          <>
+            <img src="/assets/figma/nav-decor-top-1.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ left: 0, bottom: -2, width: navLeftDecorW, zIndex: 3 }} />
+            {showBigNavDecor ? (
+              <img src="/assets/figma/nav-decor-top-2.png" alt=""
+                className="absolute pointer-events-none select-none"
+                style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
+            ) : (
+              <div className="absolute pointer-events-none select-none overflow-hidden"
+                style={{ right: 6, bottom: -10, width: 40, height: 38, zIndex: 3 }}>
+                <img src="/assets/figma/nav-decor-frog.png" alt=""
+                  style={{
+                    position: 'absolute', left: 0, top: '-115.8%',
+                    width: '290%', height: '215.82%', maxWidth: 'none',
+                  }} />
               </div>
             )}
-            <div className="flex gap-3 mt-5 w-full justify-center">
-              <button
-                onClick={handleReviewAgain}
-                className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
-                style={{ backgroundColor: '#fbf2e2', color: '#000', border: '2px solid #000' }}
-              >
-                {t.reviewAgain}
+            <img src="/assets/figma/nav-decor-3.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
+          </>
+        )}
+
+        {/* ── CONTENT ── */}
+        <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
+          {/* ── TOP BAR (same as learning page) ── */}
+          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+            {isReview ? (
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button
-                onClick={handleLearnNew}
-                className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
-                style={{ backgroundColor: '#ffd016', color: '#000', border: '2px solid #000' }}
-              >
-                {t.learnNew}
+            ) : (
+              <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
+                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
               </button>
+            )}
+            <span className="text-[14px] text-[#999]">{counterText}</span>
+          </div>
+
+          {/* ── POPUP in the card area ── */}
+          <div className="flex-1 flex items-center justify-center px-6">
+            <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
+              style={{ border: '2px solid #000', maxWidth: 320 }}>
+              <div className="text-5xl mb-3">🎊</div>
+              <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
+              {completedCatNameRef.current && (
+                <div className="text-textSub text-sm mt-1">
+                  {completedCatNameRef.current}{t.allLearned}
+                </div>
+              )}
+              <div className="flex gap-3 mt-5 w-full justify-center">
+                <button
+                  onClick={handleReviewAgain}
+                  className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                  style={{ backgroundColor: '#fbf2e2', color: '#000', border: '2px solid #000' }}
+                >
+                  {t.reviewAgain}
+                </button>
+                <button
+                  onClick={handleLearnNew}
+                  className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                  style={{ backgroundColor: '#ffd016', color: '#000', border: '2px solid #000' }}
+                >
+                  {t.learnNew}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1514,7 +1663,7 @@ export default function LearningPage({
           const { hasLetter = false, hasStar = false, starAtTR = false } = decor;
           const { imageContain = false } = opts;
           return (
-          <button key={key} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
+          <button key={key} ref={isSelected ? selectedCatCardRef : null} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
               position: 'relative',
               width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
@@ -1659,7 +1808,7 @@ export default function LearningPage({
                 />
 
                 {/* Scrollable card area inside the frame */}
-                <div className="relative h-full overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
+                <div ref={catScrollContainerRef} className="relative h-full overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
 
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (
