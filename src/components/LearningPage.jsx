@@ -1752,11 +1752,10 @@ export default function LearningPage({
             {/* Content layer — fixed shell */}
             <div className="relative flex flex-col h-full">
 
-              {/* ── Fixed top: Blue header bar ── */}
+              {/* ── Fixed top: Transparent header — tabs sit directly on modal bg ── */}
               <div className="shrink-0" style={{
-                backgroundColor: '#646464', borderBottom: '2px solid #000',
-                padding: '17px 16px 14px', position: 'relative', zIndex: 3,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                padding: '15px 16px 15px', position: 'relative', zIndex: 3,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
               }}>
                 <button
                   onClick={() => setShowCategories(false)}
@@ -1791,13 +1790,13 @@ export default function LearningPage({
                 })}
               </div>
 
-              {/* Dog mascot decoration overlapping header */}
+              {/* Dog mascot decoration overlapping content frame top-left */}
               <img src="/assets/figma/categroy-decor-3.png" alt="" className="pointer-events-none"
-                style={{ position: 'absolute', left: 14, top: 48, width: 43, height: 58, zIndex: 2 }} />
+                style={{ position: 'absolute', left: 19, top: 64, width: 43, height: 46, zIndex: 2 }} />
 
               {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
               <div className="flex-1 relative overflow-hidden" style={{
-                margin: '20px 13px 10px',
+                margin: '0 13px 30px',
                 border: '2px solid #000', borderRadius: 10,
               }}>
                 {/* Beach background image inside the frame */}
