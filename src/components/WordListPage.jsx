@@ -303,7 +303,11 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                         className="text-black font-normal"
                         style={{
                           fontSize: (isReverse ? (nativeLang === 'ja') : isTargetJa) ? 20 : 18,
-                          fontFamily: isReverse ? getFontFamily(nativeLang) : targetFont,
+                          // English uses "Arial Black" elsewhere (intentional bold look),
+                          // but the WordList row should be regular weight.
+                          fontFamily: (isReverse ? nativeLang : targetLang) === 'en'
+                            ? 'Arial, sans-serif'
+                            : (isReverse ? getFontFamily(nativeLang) : targetFont),
                         }}
                       >
                         {displayText}

@@ -107,7 +107,13 @@
       "Bash(node -e \"import\\('xlsx'\\).then\\(XLSX => { const wb = XLSX.default.readFile\\('update_data_folder/Vocab_Confirmed.xlsx'\\); console.log\\('Sheets:', wb.SheetNames\\); const cs = wb.Sheets['Covers']; if \\(cs\\) { console.log\\('\\\\\\\\nCovers sheet raw:'\\); console.log\\(XLSX.default.utils.sheet_to_csv\\(cs\\)\\); } else { console.log\\('NO Covers sheet!'\\); } }\\);\")",
       "Bash(node scripts/sync-data.mjs --auto)",
       "Bash(node -e ':*)",
-      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/public/images/Banana* /Users/miaofang/Desktop/VocabWorkspace/public/images/banana*)"
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/public/images/Banana* /Users/miaofang/Desktop/VocabWorkspace/public/images/banana*)",
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/public/assets/figma/all-smile-face*)",
+      "Bash(git diff:*)",
+      "Bash(node --check scripts/sync-data.mjs)",
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/*.xlsx)",
+      "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/update_data_folder/*.xlsx)",
+      "Bash(node --input-type=module)"
     ]
   }
 }

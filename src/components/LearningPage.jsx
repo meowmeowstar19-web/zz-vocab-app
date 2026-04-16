@@ -82,9 +82,9 @@ const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
 // Tab labels for category modal
 const CATEGORY_TAB_LABELS = {
-  zh: { level: '难度', detail: '单词', oral: '口语' },
+  zh: { level: '难度', detail: '单词', oral: '短语' },
   en: { level: 'Level', detail: 'Words', oral: 'Phrases' },
-  ja: { level: '難度', detail: '単語', oral: '会話' },
+  ja: { level: '難度', detail: '単語', oral: 'フレーズ' },
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
@@ -122,6 +122,15 @@ export default function LearningPage({
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
 
+  // categoryReviewMode: true when the user enters a small category that is already
+  // fully learned. The session then runs the *review queue* algorithm restricted to
+  // that category — same rules as the global Review screen, but scoped.
+  const [categoryReviewMode, setCategoryReviewMode] = useState(false);
+  // effectiveIsReview drives queue/handler logic; the visual `isReview` prop still
+  // controls the back button + review background, so categoryReviewMode keeps the
+  // normal learning UI (including the category button to switch categories).
+  const effectiveIsReview = isReview || categoryReviewMode;
+
   const [currentIndex, setCurrentIndex] = useState(0); // used only in review mode
   const [options, setOptions] = useState([]);
   const [imageOpts, setImageOpts] = useState([]); // word objects for format B
@@ -151,8 +160,11 @@ export default function LearningPage({
   const [srsCard, setSrsCard] = useState(null); // current card from SRS queue
   const [sessionKey, setSessionKey] = useState(0); // increment to force session rebuild
   const [categoryDoneVisible, setCategoryDoneVisible] = useState(false);
+  // Shown after one complete pass of a categoryReviewMode cycle (a small category
+  // the user re-enters after already learning it). Same UI as categoryDoneVisible
+  // but triggered from the review-queue end, not the SRS session end.
+  const [categoryCycleDone, setCategoryCycleDone] = useState(false);
   const completedCatNameRef = useRef('');
-  const categoryAutoSwitchRef = useRef(null);
   const baseQueueRef = useRef([]); // initial interleaved queue
   const baseIdxRef = useRef(0);   // how many consumed from base queue
   const pendingRef = useRef([]);   // scheduled session reviews [{word, step, format, dueAt}]
@@ -167,10 +179,10 @@ export default function LearningPage({
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
   // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
-  const rawFormat = isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
+  const rawFormat = effectiveIsReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
   const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
   // Current step: 0 = first encounter (new), 1+ = session review
-  const currentStep = isReview ? null : (srsCard?.step ?? 0);
+  const currentStep = effectiveIsReview ? null : (srsCard?.step ?? 0);
 
   // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
@@ -186,9 +198,18 @@ export default function LearningPage({
   }, []);
 
   useEffect(() => {
-    if (!isReview) { setReviewCard(null); return; }
+    if (!effectiveIsReview) { setReviewCard(null); return; }
     const prog = getProgress(storageKey);
-    const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+    // In categoryReviewMode, restrict the review pool to the selected sub-category
+    // (and level, when applicable) — global review still pulls from all eligible words.
+    let pool = allWordsFiltered;
+    if (categoryReviewMode && selectedCategory !== 'all') {
+      pool = pool.filter(w => w.category === selectedCategory);
+      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+        pool = pool.filter(w => w.level === selectedLevel);
+      }
+    }
+    const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
     if (eligible.length === 0) { setReviewCard(null); return; }
     // Load persisted word states so card types (B/C/A) and error weights survive re-entry
     const savedStates = getReviewWordStates(storageKey);
@@ -197,7 +218,7 @@ export default function LearningPage({
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
     showNextReviewCard(queue, 0, reviewWordStatesRef.current);
-  }, [isReview, langKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Speak function based on target language
   const speakCurrent = useCallback((text) => {
@@ -289,6 +310,23 @@ export default function LearningPage({
     setCurrentIndex(0);
   }, [langKey]);
 
+  // Detect categoryReviewMode: true iff the user is currently inside a *specific*
+  // sub-category whose words are all already learned. We snapshot at category-switch
+  // time only (deps exclude `progress`) so finishing a word mid-session doesn't
+  // abruptly flip the user from learning into review — that path goes through the
+  // category-done popup + auto-switch to "all" instead.
+  useEffect(() => {
+    if (isReview) { setCategoryReviewMode(false); return; }
+    if (selectedCategory === 'all') { setCategoryReviewMode(false); return; }
+    const prog = getProgress(storageKey);
+    let pool = activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === selectedCategory);
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+      pool = pool.filter(w => w.level === selectedLevel);
+    }
+    const fullyDone = pool.length > 0 && pool.every(w => prog[w.id]?.timestamp);
+    setCategoryReviewMode(fullyDone);
+  }, [isReview, selectedCategory, selectedLevel, isOralMode, nativeLang, targetLang, langKey, sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Review mode: wordPool (unchanged) ──
   const wordPool = useMemo(() => {
     if (!isReview) return []; // not used in SRS mode
@@ -336,7 +374,7 @@ export default function LearningPage({
   }, []);
 
   useEffect(() => {
-    if (isReview) {
+    if (effectiveIsReview) {
       setSrsCard(null);
       sessionInitKey.current = ''; // invalidate so session rebuilds when user returns
       return;
@@ -386,7 +424,7 @@ export default function LearningPage({
     } else {
       setSrsCard(null);
     }
-  }, [isReview, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
+  }, [effectiveIsReview, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
@@ -394,63 +432,22 @@ export default function LearningPage({
     setSessionKey(k => k + 1);
   }, []);
 
-  // ── Category-done detection: auto-switch when a category is exhausted ──
+  // ── Category-done detection (SRS learning path) ──
+  // Fires when the SRS session runs out of cards but more words exist globally.
+  // Shows a popup with 2 actions ("重新复习" vs "学习新的") — no auto-switch.
   useEffect(() => {
-    // Don't trigger when the page is hidden, or while the session is being (re)built
-    if (isReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
+    if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
 
     const prog = getProgress(storageKey);
     const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
     if (unlearned.length === 0) return; // truly all done — show the all-done screen
 
-    // Current category/level exhausted but more words exist globally
     completedCatNameRef.current = catLabels[selectedCategory] || '';
     setCategoryDoneVisible(true);
-
-    categoryAutoSwitchRef.current = setTimeout(() => {
-      categoryAutoSwitchRef.current = null;
-      setCategoryDoneVisible(false);
-      const progNow = getProgress(storageKey);
-
-      // If under a specific category (detail or oral), find the next category with unlearned words
-      if (selectedCategory !== 'all') {
-        const catList = isOralMode
-          ? oralCategories.filter(c => c !== 'all')
-          : categories.filter(c => c !== 'all');
-        const currentIdx = catList.indexOf(selectedCategory);
-        // Search from after current, then wrap around
-        const ordered = [...catList.slice(currentIdx + 1), ...catList.slice(0, currentIdx)];
-        const nextCat = ordered.find(cat => {
-          return allWordsFiltered.some(w => w.category === cat && !progNow[w.id]?.timestamp);
-        });
-        if (nextCat) {
-          onCategoryChange?.(nextCat);
-          onLevelChange?.(selectedLevel);
-          resetSrsSession();
-          return;
-        }
-      }
-
-      // Fallback: switch to 'all' if no next category found
-      const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
-        ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
-        : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
-      onCategoryChange?.('all');
-      onLevelChange?.(hasUnlearnedAtLevel ? selectedLevel : 'all');
-      resetSrsSession();
-    }, 2200);
-
-    return () => {
-      if (categoryAutoSwitchRef.current) {
-        clearTimeout(categoryAutoSwitchRef.current);
-        categoryAutoSwitchRef.current = null;
-      }
-      setCategoryDoneVisible(false);
-    };
-  }, [srsCard, isReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [srsCard, effectiveIsReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Unified currentWord ──
-  const currentWord = isReview ? (reviewCard?.word || null) : (srsCard?.word || null);
+  const currentWord = effectiveIsReview ? (reviewCard?.word || null) : (srsCard?.word || null);
   const displayWord = currentWord ? getWordText(currentWord, targetLang) : '';
 
   const displaySentence = useMemo(() => {
@@ -608,7 +605,7 @@ export default function LearningPage({
 
   // ── Advance logic ──
   const advanceToNext = useCallback(() => {
-    if (isReview) {
+    if (effectiveIsReview) {
       const card = reviewCard;
       if (!card) return;
       const hadWrong = wrongSelections.size > 0 || wrongImageIds.size > 0;
@@ -633,8 +630,16 @@ export default function LearningPage({
 
       reviewPointerRef.current++;
 
-      // If cycle exhausted, rebuild with fresh shuffle (keep word states so type & error weight carries over)
+      // If cycle exhausted:
+      // · categoryReviewMode → show the category-done popup (2-button choice: review again / learn new)
+      // · global review mode → rebuild queue from all eligible words, continue immediately
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
+        if (categoryReviewMode) {
+          completedCatNameRef.current = catLabels[selectedCategory] || '';
+          setCategoryCycleDone(true);
+          setReviewCard(null);
+          return;
+        }
         const prog = getProgress(storageKey);
         const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) { setReviewCard(null); return; }
@@ -757,7 +762,7 @@ export default function LearningPage({
     totalShownRef.current++;
     setProgress(getProgress(storageKey));
     showNextCard();
-  }, [isReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
+  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
 
   // ── Click handlers ──
   const handleOptionClick = useCallback((option) => {
@@ -828,18 +833,31 @@ export default function LearningPage({
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();
-    if (!isReview) markWordLearned(currentWord.id, storageKey);
+    if (!effectiveIsReview) markWordLearned(currentWord.id, storageKey);
     toggleMastered(currentWord.id, true, storageKey);
-    if (isReview) {
+    if (effectiveIsReview) {
       const skippedId = currentWord.id;
       // Remove all occurrences of this word from the review queue
       reviewQueueRef.current = reviewQueueRef.current.filter((w, idx) => idx < reviewPointerRef.current || w.id !== skippedId);
       delete reviewWordStatesRef.current[skippedId];
       setTimeout(() => {
         const prog = getProgress(storageKey);
-        const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+        // Pool scope: categoryReviewMode stays within sub-category; global review pulls from everything
+        let basePool = allWordsFiltered;
+        if (categoryReviewMode && selectedCategory !== 'all') {
+          basePool = basePool.filter(w => w.category === selectedCategory);
+          if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
+        }
+        const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) { setReviewCard(null); return; }
         if (reviewPointerRef.current >= reviewQueueRef.current.length) {
+          if (categoryReviewMode) {
+            completedCatNameRef.current = catLabels[selectedCategory] || '';
+            setCategoryCycleDone(true);
+            setReviewCard(null);
+            setProgress(prog);
+            return;
+          }
           const queue = buildReviewQueueFromWords(eligible, prog);
           reviewQueueRef.current = queue;
           reviewPointerRef.current = 0;
@@ -857,11 +875,11 @@ export default function LearningPage({
         showNextCard();
       }, 400);
     }
-  }, [currentWord, isReview, storageKey, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
+  }, [currentWord, effectiveIsReview, storageKey, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
 
   // Counter text
   const counterText = useMemo(() => {
-    if (isReview) {
+    if (effectiveIsReview) {
       const total = reviewQueueRef.current.length;
       const pos = reviewPointerRef.current + 1;
       return total > 0 ? `${Math.min(pos, total)}/${total}` : '0/0';
@@ -873,7 +891,7 @@ export default function LearningPage({
     const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
     return `${learned}/${total}`;
-  }, [isReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress]);
+  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress]);
 
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
@@ -889,12 +907,60 @@ export default function LearningPage({
 
   const handleConfirmCategories = useCallback(() => {
     window.speechSynthesis.cancel();
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
     onCategoryChange?.(pendingCategory);
     onLevelChange?.(pendingLevel);
     setCurrentIndex(0);
     resetSrsSession();
     setShowCategories(false);
   }, [pendingCategory, pendingLevel, onCategoryChange, onLevelChange, resetSrsSession]);
+
+  // ── Category-done popup button handlers ──
+  // "Review Again": stay on the current category/level, switch into categoryReviewMode
+  // (which replays the finished list with B/C question-type cycling). In SRS-done
+  // state this activates review mode; in cycle-done state it rebuilds the queue.
+  const handleReviewAgain = useCallback(() => {
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
+    setCategoryReviewMode(true);
+
+    // Rebuild the review queue immediately so the next render already has a card
+    const prog = getProgress(storageKey);
+    let pool = allWordsFiltered;
+    if (selectedCategory !== 'all') {
+      pool = pool.filter(w => w.category === selectedCategory);
+      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+        pool = pool.filter(w => w.level === selectedLevel);
+      }
+    }
+    const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+    if (eligible.length === 0) { setReviewCard(null); return; }
+
+    // Keep persisted word states so B→C progression carries across cycles
+    const savedStates = getReviewWordStates(storageKey);
+    reviewWordStatesRef.current = savedStates;
+    const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
+    reviewQueueRef.current = queue;
+    reviewPointerRef.current = 0;
+    showNextReviewCard(queue, 0, savedStates);
+    setProgress(prog);
+  }, [allWordsFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard]);
+
+  // "Learn New": exit review mode for this category and jump to the "All" category,
+  // so the SRS engine pulls the next batch of unlearned words from anywhere.
+  const handleLearnNew = useCallback(() => {
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
+    setCategoryReviewMode(false);
+    const progNow = getProgress(storageKey);
+    const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
+      ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
+      : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
+    onCategoryChange?.('all');
+    onLevelChange?.(hasUnlearnedAtLevel ? selectedLevel : 'all');
+    resetSrsSession();
+  }, [allWordsFiltered, selectedLevel, storageKey, onCategoryChange, onLevelChange, resetSrsSession]);
 
   // Font for target language
   const targetFont = getFontFamily(targetLang);
@@ -907,7 +973,9 @@ export default function LearningPage({
       : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
 
   // ── Category done popup (more words exist in other categories) ──
-  if (!currentWord && categoryDoneVisible) {
+  // Fires from TWO sources: SRS session exhausted (categoryDoneVisible) or
+  // review cycle finished (categoryCycleDone). Same UI — 2 buttons, user choice.
+  if (!currentWord && (categoryDoneVisible || categoryCycleDone)) {
     return (
       <div className="flex flex-col h-full relative">
         <div className="absolute inset-0 z-0">
@@ -915,15 +983,30 @@ export default function LearningPage({
         </div>
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
           <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
-            style={{ border: '2px solid #000' }}>
+            style={{ border: '2px solid #000', maxWidth: 320 }}>
             <div className="text-5xl mb-3">🎊</div>
-            <div className="text-xl font-extrabold text-textMain mb-1">{t.categoryDone}</div>
+            <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
             {completedCatNameRef.current && (
               <div className="text-textSub text-sm mt-1">
-                {completedCatNameRef.current} {t.allLearned}
+                {completedCatNameRef.current}{t.allLearned}
               </div>
             )}
-            <div className="text-[#999] text-xs mt-3">{t.autoSwitching}</div>
+            <div className="flex gap-3 mt-5 w-full justify-center">
+              <button
+                onClick={handleReviewAgain}
+                className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                style={{ backgroundColor: '#fbf2e2', color: '#000', border: '2px solid #000' }}
+              >
+                {t.reviewAgain}
+              </button>
+              <button
+                onClick={handleLearnNew}
+                className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                style={{ backgroundColor: '#ffd016', color: '#000', border: '2px solid #000' }}
+              >
+                {t.learnNew}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1476,14 +1559,15 @@ export default function LearningPage({
                   <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
                 )}
               </div>
-              {/* Progress bar */}
+              {/* Progress bar — green (#C1FF6B) once category is fully learned */}
               <div style={{
                 width: 75, height: 12, borderRadius: 100,
                 backgroundColor: '#f0dac2', border: '1.5px solid #000',
                 marginTop: 10, position: 'relative', overflow: 'hidden',
               }}>
                 <div style={{
-                  height: '100%', borderRadius: 100, backgroundColor: '#ffcc00',
+                  height: '100%', borderRadius: 100,
+                  backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
                   width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
                 }} />
               </div>
@@ -1541,7 +1625,7 @@ export default function LearningPage({
                         if (categoryTab !== tab.key) {
                           setCategoryTab(tab.key);
                           if (tab.key === 'detail') { setPendingCategory('all'); setPendingLevel('all'); }
-                          else if (tab.key === 'oral') { setPendingCategory(oralCats[0] || 'everyday'); setPendingLevel('oral'); }
+                          else if (tab.key === 'oral') { setPendingCategory('all'); setPendingLevel('oral'); }
                         }
                       }}
                       style={{
@@ -1642,31 +1726,44 @@ export default function LearningPage({
                   })()}
 
                   {/* === ORAL TAB === */}
-                  {categoryTab === 'oral' && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
-                      {oralCats.map((cat, idx) => {
-                        const isSelected = pendingCategory === cat && categoryTab === 'oral';
+                  {categoryTab === 'oral' && (() => {
+                    // Build items: "all" card first, followed by each concrete oral category
+                    const oralItems = [
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: oralPhrases },
+                      ...oralCats.map(cat => {
                         const imgFile = oralCategoryCovers[cat];
-                        const pool = oralPhrases.filter(w => w.category === cat);
-                        const prog = getCatProgress(pool);
-                        const rowIdx = Math.floor(idx / 3);
-                        const colIdx = idx % 3;
-                        const row = getRowDecor(`oral-${rowIdx}`);
-                        const decor = {
-                          hasLetter: row.letterIdx === colIdx,
-                          hasStar: row.starIdx === colIdx,
-                          starAtTR: row.starAtTR,
+                        return {
+                          key: cat,
+                          label: oralCatLabels[cat],
+                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          pool: oralPhrases.filter(w => w.category === cat),
                         };
-                        return renderCatCard(
-                          cat,
-                          imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
-                          oralCatLabels[cat], isSelected,
-                          () => { setPendingCategory(cat); setPendingLevel('oral'); },
-                          prog, decor,
-                        );
-                      })}
-                    </div>
-                  )}
+                      }),
+                    ];
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                        {oralItems.map((item, idx) => {
+                          const isSelected = pendingCategory === item.key && categoryTab === 'oral';
+                          const prog = getCatProgress(item.pool);
+                          const rowIdx = Math.floor(idx / 3);
+                          const colIdx = idx % 3;
+                          const row = getRowDecor(`oral-${rowIdx}`);
+                          const decor = {
+                            hasLetter: row.letterIdx === colIdx,
+                            // Suppress star on row 0 (keeps the "全部" card area clean)
+                            hasStar: rowIdx !== 0 && row.starIdx === colIdx,
+                            starAtTR: row.starAtTR,
+                          };
+                          return renderCatCard(
+                            item.key, item.imgSrc, item.label, isSelected,
+                            () => { setPendingCategory(item.key); setPendingLevel('oral'); },
+                            prog, decor,
+                            { imageContain: item.key === 'all' },
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

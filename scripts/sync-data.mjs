@@ -17,6 +17,7 @@ import {
 import { join, dirname, basename, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import readline from 'node:readline';
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,7 @@ const ROOT = resolve(__dirname, '..');
 const DATA_DIR = join(ROOT, 'update_data_folder');
 const VOCAB_XLSX = join(DATA_DIR, 'WordList.xlsx');
 const ORAL_XLSX = join(DATA_DIR, 'Daily_Expressions.xlsx');
+const CATEGORY_XLSX = join(DATA_DIR, 'category.xlsx');
 const IMG_IN = join(DATA_DIR, 'updated_image');
 const IMG_OUT = join(ROOT, 'public', 'images');
 const PROCESSED_DIR = join(DATA_DIR, '_processed_images');
@@ -142,6 +144,93 @@ function ensureDir(p) {
   if (!existsSync(p)) mkdirSync(p, { recursive: true });
 }
 
+// ── Interactive prompt helper ────────────────────────────────────────────────
+function prompt(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
+}
+
+// ── Duplicate detection & interactive removal ────────────────────────────────
+// Reads the first sheet of `file`, finds rows where the value in `keyCol`
+// (case-insensitive) appears more than once, and asks the user which row to
+// keep for each group. Removes the rejected rows and writes back to the file.
+// Returns true if the file was modified.
+async function dedupCheck(file, keyCol, label) {
+  if (!existsSync(file)) return false;
+  const wb = XLSX.readFile(file);
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  if (aoa.length < 2) return false;
+
+  const header = aoa[0];
+  const keyIdx = header.findIndex(h => String(h).trim() === keyCol);
+  if (keyIdx < 0) {
+    log.warn(`dedupCheck: column "${keyCol}" not found in ${file}`);
+    return false;
+  }
+
+  // Group data rows (idx 1+) by lowercased key
+  const groups = new Map(); // key → [{ rowIdx, row }]
+  for (let i = 1; i < aoa.length; i++) {
+    const k = String(aoa[i][keyIdx] || '').trim().toLowerCase();
+    if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ rowIdx: i, row: aoa[i] });
+  }
+  const dupGroups = [...groups.entries()].filter(([, rows]) => rows.length > 1);
+  if (dupGroups.length === 0) return false;
+
+  log.section(`Duplicate check: ${label}`);
+  log.warn(`Found ${dupGroups.length} duplicate "${keyCol}" value(s) in ${basename(file)}`);
+
+  const toRemove = new Set(); // rowIdx values to delete
+
+  for (const [key, rows] of dupGroups) {
+    console.log(`\n  "${key}" appears ${rows.length} times:`);
+    rows.forEach(({ rowIdx, row }, i) => {
+      const preview = row.slice(0, Math.min(5, row.length))
+        .map(c => String(c || '').replace(/\s+/g, ' ').slice(0, 60))
+        .join(' | ');
+      console.log(`    [${i + 1}] row ${rowIdx + 1}: ${preview}`);
+    });
+    const ans = await prompt(`  Keep which? (1-${rows.length}, "a"=keep all, "s"=skip all): `);
+    const trimmed = ans.toLowerCase();
+    if (trimmed === 'a') {
+      console.log(`    → keeping all (no changes)`);
+      continue;
+    }
+    if (trimmed === 's') {
+      rows.forEach(({ rowIdx }) => toRemove.add(rowIdx));
+      console.log(`    → removing all ${rows.length} rows`);
+      continue;
+    }
+    const choice = parseInt(trimmed, 10);
+    if (!Number.isInteger(choice) || choice < 1 || choice > rows.length) {
+      log.warn(`    → invalid input "${ans}", keeping all`);
+      continue;
+    }
+    rows.forEach(({ rowIdx }, i) => {
+      if (i + 1 !== choice) toRemove.add(rowIdx);
+    });
+    console.log(`    → keeping [${choice}], removing the other ${rows.length - 1}`);
+  }
+
+  if (toRemove.size === 0) {
+    log.info(`No rows removed.`);
+    return false;
+  }
+
+  // Build new aoa skipping removed rows
+  const newAoa = aoa.filter((_, i) => !toRemove.has(i));
+  const newWs = XLSX.utils.aoa_to_sheet(newAoa);
+  if (ws['!cols']) newWs['!cols'] = ws['!cols'];
+  wb.Sheets[sheetName] = newWs;
+  XLSX.writeFile(wb, file);
+  log.ok(`Removed ${toRemove.size} duplicate row(s); saved ${basename(file)}`);
+  return true;
+}
+
 // ── Read WordList.xlsx ───────────────────────────────────────────────────────
 function readVocab() {
   log.section('Reading WordList.xlsx');
@@ -197,14 +286,17 @@ function readVocab() {
   }
 
   log.ok(`Parsed ${words.length} vocab entries with sentences (${allRows.length} total rows)`);
-  return { wb, words, allRows };
+  return { words, allRows };
 }
 
-// ── Ensure "Covers" sheet exists + is in sync with current categories ────────
-// Reads existing Covers sheet, fills in defaults/random for new categories,
-// validates stale entries, writes the sheet back to xlsx.
-function ensureCoversSheet(wb, words, phrases) {
-  log.section('Syncing "Covers" sheet');
+// ── Sync category.xlsx — source of truth for covers + display order ──────────
+// Sheet "Categories"       — vocab categories. Row order = display order.
+//                            Columns: "Category" (Title Case), "Cover Image Word"
+// Sheet "Phrase Categories" — oral categories. Same column structure.
+// If a new category appears in the data that isn't in the sheet yet, it gets
+// appended automatically so the user can reorder / update it.
+function ensureCategoryXlsx(words, phrases) {
+  log.section('Syncing category.xlsx (covers + order)');
 
   // Build lookup: category → list of word en
   const wordsByCat = {};
@@ -214,27 +306,22 @@ function ensureCoversSheet(wb, words, phrases) {
   }
   const allWordEns = new Set(words.map(w => w.en));
 
-  // Category order from data (not alphabetical)
-  const vocabCats = [];
-  const vseen = new Set();
-  for (const w of words) if (!vseen.has(w.category)) { vocabCats.push(w.category); vseen.add(w.category); }
+  const vocabCatsInData = new Set(words.map(w => w.category));
+  const oralCatsInData  = new Set(phrases.map(p => p.category));
 
-  const oralCats = [];
-  const oseen = new Set();
-  for (const p of phrases) if (!oseen.has(p.category)) { oralCats.push(p.category); oseen.add(p.category); }
-
-  // Read existing Covers sheet (if any)
-  const existing = {}; // { 'vocab-adjective': 'good', ... }
-  if (wb.Sheets['Covers']) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Covers'], { defval: '' });
-    for (const row of rows) {
-      const target = String(row['Target'] || '').trim();
-      const word   = String(row['Cover Word'] || '').trim();
-      if (target && word) existing[target] = word;
-    }
+  if (!existsSync(CATEGORY_XLSX)) {
+    log.warn('category.xlsx not found — falling back to DEFAULT_VOCAB_COVERS / DEFAULT_ORAL_COVERS');
+    const covers = { vocab: {}, oral: {}, vocabOrder: [], oralOrder: [] };
+    for (const [k, v] of Object.entries(DEFAULT_VOCAB_COVERS)) { covers.vocab[k] = v; covers.vocabOrder.push(k); }
+    for (const [k, v] of Object.entries(DEFAULT_ORAL_COVERS))  { covers.oral[k]  = v; covers.oralOrder.push(k); }
+    return covers;
   }
 
-  // Stable pseudo-random pick by category name (so same cat → same random word across runs)
+  const wb = XLSX.readFile(CATEGORY_XLSX);
+  let changed = false;
+  const warnings = [];
+
+  // Stable pseudo-random pick by category name (same cat → same word across runs)
   function seededPick(arr, seed) {
     if (!arr || arr.length === 0) return null;
     let h = 0;
@@ -242,82 +329,150 @@ function ensureCoversSheet(wb, words, phrases) {
     return arr[h % arr.length];
   }
 
-  const covers = { vocab: {}, oral: {} };
-  const newRows = [];
-  let changed = !wb.Sheets['Covers'];
-  const warnings = [];
-
-  // Vocab
-  for (const cat of vocabCats) {
-    const key = `vocab-${cat}`;
-    let word = existing[key];
-
-    if (word && !wordsByCat[cat]?.includes(word)) {
-      warnings.push(`"${word}" not in vocab category "${cat}" — re-picking`);
-      word = null;
-    }
-    if (!word) {
-      const defFile = DEFAULT_VOCAB_COVERS[cat];
-      word = defFile ? defFile.replace(/\.jpg$/, '') : seededPick(wordsByCat[cat], cat);
-      changed = true;
-    }
-    if (word) {
-      covers.vocab[cat] = `${word}.jpg`;
-      newRows.push({ Target: key, 'Cover Word': word });
+  // ── Vocab: read from "Categories" sheet ──────────────────────────────────
+  const vocabOrdered = [];
+  if (wb.Sheets['Categories']) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Categories'], { defval: '' });
+    for (const row of rows) {
+      const rawCat = String(row['Category'] || '').trim();
+      const word   = String(row['Cover Image Word'] || '').trim();
+      if (!rawCat) continue;
+      const cat = VOCAB_CATEGORY_MAP[rawCat] || rawCat.toLowerCase();
+      vocabOrdered.push({ cat, word, rawCat });
     }
   }
 
-  // Oral — cover image is drawn from the vocab pool (oral phrases have no images)
-  for (const cat of oralCats) {
-    const key = `oral-${cat}`;
-    let word = existing[key];
+  const vocabOut = [];
+  const vocabSeen = new Set();
+  for (const { cat, word } of vocabOrdered) {
+    if (!vocabCatsInData.has(cat)) {
+      warnings.push(`Categories: skipping "${cat}" (no words in data)`);
+      continue;
+    }
+    if (vocabSeen.has(cat)) {
+      warnings.push(`Categories: duplicate row for "${cat}" — keeping first`);
+      continue;
+    }
+    if (word && !wordsByCat[cat]?.includes(word)) {
+      warnings.push(`Categories: cover word "${word}" not in category "${cat}" — please fix in category.xlsx`);
+    }
+    vocabOut.push({ cat, word });
+    vocabSeen.add(cat);
+  }
+  // Append any data categories not yet in the sheet
+  const dataOrderVocab = [];
+  const vdataSeen = new Set();
+  for (const w of words) if (!vdataSeen.has(w.category)) { dataOrderVocab.push(w.category); vdataSeen.add(w.category); }
+  for (const cat of dataOrderVocab) {
+    if (vocabSeen.has(cat)) continue;
+    const def = DEFAULT_VOCAB_COVERS[cat];
+    const word = def ? def.replace(/\.jpg$/, '') : seededPick(wordsByCat[cat], cat);
+    vocabOut.push({ cat, word: word || '' });
+    vocabSeen.add(cat);
+    changed = true;
+    log.warn(`Categories: new category "${cat}" — appending to category.xlsx with cover "${word}"`);
+  }
 
+  // ── Oral: read from "Phrase Categories" sheet ─────────────────────────────
+  if (!wb.Sheets['Phrase Categories']) changed = true; // sheet missing → will create
+
+  const oralOrdered = [];
+  if (wb.Sheets['Phrase Categories']) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Phrase Categories'], { defval: '' });
+    for (const row of rows) {
+      const cat  = String(row['Category'] || '').trim();
+      const word = String(row['Cover Image Word'] || '').trim();
+      if (!cat) continue;
+      oralOrdered.push({ cat, word });
+    }
+  }
+
+  const oralOut = [];
+  const oralSeen = new Set();
+  for (const { cat, word } of oralOrdered) {
+    if (!oralCatsInData.has(cat)) {
+      warnings.push(`Phrase Categories: skipping "${cat}" (no phrases in data)`);
+      continue;
+    }
+    if (oralSeen.has(cat)) {
+      warnings.push(`Phrase Categories: duplicate row for "${cat}" — keeping first`);
+      continue;
+    }
     if (word && !allWordEns.has(word)) {
-      warnings.push(`"${word}" not in vocab words (oral cover "${cat}") — re-picking`);
-      word = null;
+      warnings.push(`Phrase Categories: cover word "${word}" is not a vocab word — please fix in category.xlsx`);
     }
-    if (!word) {
-      const defFile = DEFAULT_ORAL_COVERS[cat];
-      word = defFile ? defFile.replace(/\.jpg$/, '') : seededPick([...allWordEns], `oral-${cat}`);
-      changed = true;
-    }
-    if (word) {
-      covers.oral[cat] = `${word}.jpg`;
-      newRows.push({ Target: key, 'Cover Word': word });
-    }
+    oralOut.push({ cat, word });
+    oralSeen.add(cat);
+  }
+  // Append any oral categories not yet in the sheet
+  const dataOrderOral = [];
+  const odataSeen = new Set();
+  for (const p of phrases) if (!odataSeen.has(p.category)) { dataOrderOral.push(p.category); odataSeen.add(p.category); }
+  for (const cat of dataOrderOral) {
+    if (oralSeen.has(cat)) continue;
+    const def = DEFAULT_ORAL_COVERS[cat];
+    const word = def ? def.replace(/\.jpg$/, '') : seededPick([...allWordEns], `oral-${cat}`);
+    oralOut.push({ cat, word: word || '' });
+    oralSeen.add(cat);
+    changed = true;
+    log.warn(`Phrase Categories: new category "${cat}" — appending to category.xlsx with cover "${word}"`);
   }
 
   warnings.forEach(w => log.warn(w));
 
-  // Detect stale entries (targets that no longer exist)
-  const validKeys = new Set(newRows.map(r => r.Target));
-  const stale = Object.keys(existing).filter(k => !validKeys.has(k));
-  if (stale.length > 0) {
-    log.warn(`Removing stale Covers entries: ${stale.join(', ')}`);
-    changed = true;
-  }
-
-  // Write sheet back if anything changed
+  // ── Write back to category.xlsx if anything changed ───────────────────────
   if (changed) {
-    // Guard: refuse to write if Excel has the file open (lock file present).
-    // Excel's in-memory version would overwrite our changes on its next save.
-    const lockFile = join(DATA_DIR, `~$${basename(VOCAB_XLSX)}`);
+    const lockFile = join(DATA_DIR, `~$${basename(CATEGORY_XLSX)}`);
     if (existsSync(lockFile)) {
-      log.err(`WordList.xlsx is open in Excel (lock file: ${basename(lockFile)})`);
-      log.err(`Close the file in Excel completely, then re-run the sync.`);
-      log.err(`Refusing to write "Covers" sheet — otherwise Excel would overwrite it.`);
-      throw new Error('Excel has WordList.xlsx open — close it and re-run');
+      log.err(`category.xlsx is open in Excel — close it and re-run`);
+      throw new Error('Excel has category.xlsx open — close it and re-run');
     }
-    const newSheet = XLSX.utils.json_to_sheet(newRows, { header: ['Target', 'Cover Word'] });
-    newSheet['!cols'] = [{ wch: 22 }, { wch: 18 }];
-    wb.Sheets['Covers'] = newSheet;
-    if (!wb.SheetNames.includes('Covers')) wb.SheetNames.push('Covers');
-    XLSX.writeFile(wb, VOCAB_XLSX);
-    log.ok(`Wrote "Covers" sheet (${newRows.length} entries) to WordList.xlsx`);
+
+    // Vocab: append new rows to the existing "Categories" sheet (preserves all other columns)
+    if (wb.Sheets['Categories']) {
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets['Categories'], { header: 1, defval: '' });
+      const header = aoa[0] || [];
+      const catColIdx   = header.findIndex(h => String(h).trim() === 'Category');
+      const coverColIdx = header.findIndex(h => String(h).trim() === 'Cover Image Word');
+      const sheetCats = new Set(
+        aoa.slice(1).map(row => {
+          const raw = String(row[catColIdx] || '').trim();
+          return VOCAB_CATEGORY_MAP[raw] || raw.toLowerCase();
+        })
+      );
+      for (const { cat, word } of vocabOut) {
+        if (sheetCats.has(cat)) continue;
+        const newRow = new Array(header.length).fill('');
+        if (catColIdx   >= 0) newRow[catColIdx]   = cat;
+        if (coverColIdx >= 0) newRow[coverColIdx] = word;
+        aoa.push(newRow);
+      }
+      wb.Sheets['Categories'] = XLSX.utils.aoa_to_sheet(aoa);
+    }
+
+    // Oral: fully write "Phrase Categories" sheet
+    const oralRows  = oralOut.map(({ cat, word }) => ({ 'Category': cat, 'Cover Image Word': word }));
+    const oralSheet = XLSX.utils.json_to_sheet(oralRows, { header: ['Category', 'Cover Image Word'] });
+    oralSheet['!cols'] = [{ wch: 20 }, { wch: 18 }];
+    wb.Sheets['Phrase Categories'] = oralSheet;
+    if (!wb.SheetNames.includes('Phrase Categories')) wb.SheetNames.push('Phrase Categories');
+
+    XLSX.writeFile(wb, CATEGORY_XLSX);
+    log.ok(`Updated category.xlsx (${vocabOut.length} vocab + ${oralOut.length} phrase categories)`);
   } else {
-    log.ok(`"Covers" sheet up to date (${newRows.length} entries)`);
+    log.ok(`category.xlsx up to date (${vocabOut.length} vocab + ${oralOut.length} phrase categories)`);
   }
 
+  // Build final covers map + ordered category lists for consumers
+  const covers = { vocab: {}, oral: {}, vocabOrder: [], oralOrder: [] };
+  for (const { cat, word } of vocabOut) {
+    covers.vocab[cat] = word ? `${word}.jpg` : null;
+    covers.vocabOrder.push(cat);
+  }
+  for (const { cat, word } of oralOut) {
+    covers.oral[cat] = word ? `${word}.jpg` : null;
+    covers.oralOrder.push(cat);
+  }
   return covers;
 }
 
@@ -378,10 +533,19 @@ function readOral() {
 }
 
 // ── Generate src/data/words.js ──────────────────────────────────────────────
-function writeWordsJs(words) {
+function writeWordsJs(words, catOrder) {
+  // catOrder: explicit category order from "Categories" sheet row order in category.xlsx.
+  // Append any straggler categories (in data but missing from catOrder) at the end.
   const catsInOrder = [];
   const seen = new Set();
+  for (const c of (catOrder || [])) {
+    if (words.some(w => w.category === c) && !seen.has(c)) { catsInOrder.push(c); seen.add(c); }
+  }
   for (const w of words) if (!seen.has(w.category)) { catsInOrder.push(w.category); seen.add(w.category); }
+
+  // Sort words by catsInOrder so the emitted array mirrors the sheet order
+  const catIndex = Object.fromEntries(catsInOrder.map((c, i) => [c, i]));
+  const orderedWords = [...words].sort((a, b) => (catIndex[a.category] ?? 999) - (catIndex[b.category] ?? 999));
 
   // Category labels (Chinese, for words.js default display)
   const labels = { all: labelFor('all', 'zh') };
@@ -404,7 +568,7 @@ function writeWordsJs(words) {
   out += `// Format: [img, en, zh, category, level, sentence, sentenceZh]\n`;
   out += `const raw = [\n`;
   let lastCat = null;
-  for (const w of words) {
+  for (const w of orderedWords) {
     if (w.category !== lastCat) {
       if (lastCat !== null) out += `\n`;
       out += `  // ===== ${w.category.toUpperCase()} ${labelFor(w.category, 'zh')} =====\n`;
@@ -474,14 +638,25 @@ function writeJaDataJs(words) {
 }
 
 // ── Generate src/data/oralPhrases.js ────────────────────────────────────────
-function writeOralPhrasesJs(phrases) {
+function writeOralPhrasesJs(phrases, catOrder) {
+  // catOrder: explicit category order from "Phrase Categories" sheet row order in category.xlsx.
+  const catsInOrder = [];
+  const seen = new Set();
+  for (const c of (catOrder || [])) {
+    if (phrases.some(p => p.category === c) && !seen.has(c)) { catsInOrder.push(c); seen.add(c); }
+  }
+  for (const p of phrases) if (!seen.has(p.category)) { catsInOrder.push(p.category); seen.add(p.category); }
+
+  const catIndex = Object.fromEntries(catsInOrder.map((c, i) => [c, i]));
+  const orderedPhrases = [...phrases].sort((a, b) => (catIndex[a.category] ?? 999) - (catIndex[b.category] ?? 999));
+
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
   out += `// Source: update_data_folder/Daily_Expressions.xlsx\n`;
   out += `// Format: [english, chinese, category, sentence, sentenceZh]\n\n`;
 
   out += `const raw = [\n`;
-  for (const p of phrases) {
+  for (const p of orderedPhrases) {
     out += `  [${[
       jsStr(p.en),
       jsStr(p.zh),
@@ -512,7 +687,8 @@ function writeOralPhrasesJs(phrases) {
   out += `  return a;\n`;
   out += `}\n\n`;
   out += `export const oralPhrasesShuffled = shuffleArray(oralPhrases);\n`;
-  out += `export const oralCategories = ['all', ...new Set(raw.map(r => r[2]))];\n\n`;
+  out += `// Category order: mirrors "Phrase Categories" sheet row order in category.xlsx\n`;
+  out += `export const oralCategories = [${['all', ...catsInOrder].map(jsStr).join(', ')}];\n\n`;
 
   out += `// Category labels\n`;
   out += `export const ORAL_CATEGORY_LABELS = {\n`;
@@ -532,9 +708,12 @@ function writeOralPhrasesJs(phrases) {
 }
 
 // ── Generate src/data/categoryLabels.js ─────────────────────────────────────
-function writeCategoryLabelsJs(words) {
+function writeCategoryLabelsJs(words, catOrder) {
   const cats = ['all'];
   const seen = new Set(['all']);
+  for (const c of (catOrder || [])) {
+    if (words.some(w => w.category === c) && !seen.has(c)) { cats.push(c); seen.add(c); }
+  }
   for (const w of words) if (!seen.has(w.category)) { cats.push(w.category); seen.add(w.category); }
 
   // Warn about categories without translations
@@ -566,8 +745,8 @@ function writeCategoryLabelsJs(words) {
 function writeCategoryCoversJs(covers) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: "Covers" sheet in update_data_folder/WordList.xlsx\n`;
-  out += `// To change a cover: edit the "Cover Word" column in the Covers sheet\n\n`;
+  out += `// Source: update_data_folder/category.xlsx\n`;
+  out += `// To change a cover: edit "Cover Image Word" in the Categories or Phrase Categories sheet\n\n`;
 
   out += `// Representative image for each vocab category (detail tab in category modal)\n`;
   out += `export const vocabCategoryCovers = {\n`;
@@ -783,7 +962,12 @@ function gitCommitAndPush(summary) {
 async function main() {
   console.log('\n\x1b[1m🔄 VocabWorkspace Data Sync\x1b[0m');
 
-  const { wb, words: allWords, allRows } = readVocab();
+  // Interactive dedup pass: catches duplicate entries in the source xlsx files
+  // before they're parsed. Same key → same generated id → React rendering chaos.
+  await dedupCheck(VOCAB_XLSX, 'English', 'WordList.xlsx');
+  await dedupCheck(ORAL_XLSX, 'Word / Expression', 'Daily_Expressions.xlsx');
+
+  const { words: allWords, allRows } = readVocab();
   const phrases = readOral();
 
   // Process images first so new images are available for the filter below
@@ -796,16 +980,16 @@ async function main() {
     log.info(`Filtered out ${skipped} word(s) without images (${words.length} remain)`);
   }
 
-  // Ensure Covers sheet is populated/in sync; this also writes back to xlsx
-  const covers = ensureCoversSheet(wb, words, phrases);
+  // Read covers + display order from category.xlsx; writes back if new categories appear
+  const covers = ensureCategoryXlsx(words, phrases);
 
   log.section('Generating JS files');
-  writeWordsJs(words);
+  writeWordsJs(words, covers.vocabOrder);
   writeJaDataJs(words);
   writePinyinJs(allRows);
   writePhoneticsJs(allRows);
-  writeOralPhrasesJs(phrases);
-  writeCategoryLabelsJs(words);
+  writeOralPhrasesJs(phrases, covers.oralOrder);
+  writeCategoryLabelsJs(words, covers.vocabOrder);
   writeCategoryCoversJs(covers);
 
   const { archived } = archiveDeletedImages(words);

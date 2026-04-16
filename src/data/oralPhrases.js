@@ -33,7 +33,6 @@ const raw = [
   ['Let\'s call it a day', '今天就到这儿，收工！', 'everyday', 'The banana peeled halfway and said, "Let\'s call it a day."', '香蕉剥到一半说："今天就到这儿，收工！"'],
   ['grab and go', '拿了就跑，不耽误', 'everyday', 'The banana ripened at 7am, just in time for my grab-and-go breakfast.', '香蕉早上七点准时熟透，正好赶上我拿了就跑的早餐～'],
   ['fit like a glove', '简直是为我量身定做的', 'everyday', 'The banana wore its peel and declared, "It fits like a glove."', '香蕉穿着自己的皮，得意宣布："简直是为我量身定做的！"'],
-  ['a half-baked idea', '一个没想清楚的主意', 'opinions', 'The toaster tried to make soup and called it a half-baked idea — technically accurate.', '烤面包机试着做汤，还说自己是个没想清楚的主意——严格来说倒也没错啦。'],
   ['get tied up', '被事情缠住脱不开身', 'everyday', 'The headphone cord got tied up again and blamed the pocket.', '耳机线又被事情缠住脱不开身了，还一脸委屈地怪口袋。'],
   ['phones away, eyes up', '手机收起来，眼睛看前面', 'everyday', 'The basketball yelled, "Phones away, eyes up — I need some real attention here!"', '篮球大喊："手机收起来，眼睛看前面——我要真正的关注啦！"'],
   ['kick off the covers', '把被子踢飞了', 'everyday', 'The birthday balloon tried to kick off the covers but just floated higher.', '生日气球想把被子踢飞了，结果只是飘得更高了。'],
@@ -53,7 +52,6 @@ const raw = [
   ['It\'ll do', '将就用吧，够用了', 'everyday', 'The broken zipper held itself together with a safety pin and shrugged, "It\'ll do."', '坏拉链用别针把自己别起来，耸耸肩说："将就用吧，够用了。"'],
   ['down a rabbit hole', '越刷越上头', 'everyday', 'The browser went down a rabbit hole at 9pm and came back at midnight.', '浏览器晚上九点开始越刷越上头，回过神来已经午夜了。'],
   ['plug and play', '即插即用', 'everyday', 'The bubble gun only does plug and play — instruction manuals offend it personally.', '泡泡枪只认即插即用，说明书？它看了会生气的！'],
-  ['a bunch of celery', '一把芹菜', 'food', 'The fridge had a bunch of celery that refused to die and honestly intimidated everyone.', '冰箱里有一把芹菜，死活不肯蔫掉，把大家都震慑住了。'],
   ['hit your head', '磕到脑袋了', 'everyday', 'The cabinet door sits just low enough to make sure you hit your head every morning.', '橱柜门故意装得矮矮的，每天早上都让你磕到脑袋，坏得很。'],
   ['bundle up', '多穿点裹严实', 'everyday', 'The cactus bundled up for winter and looked very pleased with itself.', '仙人掌为了过冬把自己裹严实了，一脸得意地晒着太阳。'],
   ['just chilling', '就这么闲着呢', 'everyday', 'The cactus has been just chilling in the desert for three decades straight.', '仙人掌在沙漠里就这么闲着呢，一闲就是三十年。'],
@@ -129,7 +127,6 @@ const raw = [
   ['dive into something', '一头扎进去', 'everyday', 'The fork dove headfirst into a bowl of soup and immediately regretted it.', '叉子一头扎进了汤碗里，下一秒就后悔了。'],
   ['live paycheck to paycheck', '月光族', 'everyday', 'The gumball machine lives paycheck to paycheck — every coin goes straight out.', '扭蛋机是个月光族，硬币刚到手就全花光啦。'],
   ['take a deep breath', '深吸一口气', 'everyday', 'The scented candle said, "take a deep breath," and honestly, it had a point.', '香薰蜡烛小声说"深吸一口气"，说实话，它讲得还挺有道理。'],
-  ['bite your tongue', '话到嘴边又咽回去了', 'everyday', 'The fridge had a lot to say about your midnight snack but bit its tongue.', '冰箱对你的午夜零食有一肚子话想说，但最后话到嘴边又咽回去了。'],
   ['cut back', '少用点，省省吧', 'everyday', 'The fridge light is cutting back — only shows up when you open the door.', '冰箱灯在少用点呢——只有开门的时候才肯亮一下。'],
   ['between you and me', '就咱俩说，别外传', 'everyday', 'The fridge whispered "between you and me, that leftover pasta is not safe."', '冰箱偷偷嘀咕："就咱俩说，别外传，那盘剩意面不太对劲。"'],
   ['fit check', '看看今天穿搭', 'everyday', 'The fridge wore magnets like jewelry and demanded a fit check from the toaster.', '冰箱把磁铁当首饰戴，还非要烤面包机看看今天穿搭。'],
@@ -164,7 +161,6 @@ const raw = [
   ['get around to it', '找时间再搞', 'everyday', 'The last red Lego brick had been sitting on the floor for weeks, but no one got around to picking it up.', '最后那块红色乐高在地上躺了好几周，大家都说要找时间再搞，结果谁也没来。'],
   ['behind on things', '进度落后了', 'everyday', 'The laundry pile admitted it was behind on things and planned to stay that way.', '衣服堆承认自己进度落后了，而且打算就这么赖下去。'],
   ['little by little', '一点一点来', 'everyday', 'The leaky faucet wore down the sink little by little, one drip at a time.', '漏水的水龙头一点一点来，一滴一滴地把水槽磨出了小凹痕。'],
-  ['a gut feeling', '直觉', 'emotions', 'The leftovers had a gut feeling they weren\'t going to make it to Friday.', '剩饭们有种直觉——自己怕是撑不到周五了。'],
   ['fun fact', '冷知识', 'everyday', 'The lemonade shared a fun fact with every sip: "I have more vitamin C than you think."', '柠檬水每喝一口就分享一个冷知识："我的维C比你想象的多哦～"'],
   ['rub your eyes', '揉揉眼睛', 'everyday', 'The light bulb tried to rub its eyes but realized it didn\'t have any.', '灯泡想揉揉眼睛，却发现自己根本没有眼睛，一脸懵。'],
   ['throw on a belt', '搭条腰带', 'everyday', 'The little backpack threw on a belt and suddenly felt very grown-up.', '小背包搭条腰带，瞬间觉得自己超成熟的！'],
@@ -190,7 +186,6 @@ const raw = [
   ['a flash of lightning', '一道闪电', 'everyday', 'The mop shot across the kitchen floor like a flash of lightning.', '拖把嗖地一下像一道闪电划过厨房地板。'],
   ['no phone zone', '禁玩手机区', 'everyday', 'The moss declared this patch a no phone zone and held tiny meetings.', '苔藓宣布这片地是禁玩手机区，正偷偷开小会呢。'],
   ['opt in', '主动选择加入', 'everyday', 'The motorcycle decided to opt in for the scenic route and show off.', '摩托车决定主动选择加入风景路线，还要好好炫耀一番。'],
-  ['fast forward to', '快进到……', 'everyday', 'The nail clipper said, "Fast forward to the satisfying snap."', '指甲刀说："快进到那声超爽的咔嚓～"'],
   ['compatible with', '兼容', 'everyday', 'The new charger wasn\'t compatible with anything and sat in the drawer alone.', '新充电器跟谁都不兼容，只好孤零零地躲在抽屉里生闷气。'],
   ['give you blisters', '磨出水泡', 'everyday', 'The new shoe gave you blisters on day one and felt zero guilt about it.', '新鞋子第一天就把你磨出水泡，还一点愧疚感都没有，得意洋洋的。'],
   ['chafe your skin', '把皮肤磨破了', 'everyday', 'The new tag existed only to chafe your skin and cause problems.', '新衣服标签的存在意义，好像就是把皮肤磨破了、然后惹你生气。'],
@@ -203,6 +198,9 @@ const raw = [
   ['back in my day', '我们那会儿', 'everyday', 'The old receipt kept saying back in my day it was cheaper.', '那张旧小票老念叨："我们那会儿，可比这便宜多了。"'],
   ['bear with me', '稍等', 'everyday', 'The old Wi-Fi said "bear with me" and took forever like it always does.', '老Wi-Fi说"稍等哦"，然后一如既往地转啊转，转到天荒地老。'],
   ['pencil me in', '先给我留个空', 'everyday', 'The onion asked to pencil it in for a crying contest this afternoon.', '洋葱跑来撒娇："先给我留个空，下午的哭哭大赛我也要参加～"'],
+  ['a bunch of celery', '一把芹菜', 'food', 'The fridge had a bunch of celery that refused to die and honestly intimidated everyone.', '冰箱里有一把芹菜，死活不肯蔫掉，把大家都震慑住了。'],
+  ['a half-baked idea', '一个没想清楚的主意', 'opinions', 'The toaster tried to make soup and called it a half-baked idea — technically accurate.', '烤面包机试着做汤，还说自己是个没想清楚的主意——严格来说倒也没错啦。'],
+  ['a gut feeling', '直觉', 'emotions', 'The leftovers had a gut feeling they weren\'t going to make it to Friday.', '剩饭们有种直觉——自己怕是撑不到周五了。'],
 ];
 
 // Process into objects with stable IDs
@@ -228,7 +226,8 @@ function shuffleArray(arr) {
 }
 
 export const oralPhrasesShuffled = shuffleArray(oralPhrases);
-export const oralCategories = ['all', ...new Set(raw.map(r => r[2]))];
+// Category order: mirrors "Phrase Categories" sheet row order in category.xlsx
+export const oralCategories = ['all', 'everyday', 'food', 'opinions', 'emotions'];
 
 // Category labels
 export const ORAL_CATEGORY_LABELS = {
