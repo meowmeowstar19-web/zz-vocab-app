@@ -1708,22 +1708,26 @@ export default function LearningPage({
                   <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
                 )}
               </div>
-              {/* Progress bar — green (#C1FF6B) once category is fully learned */}
+              {/* Progress row: bar + count side-by-side */}
               <div style={{
-                width: 75, height: 12, borderRadius: 100,
-                backgroundColor: '#f0dac2', border: '1.5px solid #000',
-                marginTop: 10, position: 'relative', overflow: 'hidden',
+                width: '100%', marginTop: 10,
+                display: 'flex', alignItems: 'center', gap: 4,
               }}>
                 <div style={{
-                  height: '100%', borderRadius: 100,
-                  backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
-                  width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
-                }} />
+                  flex: 1, height: 12, borderRadius: 100,
+                  backgroundColor: '#ffffff', border: '1.5px solid #000',
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: 100,
+                    backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
+                    width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
+                  }} />
+                </div>
+                <span style={{ minWidth: 44, textAlign: 'center', fontSize: 12, fontWeight: 500, color: '#000', lineHeight: '18px' }}>
+                  {prog.learned}/{prog.total}
+                </span>
               </div>
-              {/* Progress text */}
-              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 2, lineHeight: '18px' }}>
-                {prog.learned}/{prog.total}
-              </span>
               {/* Category label */}
               <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 1, lineHeight: '18px', textAlign: 'center' }}>
                 {label}
@@ -1779,8 +1783,8 @@ export default function LearningPage({
                       style={{
                         width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
-                        backgroundColor: isActive ? '#FFD016' : '#fbf2e2',
-                        color: '#000',
+                        backgroundColor: isActive ? '#FFD016' : '#FBF2E2',
+                        color: isActive ? '#000' : '#A8A5A5',
                         fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}
                     >
@@ -1795,9 +1799,12 @@ export default function LearningPage({
                 style={{ position: 'absolute', left: 19, top: 64, width: 43, height: 46, zIndex: 2 }} />
 
               {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
-              <div className="flex-1 relative overflow-hidden" style={{
+              {/* minHeight locks the frame so it stays the same regardless of card count */}
+              <div className="flex-1 relative" style={{
                 margin: '0 13px 30px',
                 border: '2px solid #000', borderRadius: 10,
+                minHeight: 600,
+                overflow: 'hidden',
               }}>
                 {/* Beach background image inside the frame */}
                 <img
@@ -1807,7 +1814,7 @@ export default function LearningPage({
                 />
 
                 {/* Scrollable card area inside the frame */}
-                <div ref={catScrollContainerRef} className="relative h-full overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
+                <div ref={catScrollContainerRef} className="absolute inset-0 overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
 
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (

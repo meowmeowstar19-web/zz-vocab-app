@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { words } from '../data/words';
-import { oralPhrases } from '../data/oralPhrases';
+import { words, categories as wordCategories } from '../data/words';
+import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import { phoneticMap } from '../data/phonetics';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
+  CATEGORY_LABELS,
 } from '../utils/langHelpers';
 
 // Translation cache persists for speed — keyed by wordId_langKey
@@ -69,13 +70,17 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
   const FILTERS = useMemo(() => [
-    { key: 'time', label: t.timeOrder },
-    { key: 'random', label: t.randomOrder },
-    { key: 'reverseRandom', label: t.reverseRandom },
-    { key: 'mastered', label: t.mastered },
+    { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#98C967' },
+    { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
+    { key: 'random', label: t.randomOrder, accent: '#9cd6ff' },
+    { key: 'reverseRandom', label: t.reverseRandom, accent: '#bfafff' },
+    { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
-  const [filter, setFilter] = useState(initialFilter || 'time');
+  const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
+  const [filter, setFilter] = useState(initialFilter || 'vocabIllustrated');
+  const [subTab, setSubTab] = useState('words'); // 'words' | 'phrases'
+  const [galleryCat, setGalleryCat] = useState('food'); // first non-all word category in gallery
   const [progress, setProgress] = useState(() => getProgress(langKey));
   const [revealedWords, setRevealedWords] = useState(new Set());
   const [translationCache, setTranslationCache] = useState(() => new Map(_translationCache));
@@ -105,25 +110,49 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     }
   }, [initialFilter, langKey]);
 
-  // Include both regular words and oral phrases (oral only for zh-en)
+  // Full pool — words + oral phrases (oral phrases unavailable if ja involved).
   const allWords = useMemo(() => {
-    const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
     return jaInvolved ? words : [...words, ...oralPhrases];
-  }, [nativeLang, targetLang]);
+  }, [jaInvolved]);
 
   const eligibleWords = useMemo(() => {
     return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
   }, [nativeLang, targetLang, allWords]);
+
+  // Pool filtered by 单词/短语 sub-tab (used by non-gallery filters)
+  const subTabPool = useMemo(() => {
+    if (jaInvolved) return eligibleWords.filter(w => w.level !== 'oral');
+    if (subTab === 'phrases') return eligibleWords.filter(w => w.level === 'oral');
+    return eligibleWords.filter(w => w.level !== 'oral');
+  }, [eligibleWords, subTab, jaInvolved]);
 
   const totalLearning = useMemo(() => {
     const prog = progress;
     return eligibleWords.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
   }, [progress, eligibleWords]);
 
+  // Word categories available for gallery (only regular words, not oral phrases).
+  const galleryCategoryList = useMemo(() => {
+    return wordCategories.filter(c => c !== 'all');
+  }, []);
+
+  // Gallery view: learned OR mastered words in the selected category.
+  const galleryWords = useMemo(() => {
+    const prog = progress;
+    return words
+      .filter(w => isWordAvailable(w, nativeLang, targetLang))
+      .filter(w => w.category === galleryCat)
+      .filter(w => !!prog[w.id]?.timestamp || !!prog[w.id]?.mastered);
+  }, [progress, nativeLang, targetLang, galleryCat]);
+
+  const galleryCategoryTotal = useMemo(() => {
+    return words.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === galleryCat).length;
+  }, [nativeLang, targetLang, galleryCat]);
+
   const wordList = useMemo(() => {
     const prog = progress;
     const showMastered = filter === 'mastered';
-    let list = eligibleWords.filter(w => {
+    let list = subTabPool.filter(w => {
       const p = prog[w.id];
       if (!p) return false;
       if (showMastered) return p.mastered;
@@ -140,7 +169,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
       }
     }
     return list;
-  }, [progress, filter, randomKey, eligibleWords]);
+  }, [progress, filter, randomKey, subTabPool]);
 
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
@@ -217,7 +246,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
         </div>
 
         {/* ===== FILTER BUTTONS ===== */}
-        <div className="flex gap-2 px-3 py-2.5 overflow-x-auto scrollbar-hide justify-center">
+        <div className="flex gap-2 px-3.5 py-2.5 overflow-x-auto scrollbar-hide">
           {FILTERS.map(f => {
             const isActive = filter === f.key;
             return (
@@ -235,9 +264,10 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                   height: 32,
                   paddingLeft: 12,
                   paddingRight: 12,
-                  backgroundColor: isActive ? '#000000' : '#ffffff',
-                  border: '1.5px solid #000000',
-                  color: isActive ? '#ffffff' : '#000000',
+                  minWidth: 82,
+                  backgroundColor: isActive ? '#fff9df' : f.accent,
+                  border: isActive ? '1.5px solid #000' : `1.5px solid ${f.accent}`,
+                  color: isActive ? '#000' : '#fff',
                 }}
               >
                 {f.label}
@@ -246,8 +276,111 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
           })}
         </div>
 
+        {/* ===== SUB-NAV (gallery: word categories; others: 单词/短语) ===== */}
+        {filter === 'vocabIllustrated' ? (
+          <div className="mx-3.5 mt-1" style={{
+            borderTop: '1.5px solid #000',
+            borderLeft: '1.5px solid #000',
+            borderRight: '1.5px solid #000',
+            borderTopLeftRadius: 10,
+            borderTopRightRadius: 10,
+            overflow: 'hidden',
+            display: 'flex', flexDirection: 'column',
+            minHeight: 'calc(100vh - 240px)',
+          }}>
+            {/* Category sub-nav — flush at top, only top corners rounded via parent overflow */}
+            <div className="scrollbar-hide shrink-0" style={{
+              backgroundColor: 'rgba(255,255,255,0.6)', height: 36,
+              display: 'flex', alignItems: 'center', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+              padding: '0 12px', gap: 14,
+            }}>
+              {galleryCategoryList.map(cat => {
+                const label = (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh)[cat] || cat;
+                const active = galleryCat === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => { setGalleryCat(cat); setRevealedWords(new Set()); }}
+                    className="shrink-0 text-[14px]"
+                    style={{
+                      height: 36, padding: 0,
+                      color: active ? '#000' : '#a8a5a5',
+                      fontWeight: active ? 700 : 500,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Inner area with translucent bg */}
+            <div className="flex-1" style={{ backgroundColor: 'rgba(255,255,255,0.45)', padding: '12px 12px 16px' }}>
+              {/* Progress bar */}
+              <div className="flex items-center gap-2">
+                <div style={{
+                  flex: 1, position: 'relative', height: 12,
+                  backgroundColor: '#ffffff', border: '1.5px solid #000', borderRadius: 100,
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0,
+                    width: galleryCategoryTotal > 0 ? `${(galleryWords.length / galleryCategoryTotal) * 100}%` : '0%',
+                    backgroundColor: '#c7f59a', borderRadius: 100,
+                  }} />
+                </div>
+                <span className="text-[12px] text-black" style={{ minWidth: 10, textAlign: 'right' }}>
+                  {galleryWords.length}/{galleryCategoryTotal}
+                </span>
+              </div>
+              {/* Gallery grid */}
+              <div className="mt-3">
+                <GalleryGrid
+                  words={galleryWords}
+                  revealedWords={revealedWords}
+                  onTap={(w) => handleTapWord(w)}
+                  nativeLang={nativeLang}
+                  targetLang={targetLang}
+                />
+              </div>
+            </div>
+          </div>
+        ) : jaInvolved ? null : (
+          <div className="flex mx-[14px] mt-1 mb-2">
+            {[
+              { key: 'words', label: t.wordsTab },
+              { key: 'phrases', label: t.phrasesTab },
+            ].map((tab, idx) => {
+              const active = subTab === tab.key;
+              const isLeft = idx === 0;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => { setSubTab(tab.key); setRevealedWords(new Set()); }}
+                  className="flex-1 text-[14px] font-medium"
+                  style={{
+                    height: 36,
+                    borderTop: '1.5px solid #000',
+                    borderBottom: '1.5px solid #000',
+                    borderLeft: isLeft ? '1.5px solid #000' : 'none',
+                    borderRight: '1.5px solid #000',
+                    borderTopLeftRadius: isLeft ? 5 : 0,
+                    borderBottomLeftRadius: isLeft ? 5 : 0,
+                    borderTopRightRadius: isLeft ? 0 : 5,
+                    borderBottomRightRadius: isLeft ? 0 : 5,
+                    backgroundColor: active ? '#FFF9DF' : '#FFFFFF',
+                    color: active ? '#000' : '#A8A5A5',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ===== WORD LIST ===== */}
-        {wordList.length === 0 ? (
+        {filter !== 'vocabIllustrated' && (
+        wordList.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-textSub">
             <div className="text-4xl mb-2">
               {filter === 'mastered' ? '⚔️' : '📚'}
@@ -333,9 +466,9 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                   </div>
 
                   {/* Cover / Translation — full-width bar; revealed text indented to align with word */}
-                  <div className="mx-3.5 mt-2 mb-2" style={{ height: 24 }}>
+                  <div className="mx-3.5" style={{ height: 24, marginTop: 8, marginBottom: 11 }}>
                     {!isRevealed ? (
-                      <div style={{ height: 24, width: '100%', backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 4 }} />
+                      <div style={{ height: 24, width: '100%', backgroundColor: '#CCEAFF', borderRadius: 4 }} />
                     ) : (
                       <div style={{ height: 24, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', paddingLeft: 29 }}>
                         <span className="text-[14px] text-[#3f3e3e]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nativeText}</span>
@@ -354,7 +487,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
               );
             })}
           </div>
-        )}
+        ))}
       </div>
 
       {/* ===== IMAGE POPUP ===== */}
@@ -378,6 +511,64 @@ function preloadImage(src) {
   const img = new Image();
   img.src = src;
   _imgPreloaded.add(src);
+}
+
+/* ── Gallery grid: 3-column image grid with translation-cover strips ── */
+function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
+  const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
+  const targetFont = getFontFamily(targetLang);
+
+  if (words.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-textSub">
+        <div className="text-4xl mb-2">📚</div>
+        <div className="text-sm font-bold">{t.noLearned}</div>
+        <div className="text-xs mt-1 text-textLight">{t.learnedTip}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-0 pb-6" style={{
+      display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', columnGap: 14, rowGap: 24,
+    }}>
+      {words.map(word => {
+        const isRevealed = revealedWords.has(word.id);
+        const display = getWordText(word, targetLang) || word.en;
+        const imgSrc = word.img ? `/images/${encodeURIComponent(word.img)}` : null;
+        return (
+          <div key={word.id} className="flex flex-col items-center" onClick={() => onTap(word)}>
+            <div
+              style={{
+                width: '100%', aspectRatio: '1 / 1', borderRadius: 10, overflow: 'hidden',
+                backgroundColor: '#fff', cursor: 'pointer',
+              }}
+              className="active:scale-95"
+            >
+              {imgSrc && (
+                <img src={imgSrc} alt={display} className="w-full h-full object-cover" />
+              )}
+            </div>
+            <div style={{ height: 26, marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+              {isRevealed ? (
+                <span
+                  className="text-[14px] text-black font-medium"
+                  style={{
+                    fontFamily: targetFont,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
+                  }}
+                >
+                  {display}
+                </span>
+              ) : (
+                <div style={{ width: 70, height: 18, borderRadius: 100, backgroundColor: '#CCEAFF' }} />
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ── Popup component ── */
