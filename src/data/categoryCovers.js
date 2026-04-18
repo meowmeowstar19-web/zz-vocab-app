@@ -20,8 +20,9 @@ export const vocabCategoryCovers = {
 
 // Representative image for each oral category (uses a vocab word's image)
 export const oralCategoryCovers = {
-  everyday: 'orange.jpg',
-  food: 'hungry.jpg',
-  opinions: 'cherry.jpg',
-  emotions: 'durian.jpg',
+  greeting: 'hand.jpg',
+  response: 'talk.jpg',
+  life: 'coffee.jpg',
+  feeling: 'happy.jpg',
+  social: 'friend.jpg',
 };

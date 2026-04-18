@@ -2,7 +2,7 @@
 // ============================================================================
 // VocabWorkspace Data Sync
 // ----------------------------------------------------------------------------
-// Reads update_data_folder/{WordList,Daily_Expressions}.xlsx,
+// Reads update_data_folder/{WordList,PhraseList}.xlsx,
 // regenerates src/data/{words,jaData,oralPhrases,categoryCovers}.js,
 // compresses and moves images from updated_image/ to public/images/,
 // archives processed originals, and (with --auto) git commits + pushes.
@@ -24,7 +24,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const DATA_DIR = join(ROOT, 'update_data_folder');
 const VOCAB_XLSX = join(DATA_DIR, 'WordList.xlsx');
-const ORAL_XLSX = join(DATA_DIR, 'Daily_Expressions.xlsx');
+const ORAL_XLSX = join(DATA_DIR, 'PhraseList.xlsx');
 const CATEGORY_XLSX = join(DATA_DIR, 'category.xlsx');
 const IMG_IN = join(DATA_DIR, 'updated_image');
 const IMG_OUT = join(ROOT, 'public', 'images');
@@ -63,12 +63,23 @@ const VOCAB_CATEGORY_MAP = {
 
 const LEVEL_MAP = { 1: 'beginner', 2: 'intermediate', 3: 'advanced' };
 
-// Oral category prefix (A/B/D/F) → slug
-const ORAL_CATEGORY_PREFIX = {
-  'A': 'everyday',   // 生活场景
-  'B': 'food',       // 饮食烹饪
-  'D': 'emotions',   // 情绪感受
-  'F': 'opinions',   // 观点反应
+// Phrase category (PhraseList "Category" column, Chinese) → slug
+const PHRASE_CATEGORY_MAP = {
+  '寒暄': 'greeting',
+  '回应': 'response',
+  '生活': 'life',
+  '感受': 'feeling',
+  '社交': 'social',
+};
+
+// Oral category labels (3-lang) — kept in sync with PHRASE_CATEGORY_MAP keys
+const ORAL_LABELS_DICT = {
+  all:      { zh: '全部',   en: 'All',         ja: '全て' },
+  greeting: { zh: '寒暄',   en: 'Greetings',   ja: '挨拶' },
+  response: { zh: '回应',   en: 'Responses',   ja: '返事' },
+  life:     { zh: '生活',   en: 'Life',        ja: '生活' },
+  feeling:  { zh: '感受',   en: 'Feelings',    ja: '気持ち' },
+  social:   { zh: '社交',   en: 'Social',      ja: '社交' },
 };
 
 // Multi-language category label dictionary.
@@ -115,10 +126,11 @@ const DEFAULT_VOCAB_COVERS = {
 };
 
 const DEFAULT_ORAL_COVERS = {
-  everyday: 'orange.jpg',
-  food:     'hungry.jpg',
-  emotions: 'durian.jpg',
-  opinions: 'cherry.jpg',
+  greeting: 'hand.jpg',
+  response: 'talk.jpg',
+  life:     'coffee.jpg',
+  feeling:  'happy.jpg',
+  social:   'friend.jpg',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -476,31 +488,37 @@ function ensureCategoryXlsx(words, phrases) {
   return covers;
 }
 
-// ── Read Daily_Expressions.xlsx ──────────────────────────────────────────────
+// ── Read PhraseList.xlsx ─────────────────────────────────────────────────────
 function readOral() {
-  log.section('Reading Daily_Expressions.xlsx');
+  log.section('Reading PhraseList.xlsx');
   if (!existsSync(ORAL_XLSX)) throw new Error(`Missing file: ${ORAL_XLSX}`);
 
   const wb = XLSX.readFile(ORAL_XLSX);
-  const ws = wb.Sheets[wb.SheetNames[0]];
+  // Prefer a sheet named 口语 if present; otherwise first sheet.
+  const sheetName = wb.SheetNames.includes('口语') ? '口语' : wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
   const phrases = [];
-  const missingCatRows = [];   // rows with empty/blank Category
-  const unknownCats = new Map(); // rawCat → [english words]
+  const missingCatRows = [];     // rows with empty/blank Category
+  const unknownCats = new Map(); // rawCat → [english]
+
+  // Japanese sentence column header is "例句r日语翻译" (typo in source); fall back
+  // to "例句日语翻译" if ever fixed.
+  const pickJaSentence = (row) =>
+    String(row['例句r日语翻译'] || row['例句日语翻译'] || '').trim();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const en = String(row['Word / Expression'] || '').trim();
+    const en = String(row['English'] || '').trim();
     if (!en) continue;
 
     const rawCat = String(row['Category'] || '').trim();
     if (!rawCat) {
-      missingCatRows.push({ rowNum: i + 2, en }); // +2: header row + 1-indexed
+      missingCatRows.push({ rowNum: i + 2, en });
       continue;
     }
-    const prefix = rawCat.match(/^[A-Z]/)?.[0] || '';
-    const cat = ORAL_CATEGORY_PREFIX[prefix];
+    const cat = PHRASE_CATEGORY_MAP[rawCat];
     if (!cat) {
       if (!unknownCats.has(rawCat)) unknownCats.set(rawCat, []);
       unknownCats.get(rawCat).push(en);
@@ -509,26 +527,28 @@ function readOral() {
 
     phrases.push({
       en,
-      zh:         String(row['Translation'] || '').trim(),
+      zh:         String(row['短语中文翻译'] || '').trim(),
       category:   cat,
       sentence:   String(row['Example'] || '').trim(),
-      sentenceZh: String(row['Chinese Translation'] || '').trim(),
+      sentenceZh: String(row['例句中文翻译'] || '').trim(),
+      ja:         String(row['短语日语翻译'] || '').trim(),
+      jaSentence: pickJaSentence(row),
     });
   }
 
   if (missingCatRows.length > 0) {
-    log.warn(`${missingCatRows.length} oral phrase(s) have empty Category — SKIPPED:`);
+    log.warn(`${missingCatRows.length} phrase(s) have empty Category — SKIPPED:`);
     missingCatRows.forEach(({ rowNum, en }) => console.log(`     · Row ${rowNum}: "${en}"`));
-    log.warn(`Please fill the Category column in Daily_Expressions.xlsx and re-run.`);
+    log.warn(`Please fill the Category column in PhraseList.xlsx and re-run.`);
   }
   if (unknownCats.size > 0) {
-    log.warn(`Unmapped oral categories (add prefix to ORAL_CATEGORY_PREFIX in sync-data.mjs):`);
+    log.warn(`Unmapped phrase categories (add to PHRASE_CATEGORY_MAP in sync-data.mjs):`);
     for (const [cat, ens] of unknownCats) {
       console.log(`     · "${cat}" (${ens.length} phrase${ens.length > 1 ? 's' : ''}, e.g. "${ens[0]}")`);
     }
   }
 
-  log.ok(`Parsed ${phrases.length} oral phrases`);
+  log.ok(`Parsed ${phrases.length} phrases`);
   return phrases;
 }
 
@@ -652,8 +672,8 @@ function writeOralPhrasesJs(phrases, catOrder) {
 
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/Daily_Expressions.xlsx\n`;
-  out += `// Format: [english, chinese, category, sentence, sentenceZh]\n\n`;
+  out += `// Source: update_data_folder/PhraseList.xlsx\n`;
+  out += `// Format: [english, chinese, category, sentence, sentenceZh, ja, jaSentence]\n\n`;
 
   out += `const raw = [\n`;
   for (const p of orderedPhrases) {
@@ -663,6 +683,8 @@ function writeOralPhrasesJs(phrases, catOrder) {
       jsStr(p.category),
       jsStr(p.sentence),
       jsStr(p.sentenceZh),
+      jsStr(p.ja || ''),
+      jsStr(p.jaSentence || ''),
     ].join(', ')}],\n`;
   }
   out += `];\n\n`;
@@ -671,12 +693,13 @@ function writeOralPhrasesJs(phrases, catOrder) {
   out += `function makeId(en) {\n`;
   out += `  return 'oral-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
   out += `}\n\n`;
-  out += `export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh]) => ({\n`;
+  out += `export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh, ja, jaSentence]) => ({\n`;
   out += `  id: makeId(en),\n`;
   out += `  en, zh, category,\n`;
   out += `  img: null,\n`;
   out += `  level: 'oral',\n`;
   out += `  sentence, sentenceZh,\n`;
+  out += `  ja, jaSentence,\n`;
   out += `}));\n\n`;
   out += `function shuffleArray(arr) {\n`;
   out += `  const a = [...arr];\n`;
@@ -690,17 +713,16 @@ function writeOralPhrasesJs(phrases, catOrder) {
   out += `// Category order: mirrors "Phrase Categories" sheet row order in category.xlsx\n`;
   out += `export const oralCategories = [${['all', ...catsInOrder].map(jsStr).join(', ')}];\n\n`;
 
-  out += `// Category labels\n`;
+  out += `// Category labels — mirrors ORAL_LABELS_DICT + catsInOrder in sync-data.mjs\n`;
   out += `export const ORAL_CATEGORY_LABELS = {\n`;
-  out += `  zh: {\n`;
-  out += `    all: '全部', everyday: '生活场景', food: '饮食烹饪', opinions: '观点反应', emotions: '情绪感受',\n`;
-  out += `  },\n`;
-  out += `  en: {\n`;
-  out += `    all: 'All', everyday: 'Everyday Life', food: 'Food & Cooking', opinions: 'Opinions', emotions: 'Emotions',\n`;
-  out += `  },\n`;
-  out += `  ja: {\n`;
-  out += `    all: '全て', everyday: '日常生活', food: '料理', opinions: '意見', emotions: '感情',\n`;
-  out += `  },\n`;
+  const orderedKeys = ['all', ...catsInOrder];
+  for (const lang of ['zh', 'en', 'ja']) {
+    const pairs = orderedKeys.map(k => {
+      const label = ORAL_LABELS_DICT[k]?.[lang] || titleCase(k);
+      return `${k}: ${jsStr(label)}`;
+    });
+    out += `  ${lang}: { ${pairs.join(', ')} },\n`;
+  }
   out += `};\n`;
 
   writeFileSync(join(SRC_DATA, 'oralPhrases.js'), out);
@@ -965,7 +987,7 @@ async function main() {
   // Interactive dedup pass: catches duplicate entries in the source xlsx files
   // before they're parsed. Same key → same generated id → React rendering chaos.
   await dedupCheck(VOCAB_XLSX, 'English', 'WordList.xlsx');
-  await dedupCheck(ORAL_XLSX, 'Word / Expression', 'Daily_Expressions.xlsx');
+  await dedupCheck(ORAL_XLSX, 'English', 'PhraseList.xlsx');
 
   const { words: allWords, allRows } = readVocab();
   const phrases = readOral();

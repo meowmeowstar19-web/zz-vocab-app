@@ -367,8 +367,8 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                     borderBottomLeftRadius: isLeft ? 5 : 0,
                     borderTopRightRadius: isLeft ? 0 : 5,
                     borderBottomRightRadius: isLeft ? 0 : 5,
-                    backgroundColor: active ? '#FFF9DF' : '#FFFFFF',
-                    color: active ? '#000' : '#A8A5A5',
+                    backgroundColor: active ? '#FFF9DF' : 'transparent',
+                    color: '#000',
                   }}
                 >
                   {tab.label}
@@ -468,7 +468,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                   {/* Cover / Translation — full-width bar; revealed text indented to align with word */}
                   <div className="mx-3.5" style={{ height: 24, marginTop: 8, marginBottom: 11 }}>
                     {!isRevealed ? (
-                      <div style={{ height: 24, width: '100%', backgroundColor: '#CCEAFF', borderRadius: 4 }} />
+                      <div style={{ height: 24, width: '100%', backgroundColor: 'rgba(255,255,255,0.60)', borderRadius: 4 }} />
                     ) : (
                       <div style={{ height: 24, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', paddingLeft: 29 }}>
                         <span className="text-[14px] text-[#3f3e3e]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nativeText}</span>

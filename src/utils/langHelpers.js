@@ -17,7 +17,7 @@ export function getWordText(word, lang) {
   if (!word) return '';
   if (lang === 'en') return word.en;
   if (lang === 'zh') return word.zh;
-  if (lang === 'ja') return jaData[word.en]?.ja || '';
+  if (lang === 'ja') return word.ja || jaData[word.en]?.ja || '';
   return word.en;
 }
 
@@ -26,7 +26,7 @@ export function getWordText(word, lang) {
 export function getSentence(word, lang) {
   if (!word) return '';
   if (lang === 'en') return word.sentence || '';
-  if (lang === 'ja') return jaData[word.en]?.sentence || '';
+  if (lang === 'ja') return word.jaSentence || jaData[word.en]?.sentence || '';
   if (lang === 'zh') return word.sentenceZh || '';
   return '';
 }

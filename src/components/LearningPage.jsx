@@ -618,7 +618,7 @@ export default function LearningPage({
       return;
     }
     if (translationLang === 'ja') {
-      const jaSentence = jaData[currentWord.en]?.sentence;
+      const jaSentence = currentWord.jaSentence || jaData[currentWord.en]?.sentence;
       if (jaSentence) { setSentenceTranslation(jaSentence); return; }
     }
     // Fallback to API for any missing translations
@@ -1708,28 +1708,24 @@ export default function LearningPage({
                   <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
                 )}
               </div>
-              {/* Progress row: bar + count side-by-side */}
+              {/* Progress bar — own row (Figma 472:339/340; 75.27 / 107.8 ≈ 70% of card) */}
               <div style={{
-                width: '100%', marginTop: 10,
-                display: 'flex', alignItems: 'center', gap: 4,
+                width: '75%', marginTop: 10, height: 9, borderRadius: 100,
+                backgroundColor: '#ffffff', border: '1px solid #000',
+                position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
               }}>
                 <div style={{
-                  flex: 1, height: 12, borderRadius: 100,
-                  backgroundColor: '#ffffff', border: '1.5px solid #000',
-                  position: 'relative', overflow: 'hidden',
-                }}>
-                  <div style={{
-                    height: '100%', borderRadius: 100,
-                    backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
-                    width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
-                  }} />
-                </div>
-                <span style={{ minWidth: 44, textAlign: 'center', fontSize: 12, fontWeight: 500, color: '#000', lineHeight: '18px' }}>
-                  {prog.learned}/{prog.total}
-                </span>
+                  height: '100%', borderRadius: 100,
+                  backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
+                  width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
+                }} />
               </div>
-              {/* Category label */}
-              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 1, lineHeight: '18px', textAlign: 'center' }}>
+              {/* Count — 2nd row below bar (equal spacing above and below) */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 5, lineHeight: 1, textAlign: 'center' }}>
+                {prog.learned}/{prog.total}
+              </span>
+              {/* Category label — 3rd row */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 5, lineHeight: 1, textAlign: 'center' }}>
                 {label}
               </span>
             </div>
@@ -1784,7 +1780,7 @@ export default function LearningPage({
                         width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
                         backgroundColor: isActive ? '#FFD016' : '#FBF2E2',
-                        color: isActive ? '#000' : '#A8A5A5',
+                        color: '#000',
                         fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}
                     >
