@@ -218,10 +218,11 @@ export default function LearningPage({
   useEffect(() => {
     if (!effectiveIsReview) { setReviewCard(null); return; }
     const prog = getProgress(storageKey);
-    // In categoryReviewMode, restrict the review pool to the selected sub-category
-    // (and level, when applicable) — global review still pulls from all eligible words.
+    // Restrict the review pool to the selected sub-category (and level, when applicable)
+    // for both global review (isReview) and categoryReviewMode. The eligible filter
+    // below still limits to learned, non-mastered words.
     let pool = allWordsFiltered;
-    if (categoryReviewMode && selectedCategory !== 'all') {
+    if (selectedCategory !== 'all') {
       pool = pool.filter(w => w.category === selectedCategory);
       if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
         pool = pool.filter(w => w.level === selectedLevel);
@@ -702,7 +703,7 @@ export default function LearningPage({
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
         const prog = getProgress(storageKey);
         let basePool = allWordsFiltered;
-        if (categoryReviewMode && selectedCategory !== 'all') {
+        if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
           if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
             basePool = basePool.filter(w => w.level === selectedLevel);
@@ -923,9 +924,10 @@ export default function LearningPage({
       delete reviewWordStatesRef.current[skippedId];
       setTimeout(() => {
         const prog = getProgress(storageKey);
-        // Pool scope: categoryReviewMode stays within sub-category; global review pulls from everything
+        // Pool scope: stay within the selected sub-category for both global review (isReview)
+        // and categoryReviewMode. The eligible filter below limits to learned, non-mastered.
         let basePool = allWordsFiltered;
-        if (categoryReviewMode && selectedCategory !== 'all') {
+        if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
           if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
         }
@@ -1173,6 +1175,18 @@ export default function LearningPage({
             <img src="/assets/figma/study_background.jpg" alt="" className="w-full h-full object-cover" />
           )}
         </div>
+        {isReview && (
+          <div className="relative shrink-0 flex items-center px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+            <div className="flex items-center" style={{ gap: 11 }}>
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
           <div className="text-6xl mb-3">🎉</div>
           <div className="text-xl font-extrabold text-textMain mb-1">
@@ -1196,6 +1210,7 @@ export default function LearningPage({
             </button>
           )}
         </div>
+        {renderCategoryModal()}
       </div>
     );
   }
@@ -1258,9 +1273,14 @@ export default function LearningPage({
         {/* ── TOP BAR ── */}
         <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
           {isReview ? (
-            <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-              <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
-            </button>
+            <div className="flex items-center" style={{ gap: 11 }}>
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            </div>
           ) : (
             <button
               onClick={handleOpenCategories}
@@ -1590,8 +1610,13 @@ export default function LearningPage({
       </div>
 
       {/* ── CATEGORY MODAL (full-page, Figma redesign) ── */}
-      {showCategories && (() => {
-        const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
+      {renderCategoryModal()}
+    </div>
+  );
+
+  function renderCategoryModal() {
+    if (!showCategories) return null;
+    const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
         // Level tab temporarily hidden
         const tabs = [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
         // Uniform tab width: within a language, all tabs share the widest label's width.
@@ -1942,7 +1967,5 @@ export default function LearningPage({
             </div>
           </div>
         );
-      })()}
-    </div>
-  );
+  }
 }
