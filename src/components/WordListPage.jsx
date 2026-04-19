@@ -80,7 +80,8 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
   const [filter, setFilter] = useState(initialFilter || 'vocabIllustrated');
   const [subTab, setSubTab] = useState('words'); // 'words' | 'phrases'
-  const [galleryCat, setGalleryCat] = useState('food'); // first non-all word category in gallery
+  const [galleryCat, setGalleryCat] = useState('all');
+  const [galleryShuffleKey, setGalleryShuffleKey] = useState(0);
   const [progress, setProgress] = useState(() => getProgress(langKey));
   const [revealedWords, setRevealedWords] = useState(new Set());
   const [translationCache, setTranslationCache] = useState(() => new Map(_translationCache));
@@ -131,22 +132,31 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     return eligibleWords.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
   }, [progress, eligibleWords]);
 
-  // Word categories available for gallery (only regular words, not oral phrases).
+  // Word categories available for gallery ("all" + each category).
   const galleryCategoryList = useMemo(() => {
-    return wordCategories.filter(c => c !== 'all');
+    return ['all', ...wordCategories.filter(c => c !== 'all')];
   }, []);
 
   // Gallery view: learned OR mastered words in the selected category.
+  // Order reshuffles each time the user taps a category (galleryShuffleKey).
   const galleryWords = useMemo(() => {
     const prog = progress;
-    return words
+    const list = words
       .filter(w => isWordAvailable(w, nativeLang, targetLang))
-      .filter(w => w.category === galleryCat)
+      .filter(w => galleryCat === 'all' || w.category === galleryCat)
       .filter(w => !!prog[w.id]?.timestamp || !!prog[w.id]?.mastered);
-  }, [progress, nativeLang, targetLang, galleryCat]);
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+  }, [progress, nativeLang, targetLang, galleryCat, galleryShuffleKey]);
 
   const galleryCategoryTotal = useMemo(() => {
-    return words.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === galleryCat).length;
+    return words.filter(w =>
+      isWordAvailable(w, nativeLang, targetLang) &&
+      (galleryCat === 'all' || w.category === galleryCat)
+    ).length;
   }, [nativeLang, targetLang, galleryCat]);
 
   const wordList = useMemo(() => {
@@ -300,7 +310,11 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                 return (
                   <button
                     key={cat}
-                    onClick={() => { setGalleryCat(cat); setRevealedWords(new Set()); }}
+                    onClick={() => {
+                      setGalleryCat(cat);
+                      setGalleryShuffleKey(k => k + 1);
+                      setRevealedWords(new Set());
+                    }}
                     className="shrink-0 text-[14px]"
                     style={{
                       height: 36, padding: 0,

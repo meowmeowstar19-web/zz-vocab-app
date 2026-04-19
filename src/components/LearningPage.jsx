@@ -1592,11 +1592,8 @@ export default function LearningPage({
       {/* ── CATEGORY MODAL (full-page, Figma redesign) ── */}
       {showCategories && (() => {
         const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
-        const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
         // Level tab temporarily hidden
-        const tabs = jaInvolved
-          ? [{ key: 'detail', label: tabLabels.detail }]
-          : [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+        const tabs = [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
         // Uniform tab width: within a language, all tabs share the widest label's width.
         // CJK chars are roughly twice as wide as Latin letters at the same font size,
         // so we approximate per-char pixel widths (14px font, weight 500).
