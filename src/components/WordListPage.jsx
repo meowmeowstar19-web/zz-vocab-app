@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { words, categories as wordCategories } from '../data/words';
 import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { jaData } from '../data/jaData';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import { phoneticMap } from '../data/phonetics';
@@ -9,6 +10,15 @@ import {
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
   CATEGORY_LABELS,
 } from '../utils/langHelpers';
+
+// Look up a sentence in `lang` from the word's static data (Excel / jaData).
+function getStaticSentence(word, lang) {
+  if (!word) return '';
+  if (lang === 'zh') return word.sentenceZh || '';
+  if (lang === 'en') return word.sentence || '';
+  if (lang === 'ja') return word.jaSentence || jaData[word.en]?.sentence || '';
+  return '';
+}
 
 // Translation cache persists for speed — keyed by wordId_langKey
 const _translationCache = new Map();
@@ -23,6 +33,13 @@ function prefetchTranslation(word, targetLang, nativeLang, onDone) {
   if (!sentence || sentenceLang === nativeLang) return;
   const cacheKey = `${word.id}_${nativeLang}_${targetLang}`;
   if (_translationCache.has(cacheKey)) return;
+  // Prefer the Excel / jaData sentence in the native language — skip the API if it exists.
+  const staticT = getStaticSentence(word, nativeLang);
+  if (staticT) {
+    _translationCache.set(cacheKey, staticT);
+    onDone(cacheKey, staticT);
+    return;
+  }
   const langpair = getTranslationPair(sentenceLang, nativeLang);
   fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sentence)}&langpair=${langpair}`)
     .then(r => r.ok ? r.json() : null)
@@ -598,6 +615,13 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     sentenceLang = 'en';
   }
 
+  // Prefer the authored sentence in the native language; only fall back to the
+  // MyMemory-cached machine translation if no static sentence exists.
+  const staticTranslation = sentenceLang !== nativeLang
+    ? getStaticSentence(word, nativeLang)
+    : '';
+  const translatedSentence = staticTranslation || cachedTranslation;
+
   const phonetic = usePhonetic(word.en, targetLang);
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
@@ -670,10 +694,10 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             </span>
           )}
         </div>
-        <p className="text-center text-[16px] text-[#3f3e3e] mt-3 font-medium">{nativeText}</p>
+        <p className="text-center text-[16px] text-[#3f3e3e] mt-2 font-medium">{nativeText}</p>
         {displaySentence && (
           <p
-            className="text-center text-[14px] text-[#555] mt-3 leading-snug px-1"
+            className="text-center text-[14px] text-[#555] mt-2 leading-snug px-1"
             style={{ fontFamily: getFontFamily(sentenceLang) }}
           >
             {displaySentence}
@@ -681,7 +705,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         )}
         {displaySentence && sentenceLang !== nativeLang && (
           <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
-            {cachedTranslation || '\u00A0'}
+            {translatedSentence || '\u00A0'}
           </p>
         )}
         <button
