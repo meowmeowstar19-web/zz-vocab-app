@@ -1771,6 +1771,12 @@ export default function LearningPage({
 
         return (
           <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
+            {/* Outer page background (outside the bordered frame) */}
+            <img
+              src="/assets/figma/category-bg.png" alt=""
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ zIndex: 0 }}
+            />
             {/* Content layer — fixed shell */}
             <div className="relative flex flex-col h-full">
 
@@ -1812,27 +1818,16 @@ export default function LearningPage({
                 })}
               </div>
 
-              {/* Dog mascot decoration overlapping content frame top-left */}
-              <img src="/assets/figma/categroy-decor-3.png" alt="" className="pointer-events-none"
-                style={{ position: 'absolute', left: 19, top: 64, width: 43, height: 46, zIndex: 2 }} />
-
               {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
               {/* minHeight locks the frame so it stays the same regardless of card count */}
               <div className="flex-1 relative" style={{
-                margin: '0 13px 30px',
+                margin: '0 13px 15px',
                 border: '2px solid #000', borderRadius: 10,
                 minHeight: 600,
                 overflow: 'hidden',
               }}>
-                {/* Beach background image inside the frame */}
-                <img
-                  src="/assets/figma/category-bg.png" alt=""
-                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  style={{ zIndex: 0 }}
-                />
-
                 {/* Scrollable card area inside the frame */}
-                <div ref={catScrollContainerRef} className="absolute inset-0 overflow-y-auto" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
+                <div ref={catScrollContainerRef} className="absolute inset-0 overflow-y-auto scrollbar-hide" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
 
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (
@@ -1940,17 +1935,8 @@ export default function LearningPage({
                 </div>
               </div>
 
-              {/* ── Fixed bottom: decorations + confirm button ── */}
-              {/* zIndex: 3 so the rabbit ears (decor-1) and decor-2 stay on top
-                  of the scrollable card grid above, which lives in a z-index:1
-                  stacking context. Without this, on short screens the rabbit's
-                  ears get covered by category cards extending down. */}
-              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 20, zIndex: 3 }}>
-                {/* Decorations */}
-                <img src="/assets/figma/categroy-decor-1.png" alt="" className="pointer-events-none"
-                  style={{ position: 'absolute', left: 13, bottom: 16, width: 71, height: 112 }} />
-                <img src="/assets/figma/categroy-decor-2.png" alt="" className="pointer-events-none"
-                  style={{ position: 'absolute', right: 15, bottom: 20, width: 40, height: 57 }} />
+              {/* ── Fixed bottom: confirm button ── */}
+              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 35, zIndex: 3 }}>
                 <button
                   onClick={handleConfirmCategories}
                   className="flex items-center justify-center active:scale-95"
@@ -1958,7 +1944,6 @@ export default function LearningPage({
                     width: 158, height: 51, borderRadius: 100,
                     backgroundColor: '#ffd016', border: '2px solid #000',
                     position: 'relative', zIndex: 1,
-                    transform: 'translateX(11px)',
                   }}
                 >
                   <span style={{ fontSize: 24, fontWeight: 400, color: '#000' }}>{t.ok}</span>
