@@ -1807,7 +1807,7 @@ export default function LearningPage({
                       style={{
                         width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
-                        backgroundColor: isActive ? '#FFD016' : '#FBF2E2',
+                        backgroundColor: isActive ? '#FFD016' : '#F5F4EF',
                         color: '#000',
                         fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}

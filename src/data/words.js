@@ -92,7 +92,7 @@ const raw = [
   ['elephant.jpg', 'elephant', '象', 'animal', 'beginner', 'Elephant is holding his nose from a stinky sock!', '大象捏着鼻子，因为旁边有只臭袜子！'],
   ['fish.jpg', 'fish', '鱼', 'animal', 'beginner', 'Fish is wearing a raincoat to stay dry underwater!', '小鱼穿着雨衣，生怕在水下被淋湿！'],
   ['monkey.jpg', 'monkey', '猴子', 'animal', 'beginner', 'Monkey is snatching ice cream with his long tail!', '猴子用长长的尾巴偷走了冰淇淋！'],
-  ['rabbit.jpg', 'rabbit', '兔子', 'animal', 'beginner', 'Rabbit nibbled a hole right through her homework!', '小兔子把长耳朵系成了漂亮的蝴蝶结！'],
+  ['rabbit.jpg', 'rabbit', '兔子', 'animal', 'beginner', 'Rabbit nibbled a hole right through her homework!', '小兔子把作业啃出了一个大洞！'],
   ['shark.jpg', 'shark', '鲨鱼', 'animal', 'beginner', 'Shark is putting glitter on his teeth for a disco party.', '鲨鱼在牙齿上涂亮晶晶的闪粉，准备去参加迪斯科派对。'],
   ['sheep.jpg', 'sheep', '羊', 'animal', 'beginner', 'Sheep is jumping high to be a cloud!', '小羊跳得好高，想变成一朵云！'],
   ['starfish.jpg', 'starfish', '海星', 'animal', 'beginner', 'Starfish is giving a high-five to the whole ocean.', '海星张开五只手，跟整片大海击掌。'],
