@@ -1773,7 +1773,7 @@ export default function LearningPage({
           <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
             {/* Outer page background (outside the bordered frame) */}
             <img
-              src="/assets/figma/category-bg.png" alt=""
+              src="/assets/figma/category-bg.jpg" alt=""
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               style={{ zIndex: 0 }}
             />

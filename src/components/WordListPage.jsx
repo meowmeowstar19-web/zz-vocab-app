@@ -87,14 +87,13 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
   const FILTERS = useMemo(() => [
-    { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#98C967' },
+    { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#A3DF8F' },
     { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
     { key: 'random', label: t.randomOrder, accent: '#9cd6ff' },
     { key: 'reverseRandom', label: t.reverseRandom, accent: '#bfafff' },
     { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
-  const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
   const [filter, setFilter] = useState(initialFilter || 'vocabIllustrated');
   const [subTab, setSubTab] = useState('words'); // 'words' | 'phrases'
   const [galleryCat, setGalleryCat] = useState('all');
@@ -128,10 +127,10 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     }
   }, [initialFilter, langKey]);
 
-  // Full pool — words + oral phrases (oral phrases unavailable if ja involved).
+  // Full pool — words + oral phrases.
   const allWords = useMemo(() => {
-    return jaInvolved ? words : [...words, ...oralPhrases];
-  }, [jaInvolved]);
+    return [...words, ...oralPhrases];
+  }, []);
 
   const eligibleWords = useMemo(() => {
     return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
@@ -139,10 +138,9 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
 
   // Pool filtered by 单词/短语 sub-tab (used by non-gallery filters)
   const subTabPool = useMemo(() => {
-    if (jaInvolved) return eligibleWords.filter(w => w.level !== 'oral');
     if (subTab === 'phrases') return eligibleWords.filter(w => w.level === 'oral');
     return eligibleWords.filter(w => w.level !== 'oral');
-  }, [eligibleWords, subTab, jaInvolved]);
+  }, [eligibleWords, subTab]);
 
   const totalLearning = useMemo(() => {
     const prog = progress;
@@ -317,7 +315,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
           }}>
             {/* Category sub-nav — flush at top, only top corners rounded via parent overflow */}
             <div className="scrollbar-hide shrink-0" style={{
-              backgroundColor: 'rgba(255,255,255,0.6)', height: 36,
+              backgroundColor: '#ffffff', height: 36,
               display: 'flex', alignItems: 'center', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
               padding: '0 12px', gap: 14,
             }}>
@@ -345,7 +343,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
               })}
             </div>
             {/* Inner area with translucent bg */}
-            <div className="flex-1" style={{ backgroundColor: 'rgba(255,255,255,0.45)', padding: '12px 12px 16px' }}>
+            <div className="flex-1" style={{ backgroundColor: 'rgba(255,255,255,0.25)', padding: '12px 12px 16px' }}>
               {/* Progress bar */}
               <div className="flex items-center gap-2">
                 <div style={{
@@ -375,7 +373,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
               </div>
             </div>
           </div>
-        ) : jaInvolved ? null : (
+        ) : (
           <div className="flex mx-[14px] mt-1 mb-2">
             {[
               { key: 'words', label: t.wordsTab },
@@ -592,7 +590,7 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
                   {display}
                 </span>
               ) : (
-                <div style={{ width: 70, height: 18, borderRadius: 100, backgroundColor: '#CCEAFF' }} />
+                <div style={{ width: 70, height: 18, borderRadius: 100, backgroundColor: '#A6D9FF' }} />
               )}
             </div>
           </div>
