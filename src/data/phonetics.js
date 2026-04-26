@@ -251,7 +251,6 @@ export const phoneticMap = {
   'strong': '/strɔːŋ/',
   'weak': '/wiːk/',
   'new': '/nuː/',
-  'full': '/fʊl/',
   'empty': '/ˈɛmti/',
   'loud': '/laʊd/',
   'quiet': '/ˈkwaɪ.ət/',

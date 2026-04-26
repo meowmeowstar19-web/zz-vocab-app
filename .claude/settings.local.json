@@ -113,7 +113,30 @@
       "Bash(node --check scripts/sync-data.mjs)",
       "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/*.xlsx)",
       "Bash(ls /Users/miaofang/Desktop/VocabWorkspace/update_data_folder/*.xlsx)",
-      "Bash(node --input-type=module)"
+      "Bash(node --input-type=module)",
+      "Bash(node -e ' *)",
+      "Bash(cp /Users/miaofang/Desktop/data_prep/output_images/PhraseList.xlsx /Users/miaofang/Desktop/VocabWorkspace/update_data_folder/PhraseList.xlsx)",
+      "Bash(cp /Users/miaofang/Desktop/data_prep/output_images/WordList.xlsx /Users/miaofang/Desktop/VocabWorkspace/update_data_folder/WordList.xlsx)",
+      "Bash(curl -L -o /Users/miaofang/Desktop/VocabWorkspace/public/assets/figma/category-btn-review.png \"https://www.figma.com/api/mcp/asset/1bec705d-8b7c-48f6-90a9-b4439d2d007b\" -s -w \"HTTP: %{http_code}\\\\nSize: %{size_download} bytes\\\\n\")",
+      "Bash(xxd /Users/miaofang/Desktop/VocabWorkspace/public/assets/figma/category-btn-review.png)",
+      "Bash(npx esbuild *)",
+      "Read(//tmp/**)",
+      "Bash(vercel --version)",
+      "Bash(npm i *)",
+      "Bash(vercel whoami *)",
+      "Bash(vercel --prod --yes)",
+      "Bash(curl -sI https://plushieword.vercel.app)",
+      "Bash(vercel domains *)",
+      "Bash(curl -sI https://plushieword-meowmeowstar19-7762s-projects.vercel.app)",
+      "Bash(node /tmp/gen-icons.mjs)",
+      "Bash(node scripts/gen-icons.mjs)",
+      "Bash(git remote *)",
+      "Bash(vercel inspect *)",
+      "Bash(curl -s https://plushieword.com/)",
+      "Bash(curl -s https://plushieword.com/manifest.json)",
+      "Bash(curl -sI https://plushieword.com/)",
+      "Bash(curl -s https://plushieword.vercel.app/)",
+      "Bash(curl -s https://plushieword.vercel.app/manifest.json)"
     ]
   }
 }
