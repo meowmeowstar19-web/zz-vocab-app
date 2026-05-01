@@ -1,0 +1,24 @@
+.vercel
+node_modules
+dist
+
+# macOS
+.DS_Store
+
+# Excel lock files (LibreOffice/Excel creates these when the file is open)
+.~lock.*#
+~$*
+
+# Archived originals from sync-data.mjs (we keep the compressed versions in public/images/)
+update_data_folder/_processed_images/
+
+# Images of words deleted from WordList.xlsx (kept locally for recovery)
+update_data_folder/deleted_image/
+
+# Local scratch / work-in-progress files (not used by the app)
+confirmed_images/
+Tab2_classified.csv
+Tab2_进阶地道_语义分类.csv
+
+# Claude Code worktrees (git-internal, not project code)
+.claude/worktrees/

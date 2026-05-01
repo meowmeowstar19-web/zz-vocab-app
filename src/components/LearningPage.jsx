@@ -1,6 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { words, wordsShuffled, categories } from '../data/words';
+import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
@@ -75,8 +77,18 @@ function buildReviewQueueFromWords(eligibleWords, progress, wordStates = {}) {
 
 const LEVELS = ['all', 'beginner', 'intermediate', 'advanced', 'oral'];
 const LEVEL_LABELS = { all: '全部难度', beginner: 'Level 1', intermediate: 'Level 2', advanced: 'Level 3' };
-const ORAL_LEVEL_LABEL = { zh: '日常口语', en: 'Daily Oral', ja: '日常会話' };
+const ORAL_LEVEL_LABEL = { zh: '口语', en: 'Speaking', ja: '会話' };
 const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
+
+// Tab labels for category modal
+const CATEGORY_TAB_LABELS = {
+  zh: { level: '难度', detail: '单词', oral: '短语' },
+  en: { level: 'Level', detail: 'Words', oral: 'Phrases' },
+  ja: { level: '難度', detail: '単語', oral: 'フレーズ' },
+};
+
+// Category cover images are auto-generated in src/data/categoryCovers.js
+// from the "Cover For" column in update_data_folder/WordList.xlsx.
 
 // Module-level cache for sentence translations (persists for session)
 const _sentenceCache = new Map();
@@ -88,6 +100,7 @@ export default function LearningPage({
   onCategoryChange, onLevelChange,
   isVisible = true,
   contentHFromParent,
+  onCategoryModalChange,
 }) {
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
   const storageKey = targetLang; // progress keyed by target language only
@@ -100,9 +113,41 @@ export default function LearningPage({
   const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsShuffled;
   const activeCategories = isOralMode ? oralCategories : categories;
 
-  const [showCategories, setShowCategories] = useState(false);
+  const [showCategories, _setShowCategories] = useState(false);
+  const setShowCategories = useCallback((val) => {
+    _setShowCategories(val);
+    onCategoryModalChange?.(val);
+  }, [onCategoryModalChange]);
+  const [categoryTab, setCategoryTab] = useState('detail'); // 'detail' | 'oral' (level tab hidden)
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
+  const selectedCatCardRef = useRef(null);
+  const catScrollContainerRef = useRef(null);
+
+  // Scroll the currently-selected category card into view *within the modal's
+  // inner scroll container* when the modal opens. Using scrollIntoView scrolls
+  // every scrollable ancestor (including the outer page), so we compute the
+  // offset manually and only move the inner container.
+  useLayoutEffect(() => {
+    if (!showCategories) return;
+    const container = catScrollContainerRef.current;
+    const card = selectedCatCardRef.current;
+    if (!container || !card) return;
+    const cardRect = card.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const cardTopInContainer = (cardRect.top - containerRect.top) + container.scrollTop;
+    const target = cardTopInContainer - (container.clientHeight - cardRect.height) / 2;
+    container.scrollTop = Math.max(0, target);
+  }, [showCategories, categoryTab]);
+
+  // categoryReviewMode: true when the user enters a small category that is already
+  // fully learned. The session then runs the *review queue* algorithm restricted to
+  // that category — same rules as the global Review screen, but scoped.
+  const [categoryReviewMode, setCategoryReviewMode] = useState(false);
+  // effectiveIsReview drives queue/handler logic; the visual `isReview` prop still
+  // controls the back button + review background, so categoryReviewMode keeps the
+  // normal learning UI (including the category button to switch categories).
+  const effectiveIsReview = isReview || categoryReviewMode;
 
   const [currentIndex, setCurrentIndex] = useState(0); // used only in review mode
   const [options, setOptions] = useState([]);
@@ -133,8 +178,11 @@ export default function LearningPage({
   const [srsCard, setSrsCard] = useState(null); // current card from SRS queue
   const [sessionKey, setSessionKey] = useState(0); // increment to force session rebuild
   const [categoryDoneVisible, setCategoryDoneVisible] = useState(false);
+  // Shown after one complete pass of a categoryReviewMode cycle (a small category
+  // the user re-enters after already learning it). Same UI as categoryDoneVisible
+  // but triggered from the review-queue end, not the SRS session end.
+  const [categoryCycleDone, setCategoryCycleDone] = useState(false);
   const completedCatNameRef = useRef('');
-  const categoryAutoSwitchRef = useRef(null);
   const baseQueueRef = useRef([]); // initial interleaved queue
   const baseIdxRef = useRef(0);   // how many consumed from base queue
   const pendingRef = useRef([]);   // scheduled session reviews [{word, step, format, dueAt}]
@@ -149,8 +197,10 @@ export default function LearningPage({
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
   // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
-  const rawFormat = isReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
+  const rawFormat = effectiveIsReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
   const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
+  // Current step: 0 = first encounter (new), 1+ = session review
+  const currentStep = effectiveIsReview ? null : (srsCard?.step ?? 0);
 
   // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
@@ -166,18 +216,43 @@ export default function LearningPage({
   }, []);
 
   useEffect(() => {
-    if (!isReview) { setReviewCard(null); return; }
+    if (!effectiveIsReview) { setReviewCard(null); return; }
     const prog = getProgress(storageKey);
-    const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+    // Restrict the review pool to the selected sub-category (and level, when applicable)
+    // for both global review (isReview) and categoryReviewMode. The eligible filter
+    // below still limits to learned, non-mastered words.
+    let pool = allWordsFiltered;
+    if (selectedCategory !== 'all') {
+      pool = pool.filter(w => w.category === selectedCategory);
+      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+        pool = pool.filter(w => w.level === selectedLevel);
+      }
+    }
+    const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
     if (eligible.length === 0) { setReviewCard(null); return; }
-    // Load persisted word states so card types (B/C/A) and error weights survive re-entry
+    // Load persisted word states so card types (B/C/A) and error weights survive re-entry.
     const savedStates = getReviewWordStates(storageKey);
+    // categoryReviewMode fresh-start rule: if EVERY in-scope word is already
+    // "review-mastered" from a prior completed cycle (sessionCorrect >= 2 & no
+    // outstanding errors), zero those words out so the user gets a fresh B→C pass.
+    // Partial progress is preserved — that handles the "exited mid-review, resume"
+    // case required by the spec.
+    if (categoryReviewMode) {
+      const allAlreadyMastered = eligible.every(w => {
+        const s = savedStates[w.id];
+        return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+      });
+      if (allAlreadyMastered) {
+        for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
+        saveReviewWordStates(savedStates, storageKey);
+      }
+    }
     reviewWordStatesRef.current = savedStates;
     const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
     showNextReviewCard(queue, 0, reviewWordStatesRef.current);
-  }, [isReview, langKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Speak function based on target language
   const speakCurrent = useCallback((text) => {
@@ -195,6 +270,7 @@ export default function LearningPage({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
 
   // ── Continuous responsive scaling (two-segment, matches Figma reference) ──
   // Full (FULL_H): image=100%, choices=100%
@@ -233,25 +309,14 @@ export default function LearningPage({
   const frameH = imgSize + Math.round(47 * imgScale);
   const imgRadius = Math.round(20 * imgScale);
 
-  // Word info section — ensure minimum gap between image and word
-  const wordInfoMinH = Math.round(responsive2(151, 120, 82));
-  const wordInfoPadTopBase = Math.max(20, Math.round(responsive2(32, 32, 24)));
-  const wordInfoPadBot = Math.round(responsive2(6, 3, 2));
-
-  // Measure actual word info overflow via ref to adjust padding dynamically
-  const wordInfoRef = useRef(null);
-  const [wordInfoOverflow, setWordInfoOverflow] = useState(0);
-
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
-  const wordTextFS = Math.round(responsive2(24, 24, 19));
+  // CJK (zh/ja) text gets -2px for visual balance
+  const isCJK = (lang) => lang === 'zh' || lang === 'ja';
+  const wordTextFS = Math.round(responsive2(24, 24, 19)) - (isCJK(targetLang) ? 2 : 0);
   const phoneticFS = Math.round(responsive2(16, 16, 13));
-  const sentenceFS = Math.round(responsive2(16, 16, 13));
-  const translationFS = Math.round(responsive2(15, 15, 11));
+  const sentenceFS_base = Math.round(responsive2(16, 16, 13));
+  const translationFS_base = Math.round(responsive2(15, 15, 11));
 
-  // Internal spacing within word info — shrink on short screens
-  const phoneticMT = Math.round(responsive2(6, 4, 2));
-  const sentenceMT = Math.round(responsive2(7, 4, 2));
-  const translationMT = Math.round(responsive2(5, 3, 1));
 
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
@@ -278,6 +343,23 @@ export default function LearningPage({
   useEffect(() => {
     setCurrentIndex(0);
   }, [langKey]);
+
+  // Detect categoryReviewMode: true iff the user is currently inside a *specific*
+  // sub-category whose words are all already learned. We snapshot at category-switch
+  // time only (deps exclude `progress`) so finishing a word mid-session doesn't
+  // abruptly flip the user from learning into review — that path goes through the
+  // category-done popup + auto-switch to "all" instead.
+  useEffect(() => {
+    if (isReview) { setCategoryReviewMode(false); return; }
+    if (selectedCategory === 'all') { setCategoryReviewMode(false); return; }
+    const prog = getProgress(storageKey);
+    let pool = activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === selectedCategory);
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+      pool = pool.filter(w => w.level === selectedLevel);
+    }
+    const fullyDone = pool.length > 0 && pool.every(w => prog[w.id]?.timestamp);
+    setCategoryReviewMode(fullyDone);
+  }, [isReview, selectedCategory, selectedLevel, isOralMode, nativeLang, targetLang, langKey, sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Review mode: wordPool (unchanged) ──
   const wordPool = useMemo(() => {
@@ -321,12 +403,20 @@ export default function LearningPage({
       return;
     }
 
-    // Session done
+    // Session done — clear loading flag so the category-done popup is allowed to fire
+    // eslint-disable-next-line no-console
+    console.log('[SRS done]', {
+      totalShown: totalShownRef.current,
+      baseQueueLength: baseQueueRef.current.length,
+      baseIdx: baseIdxRef.current,
+      pendingLength: pendingRef.current.length,
+    });
+    sessionLoadingRef.current = false;
     setSrsCard(null);
   }, []);
 
   useEffect(() => {
-    if (isReview) {
+    if (effectiveIsReview) {
       setSrsCard(null);
       sessionInitKey.current = ''; // invalidate so session rebuilds when user returns
       return;
@@ -342,23 +432,47 @@ export default function LearningPage({
 
     const prog = getProgress(storageKey);
 
-    // New words (filtered by category/level)
-    let newPool = selectedCategory === 'all'
-      ? [...activeWordsShuffled]
+    // Full pool for the currently selected subcategory (level OR detail OR oral cat).
+    // New words and due-review words are BOTH drawn from here — reviews never cross
+    // into other subcategories, so studying "adjectives" won't surface "animals" reviews.
+    let subcatPool = selectedCategory === 'all'
+      ? [...activeWords]
       : activeWords.filter(w => w.category === selectedCategory);
-    newPool = newPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') newPool = newPool.filter(w => w.level === selectedLevel);
-    newPool = newPool.filter(w => !prog[w.id]?.timestamp);
+    subcatPool = subcatPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') subcatPool = subcatPool.filter(w => w.level === selectedLevel);
+
+    // New words (not yet learned) within this subcategory
+    let newPool = subcatPool.filter(w => !prog[w.id]?.timestamp);
     newPool = shuffle(newPool);
 
-    // Due review words (global across categories)
-    const dueWords = getDueReviewWords(prog, allWordsFiltered);
+    // Due review words — restricted to this subcategory only
+    const dueWords = getDueReviewWords(prog, subcatPool);
     const { reviewBudget } = calcBudget(dueWords.length);
 
     // Use ALL available new words — session continues until category is truly exhausted
     const reviewSlice = dueWords.slice(0, reviewBudget);
 
     const queue = buildInterleaved(newPool, reviewSlice, prog);
+
+    // eslint-disable-next-line no-console
+    console.log('[SRS init]', {
+      category: selectedCategory,
+      level: selectedLevel,
+      subcatPoolSize: subcatPool.length,
+      subcatPoolIds: subcatPool.map(w => w.id),
+      newPoolIds: newPool.map(w => w.id),
+      dueWordIds: dueWords.map(w => w.id),
+      reviewBudget,
+      queue: queue.map(c => `${c.word.id}(${c.type}/${c.format})`),
+      progressSnapshot: Object.fromEntries(
+        subcatPool.map(w => [w.id, {
+          timestamp: !!prog[w.id]?.timestamp,
+          mastered: !!prog[w.id]?.mastered,
+          srsLevel: prog[w.id]?.srsLevel,
+          nextReviewAt: prog[w.id]?.nextReviewAt,
+        }])
+      ),
+    });
 
     baseQueueRef.current = queue;
     baseIdxRef.current = 0;
@@ -372,7 +486,7 @@ export default function LearningPage({
     } else {
       setSrsCard(null);
     }
-  }, [isReview, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
+  }, [effectiveIsReview, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
@@ -380,47 +494,28 @@ export default function LearningPage({
     setSessionKey(k => k + 1);
   }, []);
 
-  // ── Category-done detection: auto-switch when a category is exhausted ──
+  // ── Category-done detection (SRS learning path) ──
+  // Fires when the SRS session runs out of cards but more words exist globally.
+  // Shows a popup with 2 actions ("重新复习" vs "学习新的") — no auto-switch.
   useEffect(() => {
-    // Don't trigger when the page is hidden, or while the session is being (re)built
-    if (isReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
+    if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
 
     const prog = getProgress(storageKey);
     const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
     if (unlearned.length === 0) return; // truly all done — show the all-done screen
 
-    // Current category/level exhausted but more words exist globally
     completedCatNameRef.current = catLabels[selectedCategory] || '';
     setCategoryDoneVisible(true);
-
-    categoryAutoSwitchRef.current = setTimeout(() => {
-      categoryAutoSwitchRef.current = null;
-      setCategoryDoneVisible(false);
-      // Preserve current difficulty level if there are still unlearned words at that level
-      const progNow = getProgress(storageKey);
-      const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
-        ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
-        : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
-      onCategoryChange?.('all');
-      onLevelChange?.(hasUnlearnedAtLevel ? selectedLevel : 'all');
-      resetSrsSession();
-    }, 2200);
-
-    return () => {
-      if (categoryAutoSwitchRef.current) {
-        clearTimeout(categoryAutoSwitchRef.current);
-        categoryAutoSwitchRef.current = null;
-      }
-      setCategoryDoneVisible(false);
-    };
-  }, [srsCard, isReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [srsCard, effectiveIsReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Unified currentWord ──
-  const currentWord = isReview ? (reviewCard?.word || null) : (srsCard?.word || null);
+  const currentWord = effectiveIsReview ? (reviewCard?.word || null) : (srsCard?.word || null);
   const displayWord = currentWord ? getWordText(currentWord, targetLang) : '';
 
   const displaySentence = useMemo(() => {
     if (!currentWord) return '';
+    // Oral phrases: use sentenceZh when target is Chinese
+    if (currentWord.sentenceZh && targetLang === 'zh') return currentWord.sentenceZh;
     const sentence = getSentence(currentWord, targetLang);
     if (!sentence && targetLang === 'zh') return currentWord.sentence || '';
     return sentence;
@@ -428,6 +523,8 @@ export default function LearningPage({
 
   const sentenceLang = useMemo(() => {
     if (!currentWord) return targetLang;
+    // Oral phrases: sentenceZh is Chinese
+    if (currentWord.sentenceZh && targetLang === 'zh') return 'zh';
     const sentence = getSentence(currentWord, targetLang);
     if (!sentence && targetLang === 'zh') return 'en';
     return targetLang;
@@ -479,7 +576,9 @@ export default function LearningPage({
     setShowSentence(false);
     hasSpoken.current = false;
     dModeResultRef.current = null;
-  }, [currentWord?.id, quizFormat]);
+    // srsCard/reviewCard refs change even when same word re-appears — required so
+    // state resets when a word cycles back (e.g. cycle rebuild → Monday again).
+  }, [currentWord?.id, quizFormat, srsCard, reviewCard]);
 
   // Phonetics (skip for oral phrases)
   useEffect(() => {
@@ -504,14 +603,30 @@ export default function LearningPage({
     return () => { cancelled = true; };
   }, [currentWord?.id, targetLang]);
 
-  // Sentence translation
+  // Sentence translation — translate to whichever language differs from sentenceLang
+  const translationLang = sentenceLang !== nativeLang ? nativeLang : targetLang;
+  const needsTranslation = sentenceLang !== translationLang;
+
   useEffect(() => {
-    if (!currentWord || !displaySentence) { setSentenceTranslation(''); return; }
-    if (sentenceLang === nativeLang) { setSentenceTranslation(''); return; }
+    if (!currentWord || !displaySentence || !needsTranslation) { setSentenceTranslation(''); return; }
+    // Use pre-loaded translations: Chinese, English, Japanese sentences are all in word data
+    if (translationLang === 'zh' && currentWord.sentenceZh) {
+      setSentenceTranslation(currentWord.sentenceZh);
+      return;
+    }
+    if (translationLang === 'en' && currentWord.sentence) {
+      setSentenceTranslation(currentWord.sentence);
+      return;
+    }
+    if (translationLang === 'ja') {
+      const jaSentence = currentWord.jaSentence || jaData[currentWord.en]?.sentence;
+      if (jaSentence) { setSentenceTranslation(jaSentence); return; }
+    }
+    // Fallback to API for any missing translations
     const cacheKey = `${currentWord.id}_${langKey}`;
     if (_sentenceCache.has(cacheKey)) { setSentenceTranslation(_sentenceCache.get(cacheKey)); return; }
     setSentenceTranslation('');
-    const langpair = getTranslationPair(sentenceLang, nativeLang);
+    const langpair = getTranslationPair(sentenceLang, translationLang);
     let cancelled = false;
     fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(displaySentence)}&langpair=${langpair}`)
       .then(r => r.ok ? r.json() : null)
@@ -524,18 +639,7 @@ export default function LearningPage({
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [currentWord?.id, langKey, displaySentence, sentenceLang, nativeLang]);
-
-  // Measure word info overflow after render — reduce padding if content overflows fixed height
-  useLayoutEffect(() => {
-    const el = wordInfoRef.current;
-    if (!el) { setWordInfoOverflow(0); return; }
-    const overflow = el.scrollHeight - el.clientHeight;
-    setWordInfoOverflow(overflow > 2 ? overflow : 0);
-  }, [displaySentence, sentenceTranslation, wordInfoPadTopBase]);
-  // Reduce padding by half the overflow (split between top/bottom), cap reduction at 12px
-  const padReduce = Math.min(12, Math.round(wordInfoOverflow / 2));
-  const wordInfoPadTop = Math.max(16, wordInfoPadTopBase - padReduce);
+  }, [currentWord?.id, langKey, displaySentence, sentenceLang, translationLang, needsTranslation]);
 
   // Auto-speak on word change — always reset hasSpoken first, then speak only if tab is visible
   // reviewCard is included so the effect re-fires when the same word reappears (re-inserted after wrong answer)
@@ -565,7 +669,7 @@ export default function LearningPage({
 
   // ── Advance logic ──
   const advanceToNext = useCallback(() => {
-    if (isReview) {
+    if (effectiveIsReview) {
       const card = reviewCard;
       if (!card) return;
       const hadWrong = wrongSelections.size > 0 || wrongImageIds.size > 0;
@@ -590,11 +694,37 @@ export default function LearningPage({
 
       reviewPointerRef.current++;
 
-      // If cycle exhausted, rebuild with fresh shuffle (keep word states so type & error weight carries over)
+      // If cycle exhausted, decide whether to continue (rebuild queue) or finish.
+      // · categoryReviewMode → finish only once every in-scope word is "review-mastered"
+      //   (sessionCorrect >= 2 && errorCount === 0). This guarantees at least a B pass
+      //   followed by a C pass — matching the word-list review algorithm. If any word
+      //   hasn't reached that state yet, rebuild the queue and keep cycling.
+      // · global review mode → rebuild indefinitely, user exits manually.
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
         const prog = getProgress(storageKey);
-        const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+        let basePool = allWordsFiltered;
+        if (selectedCategory !== 'all') {
+          basePool = basePool.filter(w => w.category === selectedCategory);
+          if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+            basePool = basePool.filter(w => w.level === selectedLevel);
+          }
+        }
+        const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) { setReviewCard(null); return; }
+
+        if (categoryReviewMode) {
+          const allMastered = eligible.every(w => {
+            const s = reviewWordStatesRef.current[w.id];
+            return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+          });
+          if (allMastered) {
+            completedCatNameRef.current = catLabels[selectedCategory] || '';
+            setCategoryCycleDone(true);
+            setReviewCard(null);
+            return;
+          }
+        }
+
         const queue = buildReviewQueueFromWords(eligible, prog, reviewWordStatesRef.current);
         reviewQueueRef.current = queue;
         reviewPointerRef.current = 0;
@@ -640,12 +770,12 @@ export default function LearningPage({
             lastReviewedAt: now,
           }, storageKey);
         } else {
-          // 不认识: reschedule D at same frequency as C (gap ~7), stays in session
-          const gap = SESSION_GAPS[2]; // same as C's gap = 7
+          // 不认识: reschedule as B (image quiz) so user re-learns the word
+          const gap = SESSION_GAPS[1]; // B's gap = 5
           pendingRef.current.push({
             word: card.word,
-            step,
-            format: 'D',
+            step: 1,
+            format: 'B',
             dueAt: totalShownRef.current + gap,
           });
           updateWordSRS(card.word.id, { srsLevel: Math.max(step - 1, 0), lastReviewedAt: now }, storageKey);
@@ -714,7 +844,7 @@ export default function LearningPage({
     totalShownRef.current++;
     setProgress(getProgress(storageKey));
     showNextCard();
-  }, [isReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
+  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
 
   // ── Click handlers ──
   const handleOptionClick = useCallback((option) => {
@@ -731,6 +861,7 @@ export default function LearningPage({
       setIsCorrect(false);
       playWrongSound();
       setWrongSelections(prev => new Set([...prev, option]));
+      setShowSentence(true); // auto-reveal translation on wrong answer
     }
   }, [currentWord, isCorrect, advanceToNext, nativeLang, triggerAnim]);
 
@@ -745,6 +876,7 @@ export default function LearningPage({
       setIsCorrect(false);
       playWrongSound();
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
+      setShowSentence(true); // auto-reveal translation on wrong answer
     }
   }, [currentWord, isCorrect, advanceToNext, triggerAnim]);
 
@@ -771,12 +903,6 @@ export default function LearningPage({
     if (currentWord) speakCurrent(displayWord);
   }, [currentWord, displayWord, speakCurrent]);
 
-  // Auto-speak when a new word appears (study + review)
-  useEffect(() => {
-    if (currentWord && displayWord) {
-      speakWordByLang(displayWord, targetLang);
-    }
-  }, [currentWord?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStar = useCallback(() => {
     if (!currentWord) return;
@@ -789,19 +915,39 @@ export default function LearningPage({
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();
-    if (!isReview) markWordLearned(currentWord.id, storageKey);
+    if (!effectiveIsReview) markWordLearned(currentWord.id, storageKey);
     toggleMastered(currentWord.id, true, storageKey);
-    if (isReview) {
+    if (effectiveIsReview) {
       const skippedId = currentWord.id;
       // Remove all occurrences of this word from the review queue
       reviewQueueRef.current = reviewQueueRef.current.filter((w, idx) => idx < reviewPointerRef.current || w.id !== skippedId);
       delete reviewWordStatesRef.current[skippedId];
       setTimeout(() => {
         const prog = getProgress(storageKey);
-        const eligible = allWordsFiltered.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+        // Pool scope: stay within the selected sub-category for both global review (isReview)
+        // and categoryReviewMode. The eligible filter below limits to learned, non-mastered.
+        let basePool = allWordsFiltered;
+        if (selectedCategory !== 'all') {
+          basePool = basePool.filter(w => w.category === selectedCategory);
+          if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
+        }
+        const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) { setReviewCard(null); return; }
         if (reviewPointerRef.current >= reviewQueueRef.current.length) {
-          const queue = buildReviewQueueFromWords(eligible, prog);
+          if (categoryReviewMode) {
+            const allMastered = eligible.every(w => {
+              const s = reviewWordStatesRef.current[w.id];
+              return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+            });
+            if (allMastered) {
+              completedCatNameRef.current = catLabels[selectedCategory] || '';
+              setCategoryCycleDone(true);
+              setReviewCard(null);
+              setProgress(prog);
+              return;
+            }
+          }
+          const queue = buildReviewQueueFromWords(eligible, prog, reviewWordStatesRef.current);
           reviewQueueRef.current = queue;
           reviewPointerRef.current = 0;
           // Word states kept across cycles
@@ -818,14 +964,22 @@ export default function LearningPage({
         showNextCard();
       }, 400);
     }
-  }, [currentWord, isReview, storageKey, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
+  }, [currentWord, effectiveIsReview, storageKey, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
 
   // Counter text
   const counterText = useMemo(() => {
-    if (isReview) {
-      const total = reviewQueueRef.current.length;
-      const pos = reviewPointerRef.current + 1;
-      return total > 0 ? `${Math.min(pos, total)}/${total}` : '0/0';
+    if (effectiveIsReview) {
+      // Denominator: unique words in the review queue (constant across wrong-answer re-inserts,
+      // because splice inserts the SAME word object so its id is already in the set).
+      // Numerator: unique words the user has already moved past at least once.
+      const queue = reviewQueueRef.current;
+      const pointer = reviewPointerRef.current;
+      if (queue.length === 0) return '0/0';
+      const totalIds = new Set();
+      for (const w of queue) totalIds.add(w.id);
+      const pastIds = new Set();
+      for (let i = 0; i < pointer; i++) pastIds.add(queue[i].id);
+      return `${pastIds.size}/${totalIds.size}`;
     }
     // SRS mode: learned/total in current category+level filter
     let pool = selectedCategory === 'all' ? [...activeWords] : activeWords.filter(w => w.category === selectedCategory);
@@ -834,22 +988,79 @@ export default function LearningPage({
     const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
     return `${learned}/${total}`;
-  }, [isReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress]);
+  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress]);
 
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
     setPendingLevel(selectedLevel);
+    // Set initial tab based on current mode (level tab hidden, default to detail)
+    if (selectedLevel === 'oral') {
+      setCategoryTab('oral');
+    } else {
+      setCategoryTab('detail');
+    }
     setShowCategories(true);
   }, [selectedCategory, selectedLevel]);
 
   const handleConfirmCategories = useCallback(() => {
     window.speechSynthesis.cancel();
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
     onCategoryChange?.(pendingCategory);
     onLevelChange?.(pendingLevel);
     setCurrentIndex(0);
     resetSrsSession();
     setShowCategories(false);
   }, [pendingCategory, pendingLevel, onCategoryChange, onLevelChange, resetSrsSession]);
+
+  // ── Category-done popup button handlers ──
+  // "Review Again": stay on the current category/level, switch into categoryReviewMode
+  // (which replays the finished list with B/C question-type cycling). In SRS-done
+  // state this activates review mode; in cycle-done state it rebuilds the queue.
+  const handleReviewAgain = useCallback(() => {
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
+    setCategoryReviewMode(true);
+
+    // Rebuild the review queue immediately so the next render already has a card
+    const prog = getProgress(storageKey);
+    let pool = allWordsFiltered;
+    if (selectedCategory !== 'all') {
+      pool = pool.filter(w => w.category === selectedCategory);
+      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+        pool = pool.filter(w => w.level === selectedLevel);
+      }
+    }
+    const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
+    if (eligible.length === 0) { setReviewCard(null); return; }
+
+    // "重新复习" = explicit fresh cycle. Zero out the review states for in-scope words
+    // so each one enters in B format and must pass through B → C again to finish.
+    const savedStates = getReviewWordStates(storageKey);
+    for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
+    saveReviewWordStates(savedStates, storageKey);
+    reviewWordStatesRef.current = savedStates;
+    const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
+    reviewQueueRef.current = queue;
+    reviewPointerRef.current = 0;
+    showNextReviewCard(queue, 0, savedStates);
+    setProgress(prog);
+  }, [allWordsFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard]);
+
+  // "Learn New": exit review mode for this category and jump to the "All" category,
+  // so the SRS engine pulls the next batch of unlearned words from anywhere.
+  const handleLearnNew = useCallback(() => {
+    setCategoryDoneVisible(false);
+    setCategoryCycleDone(false);
+    setCategoryReviewMode(false);
+    const progNow = getProgress(storageKey);
+    const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
+      ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
+      : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
+    onCategoryChange?.('all');
+    onLevelChange?.(hasUnlearnedAtLevel ? selectedLevel : 'all');
+    resetSrsSession();
+  }, [allWordsFiltered, selectedLevel, storageKey, onCategoryChange, onLevelChange, resetSrsSession]);
 
   // Font for target language
   const targetFont = getFontFamily(targetLang);
@@ -862,23 +1073,91 @@ export default function LearningPage({
       : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
 
   // ── Category done popup (more words exist in other categories) ──
-  if (!currentWord && categoryDoneVisible) {
+  // Fires from TWO sources: SRS session exhausted (categoryDoneVisible) or
+  // review cycle finished (categoryCycleDone). Preserves the outer learning
+  // layout (background, decorations, top bar with category button & counter) —
+  // only the word-card + choices area is replaced by the popup card.
+  if (!currentWord && (categoryDoneVisible || categoryCycleDone)) {
     return (
-      <div className="flex flex-col h-full relative">
-        <div className="absolute inset-0 z-0">
-          <img src="/assets/figma/study_background.jpg" alt="" className="w-full h-full object-cover" />
-        </div>
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
-          <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
-            style={{ border: '2px solid #000' }}>
-            <div className="text-5xl mb-3">🎊</div>
-            <div className="text-xl font-extrabold text-textMain mb-1">{t.categoryDone}</div>
-            {completedCatNameRef.current && (
-              <div className="text-textSub text-sm mt-1">
-                {completedCatNameRef.current} {t.allLearned}
+      <div className="relative flex flex-col h-full">
+        {/* ── BACKGROUND ── */}
+        <img
+          src={isReview ? '/assets/figma/vocablist-study-background.jpg' : '/assets/figma/study_background.jpg'}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{ zIndex: 0 }}
+        />
+
+        {/* ── DECORATIVE OVERLAYS (normal mode only) ── */}
+        {!isReview && (
+          <>
+            <img src="/assets/figma/nav-decor-top-1.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ left: 0, bottom: -2, width: navLeftDecorW, zIndex: 3 }} />
+            {showBigNavDecor ? (
+              <img src="/assets/figma/nav-decor-top-2.png" alt=""
+                className="absolute pointer-events-none select-none"
+                style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
+            ) : (
+              <div className="absolute pointer-events-none select-none overflow-hidden"
+                style={{ right: 6, bottom: -10, width: 40, height: 38, zIndex: 3 }}>
+                <img src="/assets/figma/nav-decor-frog.png" alt=""
+                  style={{
+                    position: 'absolute', left: 0, top: '-115.8%',
+                    width: '290%', height: '215.82%', maxWidth: 'none',
+                  }} />
               </div>
             )}
-            <div className="text-[#999] text-xs mt-3">{t.autoSwitching}</div>
+            <img src="/assets/figma/nav-decor-3.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
+          </>
+        )}
+
+        {/* ── CONTENT ── */}
+        <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
+          {/* ── TOP BAR (same as learning page) ── */}
+          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+            {isReview ? (
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+            ) : (
+              <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
+                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            )}
+            <span className="text-[14px] text-[#999]">{counterText}</span>
+          </div>
+
+          {/* ── POPUP in the card area ── */}
+          <div className="flex-1 flex items-center justify-center px-6">
+            <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
+              style={{ border: '2px solid #000', maxWidth: 320 }}>
+              <div className="text-5xl mb-3">🎊</div>
+              <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
+              {completedCatNameRef.current && (
+                <div className="text-textSub text-sm mt-1">
+                  {completedCatNameRef.current}{t.allLearned}
+                </div>
+              )}
+              <div className="flex gap-3 mt-5 w-full justify-center">
+                <button
+                  onClick={handleReviewAgain}
+                  className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                  style={{ backgroundColor: '#fbf2e2', color: '#000', border: '2px solid #000' }}
+                >
+                  {t.reviewAgain}
+                </button>
+                <button
+                  onClick={handleLearnNew}
+                  className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
+                  style={{ backgroundColor: '#ffd016', color: '#000', border: '2px solid #000' }}
+                >
+                  {t.learnNew}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -896,6 +1175,18 @@ export default function LearningPage({
             <img src="/assets/figma/study_background.jpg" alt="" className="w-full h-full object-cover" />
           )}
         </div>
+        {isReview && (
+          <div className="relative shrink-0 flex items-center px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+            <div className="flex items-center" style={{ gap: 11 }}>
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
           <div className="text-6xl mb-3">🎉</div>
           <div className="text-xl font-extrabold text-textMain mb-1">
@@ -919,6 +1210,7 @@ export default function LearningPage({
             </button>
           )}
         </div>
+        {renderCategoryModal()}
       </div>
     );
   }
@@ -973,20 +1265,26 @@ export default function LearningPage({
       )}
 
       {/* ── CONTENT ── */}
-      <div ref={containerRef} className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
+      <div ref={containerRef} className="relative flex flex-col h-full" style={{
+        zIndex: 2,
+        paddingBottom: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
+      }}>
 
         {/* ── TOP BAR ── */}
         <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
           {isReview ? (
-            <button onClick={onExitReview} className="w-[18px] h-[18px] flex items-center justify-center active:scale-90">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
+            <div className="flex items-center" style={{ gap: 11 }}>
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            </div>
           ) : (
             <button
               onClick={handleOpenCategories}
-              className="w-[36px] h-[36px] active:scale-90"
+              className="w-[30px] h-[30px] active:scale-90"
             >
               <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
             </button>
@@ -1025,49 +1323,51 @@ export default function LearningPage({
           </div>
         )}
 
+        {/* ── WORD INFO TOP SPACER (shrinks when sentence is long, so content moves up) ── */}
+        <div style={{ flexShrink: 1, height: showBigImage ? 36 : 96, minHeight: 0 }} />
+
         {/* ── WORD INFO ── */}
-        <div ref={wordInfoRef} className="flex flex-col items-center px-6" style={{
-          height: showBigImage ? wordInfoMinH : Math.round(responsive2(130, 105, 82)),
-          paddingTop: showBigImage ? wordInfoPadTop : 96,
-          paddingBottom: wordInfoPadBot,
+        <div className="shrink-0 flex flex-col items-center px-6" style={{
+          paddingBottom: 4,
+          overflow: 'visible',
+          zIndex: 5,
         }}>
           {/* Main word display */}
           <span
-            className="leading-tight text-textMain text-center"
+            className="text-textMain text-center"
             style={{
               fontSize: wordTextFS,
               fontFamily: targetFont,
               fontWeight: 900,
+              lineHeight: isCJK(targetLang) ? 1.5 : 1.25,
             }}
           >
             {displayWord.toLowerCase()}
           </span>
 
-          {/* Speaker + phonetic / reading — hide entirely when no phonetic (e.g. oral mode) */}
-          {(!isOralMode || phonetic) && (
-            <button
-              onClick={handleSpeak}
-              className="flex items-center gap-1.5 text-[#999] active:scale-95"
-              style={{ marginTop: phoneticMT }}
-            >
-              <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
-              {phonetic && (
-                <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
-                  {phonetic}
-                </span>
-              )}
-            </button>
-          )}
+          {/* Speaker + phonetic / reading */}
+          <button
+            onClick={handleSpeak}
+            className="flex items-center gap-1.5 text-[#999] active:scale-95"
+            style={{ marginTop: 5 }}
+          >
+            <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+            {phonetic && (
+              <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
+                {phonetic}
+              </span>
+            )}
+          </button>
 
-          {/* Example sentence */}
-          {displaySentence && (
+          {/* Example sentence — hidden in D mode */}
+          {displaySentence && quizFormat !== 'D' && (
             <p
-              className="text-textMain text-center leading-snug"
+              className="text-textMain text-center"
               style={{
-                marginTop: showBigImage ? sentenceMT : 2,
-                fontSize: sentenceFS,
+                marginTop: 6,
+                fontSize: sentenceFS_base - (isCJK(sentenceLang) ? 2 : 0),
                 fontWeight: 'normal',
-                // Use a readable normal-weight font (not Arial Black which is ultra-bold)
+                lineHeight: isCJK(sentenceLang) ? 1.5 : 1.25,
                 fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang),
               }}
             >
@@ -1075,26 +1375,25 @@ export default function LearningPage({
             </p>
           )}
 
-          {/* Translation — always visible in format A; cover in other formats */}
-          {displaySentence && sentenceLang !== nativeLang && (
-            quizFormat === 'A' ? (
-              <span
-                className="text-center leading-none px-2"
-                style={{ marginTop: translationMT, fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb', minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          {/* Translation — always visible in format A (& oral C step 0); cover in B/C; hidden in D */}
+          {displaySentence && quizFormat !== 'D' && needsTranslation && (
+            quizFormat === 'A' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
+              <p
+                className="text-center px-2"
+                style={{ marginTop: 5, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }}
               >
                 {sentenceTranslation || t.translating}
-              </span>
+              </p>
             ) : (
               <button
                 onClick={() => setShowSentence(tt => !tt)}
                 className="flex items-center justify-center active:scale-95"
-                style={{ marginTop: translationMT + 3 }}
-                style={{ minWidth: 234, height: 24, flexShrink: 0 }}
+                style={{ marginTop: 6, minWidth: 234, height: 24, flexShrink: 0 }}
               >
                 {showSentence ? (
-                  <span style={{ fontSize: translationFS, color: sentenceTranslation ? '#555' : '#bbb' }} className="text-center leading-none px-2">
+                  <p style={{ fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }} className="text-center px-2">
                     {sentenceTranslation || t.translating}
-                  </span>
+                  </p>
                 ) : (
                   <div className="rounded-sm" style={{
                     width: 268, height: 24,
@@ -1108,13 +1407,11 @@ export default function LearningPage({
           )}
         </div>
 
-        {/* ── SPACER ── */}
-        <div className="flex-1 min-h-0" />
-
-        {/* ── CHOICES AREA (uniformly scaled) ── */}
-        <div className="shrink-0" style={{
+        {/* ── CHOICES AREA (absolutely pinned to bottom, never moves) ── */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
           height: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
-          position: 'relative', zIndex: 4, overflow: 'visible',
+          zIndex: 4, overflow: 'visible',
         }}>
          <div style={{
            transform: choiceScale < 0.995 ? `scale(${choiceScale})` : undefined,
@@ -1124,18 +1421,12 @@ export default function LearningPage({
 
           {/* 2 x 2 grid: image choices (B), text choices (A/C), or D-mode (know/don't-know) */}
           {quizFormat === 'D' ? (
-            /* ── Format D: Know / Don't Know self-assessment ── */
+            /* ── Format D: Know / Don't Know — identical to C layout, just 2 buttons ── */
             <div className="grid grid-cols-2 gap-x-[13px]" style={{ rowGap: 7 }}>
-              {/* Cat decor */}
-              {!isReview && showCatDecor && (
-                <img src="/assets/figma/word-decor.png" alt=""
-                  className="absolute pointer-events-none select-none"
-                  style={{ left: 30, top: choicesPadTop - 26, width: 52, zIndex: 5 }} />
-              )}
               {[
-                { key: 'know', label: t.dKnow, handler: handleDKnow, animId: 'dKnow' },
-                { key: 'dontknow', label: t.dDontKnow, handler: handleDDontKnow, animId: 'dDontKnow' },
-              ].map(({ key, label, handler, animId }) => {
+                { key: 'know', label: t.dKnow, handler: handleDKnow, animId: 'dKnow', idx: 0 },
+                { key: 'dontknow', label: t.dDontKnow, handler: handleDDontKnow, animId: 'dDontKnow', idx: 1 },
+              ].map(({ key, label, handler, animId, idx }) => {
                 const isKnowFlash = key === 'know' && dModeResultRef.current === 'know';
                 const isDontKnowFlash = key === 'dontknow' && dModeResultRef.current === 'dontknow';
                 const isWiggling = animKey === animId;
@@ -1144,6 +1435,12 @@ export default function LearningPage({
                     height: 115,
                     animation: isWiggling ? 'btnWiggle 0.46s ease-out' : undefined,
                   }}>
+                    {/* Cat decor on top-left cell — same as C mode */}
+                    {idx === 0 && !isReview && showCatDecor && (
+                      <img src="/assets/figma/word-decor.png" alt=""
+                        className="absolute pointer-events-none select-none"
+                        style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
+                    )}
                     {/* Background card */}
                     <div
                       className="absolute rounded-[8px]"
@@ -1153,7 +1450,7 @@ export default function LearningPage({
                         transition: 'background-color 0.15s',
                       }}
                     />
-                    {/* Decoration frame */}
+                    {/* Decoration frame — same as C mode */}
                     <img
                       src="/assets/figma/text-container.png"
                       alt=""
@@ -1165,7 +1462,7 @@ export default function LearningPage({
                       onClick={handler}
                       disabled={dModeResultRef.current !== null}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: 24, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 17, zIndex: 2, padding: 10, transition: 'none' }}
                     >
                       {label}
                     </button>
@@ -1266,7 +1563,7 @@ export default function LearningPage({
                       onClick={() => handleOptionClick(option)}
                       disabled={!!isCorrect || isThisWrong}
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
-                      style={{ fontSize: 17, zIndex: 2, transition: 'none' }}
+                      style={{ fontSize: 17, zIndex: 2, padding: 10, transition: 'none' }}
                     >
                       {option}
                     </button>
@@ -1312,111 +1609,348 @@ export default function LearningPage({
         </div>
       </div>
 
-      {/* ── CATEGORY MODAL ── */}
-      {showCategories && (
-        <div className="absolute inset-0 flex flex-col" style={{ zIndex: 50 }}>
-          <div
-            className="bg-white px-6 pt-2 pb-5 shadow-lg"
-            style={{ animation: 'categoryExpand 0.25s ease-out', transformOrigin: 'top left' }}
-          >
-            <button
-              onClick={() => setShowCategories(false)}
-              className="w-[30px] h-[30px] mb-4 active:scale-90"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" strokeWidth="2.5" strokeLinecap="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-
-            {(() => {
-              const pendingIsOral = pendingLevel === 'oral';
-              const pendingCats = pendingIsOral ? oralCategories : categories;
-              const pendingCatLabels = pendingIsOral
-                ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
-                : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-              const pendingTagColors = {};
-              pendingCats.filter(c => c !== 'all').forEach((cat, idx) => {
-                const gridPos = idx + 1;
-                pendingTagColors[cat] = TAG_COLORS_BASE[(gridPos % 4 + Math.floor(gridPos / 4)) % TAG_COLORS_BASE.length];
-              });
-              // Filter LEVELS: hide 'oral' when ja is involved
-              const jaInvolved = nativeLang === 'ja' || targetLang === 'ja';
-              const availableLevels = jaInvolved ? LEVELS.filter(l => l !== 'oral') : LEVELS;
-              return (
-                <>
-                  <div className="relative mb-4">
-                    <select
-                      value={pendingLevel}
-                      onChange={(e) => {
-                        const newLevel = e.target.value;
-                        const wasOral = pendingLevel === 'oral';
-                        const isNowOral = newLevel === 'oral';
-                        setPendingLevel(newLevel);
-                        if (wasOral !== isNowOral) setPendingCategory('all');
-                      }}
-                      className="w-full appearance-none bg-white border-2 border-black rounded-full px-4 text-[14px] font-medium text-textMain focus:outline-none"
-                      style={{ height: 34 }}
-                    >
-                      {availableLevels.map(l => (
-                        <option key={l} value={l}>
-                          {l === 'all' ? t.allLevels : l === 'oral' ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh) : `${t.levelPrefix}: ${LEVEL_LABELS[l]}`}
-                        </option>
-                      ))}
-                    </select>
-                    <svg className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="#2A2A2A" strokeWidth="2">
-                      <polyline points="1 1 7 7 13 1" />
-                    </svg>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2.5 mb-4">
-                    {pendingCats.map((cat) => {
-                      const isSelected = pendingCategory === cat;
-                      const bgColor = isSelected
-                        ? '#1b1b1b'
-                        : cat === 'all' ? '#ffffff' : pendingTagColors[cat];
-                      return (
-                        <button
-                          key={cat}
-                          onClick={() => setPendingCategory(cat)}
-                          className="px-4 rounded-full text-[14px] font-medium border-2 border-black"
-                          style={{
-                            height: 32,
-                            backgroundColor: bgColor,
-                            color: isSelected ? '#ffffff' : '#000000',
-                            lineHeight: '28px',
-                          }}
-                        >
-                          {pendingCatLabels[cat]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })()}
-
-            <div className="flex justify-center">
-              <button
-                onClick={handleConfirmCategories}
-                className="flex items-center justify-center active:scale-95 border-2 border-black rounded-full"
-                style={{
-                  width: 130, height: 39,
-                  backgroundColor: '#ffd016',
-                }}
-              >
-                <span className="text-[18px] font-normal text-black">{t.ok}</span>
-              </button>
-            </div>
-          </div>
-
-          <div
-            className="flex-1"
-            style={{ backgroundColor: 'rgba(0,0,0,0.3)', animation: 'fadeIn 0.2s ease-out' }}
-            onClick={() => setShowCategories(false)}
-          />
-        </div>
-      )}
+      {/* ── CATEGORY MODAL (full-page, Figma redesign) ── */}
+      {renderCategoryModal()}
     </div>
   );
+
+  function renderCategoryModal() {
+    if (!showCategories) return null;
+    const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
+        // Level tab temporarily hidden
+        const tabs = [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+        // Uniform tab width: within a language, all tabs share the widest label's width.
+        // CJK chars are roughly twice as wide as Latin letters at the same font size,
+        // so we approximate per-char pixel widths (14px font, weight 500).
+        const approxLabelWidth = (s) => {
+          let w = 0;
+          for (const ch of s) {
+            const code = ch.charCodeAt(0);
+            if (code > 0x2e80) w += 15;            // CJK / kana
+            else if (/[A-Z]/.test(ch)) w += 9.5;   // uppercase Latin
+            else if (/[a-z]/.test(ch)) w += 7.5;   // lowercase Latin
+            else w += 6;                            // digits/punct
+          }
+          return Math.ceil(w);
+        };
+        const tabInnerW = Math.max(...tabs.map(t => approxLabelWidth(t.label)));
+        const tabWidth = tabInnerW + 32 + 3; // + paddingX (16*2) + border (1.5*2)
+        const detailCatLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
+        const oralCatLabels = ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh;
+
+        // BUG FIX: Use vocab words pool for level/detail tabs regardless of current mode
+        const vocabPool = words.filter(w => isWordAvailable(w, nativeLang, targetLang));
+
+        const allLevelDefs = [
+          { key: 'beginner', label: 'Level 1', num: '1' },
+          { key: 'intermediate', label: 'Level 2', num: '2' },
+          { key: 'advanced', label: 'Level 3', num: '3' },
+        ];
+        const levelItems = allLevelDefs.filter(lv => vocabPool.some(w => w.level === lv.key));
+        const detailCats = categories.filter(c => c !== 'all' && vocabPool.some(w => w.category === c));
+        const dynamicCatImages = {};
+        detailCats.forEach(cat => {
+          const firstWord = vocabPool.find(w => w.category === cat);
+          if (firstWord) dynamicCatImages[cat] = firstWord.img;
+        });
+        const oralCats = oralCategories.filter(c => c !== 'all');
+
+        // Progress helper: count learned / total for a word pool
+        const getCatProgress = (wordPool) => {
+          const learned = wordPool.filter(w => progress[w.id]?.timestamp).length;
+          return { learned, total: wordPool.length };
+        };
+
+        // Per-row decoration picker (matches Figma 343:232 spec):
+        // For each row of 3 cards → at most 1 letter at top-right, at most 1 star
+        // (BL or TR). If both would land on same card at TR, star moves to BL.
+        const getRowDecor = (rowSeed) => {
+          let h = 0;
+          const s = String(rowSeed || 'x');
+          for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+          const next = () => { h = (h * 9301 + 49297) & 0x7fffffff; return h; };
+          const letterPick = next() % 4; // 0:none 1..3:card idx+1
+          const starPick = next() % 4;
+          let starAtTR = (next() % 2) === 1;
+          if (letterPick !== 0 && starPick === letterPick && starAtTR) starAtTR = false;
+          return {
+            letterIdx: letterPick === 0 ? -1 : letterPick - 1,
+            starIdx: starPick === 0 ? -1 : starPick - 1,
+            starAtTR,
+          };
+        };
+
+        // Shared card renderer with progress bar (matches Figma card: ~108x auto)
+        const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog, decor = {}, opts = {}) => {
+          const { hasLetter = false, hasStar = false, starAtTR = false } = decor;
+          const { imageContain = false } = opts;
+          return (
+          <button key={key} ref={isSelected ? selectedCatCardRef : null} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
+            <div style={{
+              position: 'relative',
+              width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
+              border: `2px solid ${isSelected ? '#ffd016' : '#000'}`,
+              borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              padding: '4px 6px 8px',
+            }}>
+              {/* Letter decoration — top-right corner, rotated 38.7deg (Figma 402:418) */}
+              {hasLetter && (
+                <div className="pointer-events-none select-none" style={{
+                  position: 'absolute', right: -8, top: -11,
+                  width: 24, height: 24,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  zIndex: 3,
+                }}>
+                  <img src="/assets/figma/frame-decor-letter.png" alt=""
+                    style={{ width: 18, height: 15, display: 'block', transform: 'rotate(38.7deg)' }} />
+                </div>
+              )}
+              {/* Star decoration — BL or TR corner, rotated -50.81deg (Figma 425:231) */}
+              {hasStar && (
+                <div className="pointer-events-none select-none" style={{
+                  position: 'absolute',
+                  ...(starAtTR ? { right: -9, top: -11 } : { left: -9, bottom: -11 }),
+                  width: 29, height: 29,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  zIndex: 3,
+                }}>
+                  <img src="/assets/figma/frame-decor-stas.png" alt=""
+                    style={{ width: 20, height: 21, display: 'block', transform: 'rotate(-50.81deg)' }} />
+                </div>
+              )}
+              {/* Category image */}
+              <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: imageContain ? '#fff' : '#e8dcc8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {imgSrc ? (
+                  imageContain ? (
+                    <img src={imgSrc} alt={label} style={{ width: '55%', height: '68%', objectFit: 'contain' }} />
+                  ) : (
+                    <img src={imgSrc} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )
+                ) : (
+                  <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
+                )}
+              </div>
+              {/* Progress bar — own row (Figma 472:339/340; 75.27 / 107.8 ≈ 70% of card) */}
+              <div style={{
+                width: '75%', marginTop: 10, height: 9, borderRadius: 100,
+                backgroundColor: '#ffffff', border: '1px solid #000',
+                position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
+              }}>
+                <div style={{
+                  height: '100%', borderRadius: 100,
+                  backgroundColor: prog.total > 0 && prog.learned >= prog.total ? '#C7F59A' : '#ffcc00',
+                  width: prog.total > 0 ? `${(prog.learned / prog.total) * 100}%` : '0%',
+                }} />
+              </div>
+              {/* Count — 2nd row below bar (equal spacing above and below) */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 5, lineHeight: 1, textAlign: 'center' }}>
+                {prog.learned}/{prog.total}
+              </span>
+              {/* Category label — 3rd row */}
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#000', marginTop: 5, lineHeight: 1, textAlign: 'center' }}>
+                {label}
+              </span>
+            </div>
+            {/* Selection check badge — sits above corner decorations, at the very corner */}
+            {isSelected && (
+              <div style={{
+                position: 'absolute', top: -8, right: -8,
+                width: 22, height: 22, borderRadius: '50%',
+                backgroundColor: '#ffd016', border: '2px solid #000',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                zIndex: 5,
+              }}>
+                <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+                  <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </button>
+          );
+        };
+
+        return (
+          <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
+            {/* Outer page background (outside the bordered frame) */}
+            <img
+              src="/assets/figma/category-bg.jpg" alt=""
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ zIndex: 0 }}
+            />
+            {/* Content layer — fixed shell */}
+            <div className="relative flex flex-col h-full">
+
+              {/* ── Fixed top: Transparent header — tabs sit directly on modal bg ── */}
+              <div className="shrink-0" style={{
+                padding: '15px 16px 15px', position: 'relative', zIndex: 3,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
+              }}>
+                <button
+                  onClick={() => setShowCategories(false)}
+                  className="flex items-center justify-center active:scale-90"
+                  style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
+                >
+                  <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                </button>
+                {tabs.map(tab => {
+                  const isActive = categoryTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      onClick={() => {
+                        if (categoryTab !== tab.key) {
+                          setCategoryTab(tab.key);
+                          if (tab.key === 'detail') { setPendingCategory('all'); setPendingLevel('all'); }
+                          else if (tab.key === 'oral') { setPendingCategory('all'); setPendingLevel('oral'); }
+                        }
+                      }}
+                      style={{
+                        width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
+                        borderRadius: 8, border: '1.5px solid #000',
+                        backgroundColor: isActive ? '#FFD016' : '#F5F4EF',
+                        color: '#000',
+                        fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
+              {/* minHeight locks the frame so it stays the same regardless of card count */}
+              <div className="flex-1 relative" style={{
+                margin: '0 13px 15px',
+                border: '2px solid #000', borderRadius: 10,
+                minHeight: 600,
+                overflow: 'hidden',
+              }}>
+                {/* Scrollable card area inside the frame */}
+                <div ref={catScrollContainerRef} className="absolute inset-0 overflow-y-auto scrollbar-hide" style={{ zIndex: 1, WebkitOverflowScrolling: 'touch', padding: '14px 12px 18px' }}>
+
+                  {/* === LEVEL TAB === */}
+                  {categoryTab === 'level' && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                      {levelItems.map((lv, idx) => {
+                        const isSelected = pendingLevel === lv.key && categoryTab === 'level';
+                        const pool = vocabPool.filter(w => w.level === lv.key);
+                        const prog = getCatProgress(pool);
+                        const rowIdx = Math.floor(idx / 3);
+                        const colIdx = idx % 3;
+                        const row = getRowDecor(`level-${rowIdx}`);
+                        const decor = {
+                          hasLetter: row.letterIdx === colIdx,
+                          hasStar: row.starIdx === colIdx,
+                          starAtTR: row.starAtTR,
+                        };
+                        return renderCatCard(
+                          lv.key, null, lv.label, isSelected,
+                          () => { setPendingLevel(lv.key); setPendingCategory('all'); },
+                          prog, decor,
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* === DETAIL CATEGORY TAB === */}
+                  {categoryTab === 'detail' && (() => {
+                    // Build items: "all" card first, followed by each concrete category
+                    const detailItems = [
+                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: vocabPool },
+                      ...detailCats.map(cat => {
+                        const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
+                        return {
+                          key: cat,
+                          label: detailCatLabels[cat],
+                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          pool: vocabPool.filter(w => w.category === cat),
+                        };
+                      }),
+                    ];
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                        {detailItems.map((item, idx) => {
+                          const isSelected = pendingCategory === item.key && categoryTab === 'detail';
+                          const prog = getCatProgress(item.pool);
+                          const rowIdx = Math.floor(idx / 3);
+                          const colIdx = idx % 3;
+                          const row = getRowDecor(`detail-${rowIdx}`);
+                          const decor = {
+                            hasLetter: row.letterIdx === colIdx,
+                            // Suppress star on row 0 (keeps the "全部" card area clean)
+                            hasStar: rowIdx !== 0 && row.starIdx === colIdx,
+                            starAtTR: row.starAtTR,
+                          };
+                          return renderCatCard(
+                            item.key, item.imgSrc, item.label, isSelected,
+                            () => { setPendingCategory(item.key); setPendingLevel('all'); },
+                            prog, decor,
+                            { imageContain: item.key === 'all' },
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* === ORAL TAB === */}
+                  {categoryTab === 'oral' && (() => {
+                    // Build items: "all" card first, followed by each concrete oral category
+                    const oralItems = [
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: oralPhrases },
+                      ...oralCats.map(cat => {
+                        const imgFile = oralCategoryCovers[cat];
+                        return {
+                          key: cat,
+                          label: oralCatLabels[cat],
+                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          pool: oralPhrases.filter(w => w.category === cat),
+                        };
+                      }),
+                    ];
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                        {oralItems.map((item, idx) => {
+                          const isSelected = pendingCategory === item.key && categoryTab === 'oral';
+                          const prog = getCatProgress(item.pool);
+                          const rowIdx = Math.floor(idx / 3);
+                          const colIdx = idx % 3;
+                          const row = getRowDecor(`oral-${rowIdx}`);
+                          const decor = {
+                            hasLetter: row.letterIdx === colIdx,
+                            // Suppress star on row 0 (keeps the "全部" card area clean)
+                            hasStar: rowIdx !== 0 && row.starIdx === colIdx,
+                            starAtTR: row.starAtTR,
+                          };
+                          return renderCatCard(
+                            item.key, item.imgSrc, item.label, isSelected,
+                            () => { setPendingCategory(item.key); setPendingLevel('oral'); },
+                            prog, decor,
+                            { imageContain: item.key === 'all' },
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* ── Fixed bottom: confirm button ── */}
+              <div className="shrink-0 relative flex justify-center" style={{ paddingTop: 6, paddingBottom: 35, zIndex: 3 }}>
+                <button
+                  onClick={handleConfirmCategories}
+                  className="flex items-center justify-center active:scale-95"
+                  style={{
+                    width: 158, height: 51, borderRadius: 100,
+                    backgroundColor: '#ffd016', border: '2px solid #000',
+                    position: 'relative', zIndex: 1,
+                  }}
+                >
+                  <span style={{ fontSize: 24, fontWeight: 400, color: '#000' }}>{t.ok}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+  }
 }

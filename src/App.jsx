@@ -59,9 +59,19 @@ export default function App() {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-  // Persist category/level filters across tab switches
-  const [learningCategory, setLearningCategory] = useState('all');
-  const [learningLevel, setLearningLevel] = useState('beginner');
+  // Persist category/level filters across tab switches AND page refreshes
+  const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
+  const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+
+  const handleCategoryChange = (cat) => {
+    setLearningCategory(cat);
+    localStorage.setItem('app_learning_category', cat);
+  };
+  const handleLevelChange = (lvl) => {
+    setLearningLevel(lvl);
+    localStorage.setItem('app_learning_level', lvl);
+  };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
@@ -123,7 +133,7 @@ export default function App() {
   }
 
   return (
-    <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#e5e5e5' }}>
       <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
@@ -137,10 +147,11 @@ export default function App() {
               targetLang={targetLang}
               selectedCategory={learningCategory}
               selectedLevel={learningLevel}
-              onCategoryChange={setLearningCategory}
-              contentHFromParent={Math.max(0, vpH - navH - 2)}
-              onLevelChange={setLearningLevel}
+              onCategoryChange={handleCategoryChange}
+              contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
+              onLevelChange={handleLevelChange}
               isVisible={page === 'learn' || reviewMode}
+              onCategoryModalChange={setCategoryModalOpen}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
@@ -163,7 +174,7 @@ export default function App() {
         </div>
 
         {/* Bottom tab bar */}
-        <div className="shrink-0 relative overflow-visible" style={{ height: navH, backgroundColor: '#2b2a26' }}>
+        <div className="shrink-0 relative overflow-visible" style={{ height: categoryModalOpen ? 0 : navH, backgroundColor: '#2b2a26', overflow: categoryModalOpen ? 'hidden' : undefined }}>
           {/* Nav separator line at top */}
           <img
             src="/assets/figma/nav-separator.png"
