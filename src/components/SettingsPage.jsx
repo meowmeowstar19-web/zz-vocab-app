@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { clearAllProgress } from '../utils/storage';
+import { supabase } from '../lib/supabase';
 
 const LANG_CODES = ['en', 'ja', 'zh'];
 
 const LANG_ICONS = {
   en: '/assets/figma/setting-lang-en.png',
   ja: '/assets/figma/setting-lang-ja.png',
-  zh: '/assets/figma/setting-lang-zh.png',
+  zh: '/assets/figma/setting-lang-chinese.png',
 };
 
 const ROW_PREFIX = {
@@ -36,6 +37,113 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
+
+  // Password binding state
+  const [user, setUser] = useState(null);
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdInfo, setPwdInfo] = useState('');
+  const [pwdLoading, setPwdLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (mounted) setUser(data.user || null);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  // Detect password presence reliably. OAuth users (Google/Discord) who later
+  // set a password don't get an "email" identity automatically, so we also check
+  // a user_metadata flag we set on success, plus a per-user localStorage marker.
+  const hasPassword = !!(
+    user?.user_metadata?.has_password ||
+    (user?.id && localStorage.getItem('has_password_' + user.id) === 'true') ||
+    user?.identities?.some((i) => i.provider === 'email') ||
+    user?.app_metadata?.providers?.includes('email')
+  );
+  const showPasswordRow = !!user; // hide for guest mode
+
+  const openPwdModal = () => {
+    setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); setPwdError(''); setPwdInfo('');
+    setShowPwdModal(true);
+  };
+  const closePwdModal = () => {
+    setShowPwdModal(false);
+  };
+
+  const handlePwdSubmit = async () => {
+    setPwdError(''); setPwdInfo('');
+    // Validate new password first (cheap, client-side)
+    if (newPwd.length < 6) {
+      setPwdError(t.passwordTooShort || '密码至少 6 位');
+      return;
+    }
+    const hasLower = /[a-z]/.test(newPwd);
+    const hasUpper = /[A-Z]/.test(newPwd);
+    const hasDigit = /[0-9]/.test(newPwd);
+    if (!hasLower || !hasUpper || !hasDigit) {
+      setPwdError(t.passwordComplexity || '密码需包含大小写字母和数字');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdError(t.passwordMismatch || '两次密码不一致');
+      return;
+    }
+    setPwdLoading(true);
+    try {
+      // When changing existing password, verify current password first
+      if (hasPassword) {
+        if (!currentPwd) {
+          setPwdError(t.currentPasswordRequired || '请先输入当前密码');
+          setPwdLoading(false);
+          return;
+        }
+        const email = user?.email;
+        if (!email) throw new Error('No email');
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email,
+          password: currentPwd,
+        });
+        if (signInErr) {
+          setPwdError(t.currentPasswordWrong || '当前密码不正确');
+          setPwdLoading(false);
+          return;
+        }
+      }
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPwd,
+        data: { has_password: true },
+      });
+      if (error) throw error;
+      // Show success message while keeping the modal contents intact.
+      // Defer user-state update + modal close until after the message
+      // has been visible for a beat, so the inputs don't appear to reset.
+      setPwdInfo(hasPassword ? (t.passwordChangeSuccess || '密码已更新！') : (t.passwordSetSuccess || '密码已设置！'));
+      setPwdLoading(false);
+      await new Promise((r) => setTimeout(r, 1200));
+      const { data: u } = await supabase.auth.getUser();
+      const refreshed = u.user || data.user || null;
+      if (refreshed?.id) {
+        try { localStorage.setItem('has_password_' + refreshed.id, 'true'); } catch {}
+      }
+      setUser(refreshed);
+      setShowPwdModal(false);
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
+      return; // skip finally's setPwdLoading reset
+    } catch (err) {
+      const raw = err?.message || '';
+      const isComplexity = /should contain at least one character of each/i.test(raw);
+      setPwdError(isComplexity
+        ? (t.passwordComplexity || '密码需包含大小写字母和数字')
+        : (raw || t.passwordSetFailed || '设置失败'));
+    } finally {
+      setPwdLoading(false);
+    }
+  };
 
   const openPicker = (type) => {
     setPendingCode(type === 'native' ? nativeLang : targetLang);
@@ -158,25 +266,54 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </span>
         </button>
 
-        {/* Logout button — yellow pill matching Figma */}
+        {/* Password pill — only for logged-in users (not guest) */}
+        {showPasswordRow && (
+          <button
+            onClick={openPwdModal}
+            className="absolute flex items-center active:scale-[0.98]"
+            style={{
+              left: 20, top: 368,
+              width: 353, height: 50,
+              backgroundColor: '#fff',
+              border: '2px solid #000',
+              borderRadius: 100,
+            }}
+          >
+            <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
+              {hasPassword ? (t.changePasswordRow || '修改密码') : (t.setPasswordRow || '设置密码')}
+            </span>
+            <span style={{ marginLeft: 'auto', marginRight: 15 }}>
+              <ChevronDown />
+            </span>
+          </button>
+        )}
+
+        {/* Logout / Sign-in button — yellow pill. Position follows last button above. */}
         {onLogout && (
-          <div className="absolute flex justify-center" style={{ top: 365, left: 0, right: 0 }}>
+          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 458 : 355, left: 0, right: 0 }}>
             <button
               onClick={() => {
+                if (!user) {
+                  // Guest mode: jump straight to login, no data to preserve.
+                  onLogout();
+                  return;
+                }
                 if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
                   onLogout();
                 }
               }}
               className="active:scale-95 transition-transform"
               style={{
-                width: 128, height: 48,
+                width: user ? 128 : 148, height: 48,
                 backgroundColor: '#ffd016',
                 border: '2px solid #000',
                 borderRadius: 100,
                 fontSize: 20, color: '#000',
               }}
             >
-              {t.logout || '退出'}
+              {user
+                ? (t.logout || '退出')
+                : (nativeLang === 'en' ? 'Exit Test Mode' : nativeLang === 'ja' ? 'テストモードを終了' : '退出测试模式')}
             </button>
           </div>
         )}
@@ -200,15 +337,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {/* Language picker modal */}
       {pickerType && (
         <div
-          className="absolute inset-0 z-50"
+          className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
           onClick={closePicker}
         >
-          {/* Card — centered, width 353 = same as pills (left:20, right:20) */}
+          {/* Card — centered both axes */}
           <div
-            className="absolute"
+            className="relative"
             style={{
-              left: 20, top: 162,
               width: 353, height: 310,
               backgroundColor: '#fff',
               border: '2px solid #000',
@@ -307,6 +443,154 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             >
               {t.ok}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Password modal */}
+      {showPwdModal && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+        >
+          <div
+            style={{
+              width: 353,
+              backgroundColor: '#fff',
+              border: '2px solid #000',
+              borderRadius: 20,
+              padding: '30px 24px 28px',
+              display: 'flex', flexDirection: 'column',
+            }}
+          >
+            {/* Title */}
+            <p style={{
+              textAlign: 'center', fontSize: 18, color: '#000',
+              marginBottom: 22,
+            }}>
+              {hasPassword ? (t.changePasswordTitle || '修改登录密码') : (t.setPasswordTitle || '设置登录密码')}
+            </p>
+
+            {/* Current password — only when changing an existing password */}
+            {hasPassword && (
+              <>
+                <label style={{
+                  fontSize: 14, color: '#000', marginLeft: 4, marginBottom: 6,
+                }}>
+                  {t.currentPasswordLabel || '当前密码'}
+                </label>
+                <input
+                  type="password"
+                  value={currentPwd}
+                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  placeholder={t.currentPasswordPlaceholder || '请输入当前密码'}
+                  autoFocus
+                  style={{
+                    height: 44,
+                    border: '2px solid #000',
+                    borderRadius: 22,
+                    paddingLeft: 18, paddingRight: 18,
+                    fontSize: 15, color: '#000',
+                    outline: 'none',
+                    backgroundColor: '#fff',
+                    marginBottom: 14,
+                  }}
+                />
+              </>
+            )}
+
+            {/* New password */}
+            <label style={{
+              fontSize: 14, color: '#000', marginLeft: 4, marginBottom: 6,
+            }}>
+              {t.newPasswordLabel || '新密码'}
+            </label>
+            <input
+              type="password"
+              value={newPwd}
+              onChange={(e) => setNewPwd(e.target.value)}
+              placeholder={t.passwordPlaceholder || '至少6位且包含大小写字母和数字'}
+              autoFocus={!hasPassword}
+              style={{
+                height: 44,
+                border: '2px solid #000',
+                borderRadius: 22,
+                paddingLeft: 18, paddingRight: 18,
+                fontSize: 15, color: '#000',
+                outline: 'none',
+                backgroundColor: '#fff',
+                marginBottom: 14,
+              }}
+            />
+
+            {/* Confirm new password */}
+            <label style={{
+              fontSize: 14, color: '#000', marginLeft: 4, marginBottom: 6,
+            }}>
+              {t.confirmPasswordLabel || '确认新密码'}
+            </label>
+            <input
+              type="password"
+              value={confirmPwd}
+              onChange={(e) => setConfirmPwd(e.target.value)}
+              placeholder={t.passwordPlaceholder || '至少6位且包含大小写字母和数字'}
+              style={{
+                height: 44,
+                border: '2px solid #000',
+                borderRadius: 22,
+                paddingLeft: 18, paddingRight: 18,
+                fontSize: 15, color: '#000',
+                outline: 'none',
+                backgroundColor: '#fff',
+              }}
+            />
+
+            {/* Error / info message */}
+            {(pwdError || pwdInfo) && (
+              <p style={{
+                textAlign: 'center', fontSize: 13,
+                color: pwdError ? '#dc2626' : '#15803d',
+                lineHeight: 1.3,
+                marginTop: 12,
+                wordBreak: 'break-word',
+              }}>
+                {pwdError || pwdInfo}
+              </p>
+            )}
+
+            {/* Cancel + Next/Confirm buttons */}
+            <div style={{
+              display: 'flex', justifyContent: 'center', gap: 16,
+              marginTop: 20,
+            }}>
+              <button
+                onClick={closePwdModal}
+                className="active:scale-95"
+                style={{
+                  width: 110, height: 39,
+                  backgroundColor: '#fff',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 16, color: '#000',
+                }}
+              >
+                {t.cancel || '取消'}
+              </button>
+              <button
+                onClick={handlePwdSubmit}
+                disabled={pwdLoading}
+                className="active:scale-95 disabled:opacity-50"
+                style={{
+                  width: 130, height: 39,
+                  backgroundColor: '#ffd016',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 18, color: '#000',
+                }}
+              >
+                {pwdLoading ? '...' : (t.ok || '确认')}
+              </button>
+            </div>
           </div>
         </div>
       )}

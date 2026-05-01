@@ -1,43 +1,123 @@
 import { useState } from 'react';
+import { supabase } from '../lib/supabase';
+import { UI_TEXT } from '../utils/langHelpers';
 
-export default function EmailLoginPage({ onBack, onLogin }) {
+export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
+  const t = UI_TEXT[nativeLang] || UI_TEXT.en;
   const [mode, setMode] = useState('login'); // 'login' or 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | ''
+  const [oauthProvider, setOauthProvider] = useState(''); // 'google' | 'discord' | ''
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const resetMessages = () => {
+    setError(''); setErrorKind(''); setOauthProvider(''); setInfo('');
+  };
+
+  // Calls the check-email-status Edge Function to refine the generic
+  // "Invalid login credentials" error into a precise one. Falls back to the
+  // generic message if the function isn't deployed or fails.
+  const refineLoginError = async (emailVal) => {
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke('check-email-status', {
+        body: { email: emailVal },
+      });
+      if (fnErr || !data || !data.status) return false;
+      if (data.status === 'not_registered') {
+        setError(t.emailNotRegistered);
+        setErrorKind('not_registered');
+        return true;
+      }
+      if (data.status === 'oauth_only') {
+        const provider = data.provider || 'google';
+        const label = provider === 'google' ? 'Google' : provider === 'discord' ? 'Discord' : provider;
+        setError((t.emailOauthOnly || '').replaceAll('{provider}', label));
+        setOauthProvider(provider);
+        setErrorKind('oauth_only');
+        return true;
+      }
+      if (data.status === 'has_password') {
+        setError(t.wrongPassword);
+        setErrorKind('wrong_password');
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleOAuth = async (provider) => {
+    resetMessages();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) setError(error.message);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    resetMessages();
 
     if (!email || !password) {
-      setError('请填写邮箱和密码');
+      setError(t.fillEmailAndPassword);
       return;
     }
 
     if (mode === 'signup' && password !== confirmPassword) {
-      setError('两次输入的密码不一致');
+      setError(t.passwordMismatch);
       return;
     }
 
     setLoading(true);
     try {
-      // TODO: Replace with Supabase auth
-      // if (mode === 'signup') {
-      //   const { error } = await supabase.auth.signUp({ email, password });
-      //   if (error) throw error;
-      // } else {
-      //   const { error } = await supabase.auth.signInWithPassword({ email, password });
-      //   if (error) throw error;
-      // }
-      // onLogin();
-
-      // Temporary: just log in directly
-      onLogin();
+      if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        // Supabase returns a user with empty identities[] when the email
+        // is already registered (silent dedup to prevent account enumeration).
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setError(t.emailAlreadyTaken);
+          setErrorKind('email_taken');
+          setMode('login');
+          return;
+        }
+        if (data.session) {
+          onLogin();
+        } else {
+          setInfo(t.signupSuccess);
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          if (/invalid login credentials/i.test(error.message)) {
+            const refined = await refineLoginError(email);
+            if (!refined) {
+              setError(t.authOrOauthError);
+              setErrorKind('auth_or_oauth');
+            }
+            return;
+          }
+          if (/email not confirmed/i.test(error.message)) {
+            setError(t.emailUnconfirmed);
+            setErrorKind('unconfirmed');
+            return;
+          }
+          throw error;
+        }
+        onLogin();
+      }
     } catch (err) {
-      setError(err.message || '登录失败');
+      setError(err.message || t.operationFailed);
     } finally {
       setLoading(false);
     }
@@ -65,43 +145,83 @@ export default function EmailLoginPage({ onBack, onLogin }) {
       {/* Form */}
       <form onSubmit={handleSubmit} className="absolute left-0 right-0 top-[111px] px-[29px]">
         {/* Email */}
-        <label className="block text-[16px] text-black mb-1">邮箱地址：</label>
+        <label className="block text-[16px] text-black mb-1">{t.emailLabel}</label>
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
-          placeholder="your@email.com"
+          placeholder={t.emailPlaceholder}
         />
 
         {/* Password */}
-        <label className="block text-[16px] text-black mb-1 mt-[20px]">密码:</label>
+        <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.loginPasswordLabel}</label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
-          placeholder="••••••••"
+          placeholder={t.passwordDots}
         />
 
         {/* Confirm Password (signup only) */}
         {mode === 'signup' && (
           <>
-            <label className="block text-[16px] text-black mb-1 mt-[20px]">确认密码：</label>
+            <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.confirmPasswordSignupLabel}</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
-              placeholder="••••••••"
+              placeholder={t.passwordDots}
             />
           </>
         )}
 
         {/* Error message */}
         {error && (
-          <p className="text-red-500 text-[13px] mt-3 text-center">{error}</p>
+          <p className="text-red-500 text-[13px] mt-3 text-center leading-tight">{error}</p>
         )}
+        {info && (
+          <p className="text-green-700 text-[13px] mt-3 text-center">{info}</p>
+        )}
+
+        {/* OAuth icon CTAs — show only when error suggests OAuth is the right path.
+            For "not_registered", we rely on the existing "还没有账号？注册" toggle below. */}
+        {(() => {
+          const showAllOAuth = errorKind === 'auth_or_oauth' || errorKind === 'email_taken';
+          const showOnlyOneOAuth = errorKind === 'oauth_only';
+          if (!showAllOAuth && !showOnlyOneOAuth) return null;
+
+          const GoogleIcon = (
+            <button
+              key="g"
+              type="button"
+              onClick={() => handleOAuth('google')}
+              className="w-[48px] h-[48px] rounded-full bg-white border border-black shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+            >
+              <img src="/assets/figma/icon-google-g.png" alt="Google" className="w-[30px] h-[30px]" />
+            </button>
+          );
+          const DiscordIcon = (
+            <button
+              key="d"
+              type="button"
+              onClick={() => handleOAuth('discord')}
+              className="w-[48px] h-[48px] rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
+            >
+              <img src="/assets/figma/icon-discord.png" alt="Discord" className="w-full h-full object-cover" />
+            </button>
+          );
+
+          return (
+            <div className="mt-3 flex justify-center gap-[26px]">
+              {showOnlyOneOAuth
+                ? (oauthProvider === 'discord' ? DiscordIcon : GoogleIcon)
+                : (<>{GoogleIcon}{DiscordIcon}</>)}
+            </div>
+          );
+        })()}
 
         {/* Submit button */}
         <div className="flex justify-center mt-[30px]">
@@ -110,16 +230,16 @@ export default function EmailLoginPage({ onBack, onLogin }) {
             disabled={loading}
             className="w-[128px] h-[48px] rounded-[100px] bg-[#ffd016] border-2 border-black text-[20px] text-black font-normal active:scale-95 transition-transform disabled:opacity-50"
           >
-            {loading ? '...' : (mode === 'signup' ? '注册' : '登录')}
+            {loading ? '...' : (mode === 'signup' ? t.signupBtn : t.loginBtn)}
           </button>
         </div>
 
         {/* Toggle login/signup */}
         <p className="text-center mt-[20px] text-[14px] text-black/60">
           {mode === 'login' ? (
-            <>还没有账号？<button type="button" onClick={() => { setMode('signup'); setError(''); }} className="text-black underline">注册</button></>
+            <>{t.noAccountYet}<button type="button" onClick={() => { setMode('signup'); setError(''); }} className="text-black underline">{t.signupBtn}</button></>
           ) : (
-            <>已有账号？<button type="button" onClick={() => { setMode('login'); setError(''); }} className="text-black underline">登录</button></>
+            <>{t.hasAccountAlready}<button type="button" onClick={() => { setMode('login'); setError(''); }} className="text-black underline">{t.loginBtn}</button></>
           )}
         </p>
       </form>
