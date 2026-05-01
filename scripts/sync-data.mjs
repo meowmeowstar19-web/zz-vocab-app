@@ -271,17 +271,17 @@ function readVocab() {
 
     const entry = {
       en,
-      zh:          String(row['Chinese (中文)'] || '').trim(),
+      zh:          String(row['单词中文翻译'] || row['Chinese (中文)'] || '').trim(),
       category:    cat,
       level:       lvl,
       sentence,
-      sentenceZh:  String(row['Example CN (例句中文)'] || '').trim(),
+      sentenceZh:  String(row['例句中文翻译'] || row['Example CN (例句中文)'] || '').trim(),
       img:         `${en.toLowerCase()}.jpg`,
-      ja:          String(row['Japanese (日本語)'] || '').trim(),
-      jaReading:   String(row['Japanese Reading (日语音标)'] || '').trim(),
-      jaSentence:  String(row['Example JP (例句日語)'] || '').trim(),
-      pinyin:      String(row['Chinese Pinyin (拼音)'] || '').trim(),
-      ipa:         String(row['English IPA (音标)'] || '').trim(),
+      ja:          String(row['单词日语翻译'] || row['Japanese (日本語)'] || '').trim(),
+      jaReading:   String(row['日语音标'] || row['Japanese Reading (日语音标)'] || '').trim(),
+      jaSentence:  String(row['例句日语翻译'] || row['Example JP (例句日語)'] || '').trim(),
+      pinyin:      String(row['中文拼音'] || row['Chinese Pinyin (拼音)'] || '').trim(),
+      ipa:         String(row['英语音标'] || row['English IPA (音标)'] || '').trim(),
     };
 
     allRows.push(entry);
