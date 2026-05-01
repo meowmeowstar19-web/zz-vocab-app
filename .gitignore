@@ -19,3 +19,6 @@ update_data_folder/deleted_image/
 confirmed_images/
 Tab2_classified.csv
 Tab2_进阶地道_语义分类.csv
+
+# Claude Code worktrees (git-internal, not project code)
+.claude/worktrees/
