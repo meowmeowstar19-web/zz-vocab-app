@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
+import WelcomePage from './components/WelcomePage';
+import LanguageSetupPage from './components/LanguageSetupPage';
 import { migrateOldProgress, migrateProgressToTargetOnly } from './utils/storage';
 import { UI_TEXT } from './utils/langHelpers';
+import { supabase } from './lib/supabase';
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
@@ -39,13 +42,49 @@ function TabIcon({ type, active }) {
 migrateOldProgress();
 migrateProgressToTargetOnly();
 
+// Detect browser language → default native lang for first-time visitors.
+// Used pre-login (Welcome / Email pages) so unsaved users see localized UI.
+function detectBrowserNativeLang() {
+  const list = navigator.languages && navigator.languages.length
+    ? navigator.languages
+    : [navigator.language || 'en'];
+  for (const raw of list) {
+    const code = (raw || '').toLowerCase();
+    if (code.startsWith('zh')) return 'zh';
+    if (code.startsWith('ja')) return 'ja';
+    if (code.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+function defaultTargetFor(native) {
+  // Sensible default: zh→en, en→ja, ja→en
+  if (native === 'zh') return 'en';
+  if (native === 'en') return 'ja';
+  return 'en';
+}
+
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [isGuest, setIsGuest] = useState(() => localStorage.getItem('app_logged_in') === 'true');
+  const isLoggedIn = !!session || isGuest;
+  // Language setup shows once per user — both authed users and guests skip it
+  // on subsequent logins if they've already picked native/target.
+  const [needsLangSetup, setNeedsLangSetup] = useState(false);
   const [page, setPage] = useState('learn');
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListFilter, setWordListFilter] = useState(null);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
-  const [nativeLang, setNativeLang] = useState(() => localStorage.getItem('app_native') || 'en');
-  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('app_target') || 'ja');
+  const [nativeLang, setNativeLang] = useState(() => {
+    const saved = localStorage.getItem('app_native');
+    return saved || detectBrowserNativeLang();
+  });
+  const [targetLang, setTargetLang] = useState(() => {
+    const saved = localStorage.getItem('app_target');
+    if (saved) return saved;
+    const guessNative = localStorage.getItem('app_native') || detectBrowserNativeLang();
+    return defaultTargetFor(guessNative);
+  });
   const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
   const [vpH, setVpH] = useState(() => window.innerHeight);
 
@@ -57,6 +96,28 @@ export default function App() {
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Decide whether to show language setup whenever auth state changes.
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setNeedsLangSetup(false);
+      return;
+    }
+    if (session?.user?.id) {
+      const onboarded = localStorage.getItem('lang_onboarded_' + session.user.id) === 'true';
+      setNeedsLangSetup(!onboarded);
+    } else if (isGuest) {
+      // Guest/test mode: show setup only if language hasn't been picked yet
+      const hasLang = localStorage.getItem('app_native') && localStorage.getItem('app_target');
+      setNeedsLangSetup(!hasLang);
+    }
+  }, [isLoggedIn, session, isGuest]);
   // Persist category/level filters across tab switches AND page refreshes
   const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
   const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
@@ -95,6 +156,34 @@ export default function App() {
     setPage('wordlist');
   };
 
+  const handleLogin = () => {
+    localStorage.setItem('app_logged_in', 'true');
+    setIsGuest(true);
+    setPage('learn');
+    setReviewMode(false);
+    setWordListFilter(null);
+  };
+
+  const handleLogout = async () => {
+    localStorage.removeItem('app_logged_in');
+    setIsGuest(false);
+    setPage('learn');
+    setReviewMode(false);
+    setWordListFilter(null);
+    if (session) await supabase.auth.signOut();
+  };
+
+  const handleLangSetupComplete = ({ native, target }) => {
+    setNativeLang(native);
+    setTargetLang(target);
+    localStorage.setItem('app_native', native);
+    localStorage.setItem('app_target', target);
+    if (session?.user?.id) {
+      localStorage.setItem('lang_onboarded_' + session.user.id, 'true');
+    }
+    setNeedsLangSetup(false);
+  };
+
   const handleLanguageChange = ({ native, target }) => {
     if (native !== undefined) {
       setNativeLang(native);
@@ -108,6 +197,28 @@ export default function App() {
 
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
+
+  // Show login page if not logged in
+  if (!isLoggedIn) {
+    return (
+      <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+          <WelcomePage onLogin={handleLogin} nativeLang={nativeLang} />
+        </div>
+      </div>
+    );
+  }
+
+  // Show language setup for first-time accounts (or every time in test mode)
+  if (needsLangSetup) {
+    return (
+      <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+          <LanguageSetupPage onComplete={handleLangSetupComplete} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#e5e5e5' }}>
@@ -145,6 +256,7 @@ export default function App() {
               nativeLang={nativeLang}
               targetLang={targetLang}
               onLanguageChange={handleLanguageChange}
+              onLogout={handleLogout}
             />
           </div>
         </div>

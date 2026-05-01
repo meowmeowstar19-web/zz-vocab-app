@@ -8,9 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "sync": "node scripts/sync-data.mjs",
-    "sync:push": "node scripts/sync-data.mjs --auto"
+    "sync:push": "node scripts/sync-data.mjs --auto",
+    "compress:figma": "node scripts/compress-figma-assets.mjs",
+    "predev": "node scripts/compress-figma-assets.mjs",
+    "prebuild": "node scripts/compress-figma-assets.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
