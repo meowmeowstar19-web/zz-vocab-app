@@ -6,10 +6,10 @@
 // - sentence: example sentence in Japanese
 
 export const jaData = {
-  'bird': { ja: '鳥', reading: 'tori', sentence: 'とりさん、とぶのめんどくさくなっちゃって、ちっちゃいジェットパックしょってるよ！' },
-  'cat': { ja: '猫', reading: 'neko', sentence: 'ねこちゃん、みんなのことむしして、りっぱなぞうのふりしてるんだよ。' },
-  'cow': { ja: '牛', reading: 'ushi', sentence: 'うしさん、自分のもようとおそろいで、みずたまワンピースきてるよ！' },
-  'dog': { ja: '犬', reading: 'inu', sentence: 'わんちゃん、まくらでさんざんあばれたあと、おりこうさんにおすわりしてるよ。' },
+  'bird': { ja: '<ruby>曖昧<rt>あいまい</rt></ruby>', reading: 'tori', sentence: 'とりさん、とぶのめんどくさくなっちゃって、ちっちゃいジェットパックしょってるよ！' },
+  'cat': { ja: '<ruby>曖昧<rt>あいまい</rt></ruby>', reading: 'neko', sentence: 'ねこちゃん、みんなのことむしして、りっぱなぞうのふりしてるんだよ。' },
+  'cow': { ja: '<ruby>曖昧<rt>あいまい</rt></ruby>', reading: 'ushi', sentence: 'うしさん、自分のもようとおそろいで、みずたまワンピースきてるよ！' },
+  'dog': { ja: '<ruby>曖昧<rt>あいまい</rt></ruby>', reading: 'inu', sentence: 'わんちゃん、まくらでさんざんあばれたあと、おりこうさんにおすわりしてるよ。' },
   'cold': { ja: '寒い', reading: 'samui', sentence: 'こおりくん、さむすぎてぶるぶるふるえてるよ。' },
   'horse': { ja: '馬', reading: 'uma', sentence: 'おうまさん、あさのジョギングに、カラフルなスニーカー4つはいてるよ！' },
   'lion': { ja: 'ライオン', reading: 'raion', sentence: 'ライオンさん、ぼくやさしいんだよーって、おはなのかんむりかぶってるの。' },

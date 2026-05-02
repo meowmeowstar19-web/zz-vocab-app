@@ -39,11 +39,16 @@ function getImageOptions(correctWord, wordPool) {
 // ── Review Queue Algorithm ──
 const REVIEW_DAY = 24 * 60 * 60 * 1000;
 
-function getReviewQuestionType(wordState) {
+function getReviewQuestionType(wordState, isOralMode = false) {
   const { errorCount, sessionCorrect } = wordState;
   if (errorCount >= 2) return 'A';
-  if (errorCount === 1) return 'B';
-  return sessionCorrect > 0 ? 'C' : 'B';
+  if (errorCount === 1) return isOralMode ? 'C' : 'B';
+  // Normal mode: one pass per format — B (image), C (text), D (know/don't-know).
+  // Oral mode has no images, so B is dropped: pass goes C → D only.
+  if (isOralMode) return sessionCorrect >= 1 ? 'D' : 'C';
+  if (sessionCorrect >= 2) return 'D';
+  if (sessionCorrect === 1) return 'C';
+  return 'B';
 }
 
 function buildReviewQueueFromWords(eligibleWords, progress, wordStates = {}) {
@@ -196,6 +201,22 @@ export default function LearningPage({
   const reviewWordStatesRef = useRef({});  // wordId → {errorCount, sessionCorrect}
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
+  // Auto-redirect message shown in review when (a) the chosen category has no
+  // learned words yet, or (b) the user finished a 2-round pass on a specific
+  // category. After 1.5s we switch to "all" and let the queue rebuild.
+  const [reviewRedirect, setReviewRedirect] = useState(null); // 'empty' | 'roundsDone' | null
+  const reviewRedirectTimerRef = useRef(null);
+  const triggerReviewRedirect = useCallback((kind) => {
+    if (reviewRedirectTimerRef.current) clearTimeout(reviewRedirectTimerRef.current);
+    setReviewCard(null);
+    setReviewRedirect(kind);
+    reviewRedirectTimerRef.current = setTimeout(() => {
+      reviewRedirectTimerRef.current = null;
+      setReviewRedirect(null);
+      onCategoryChange?.('all');
+    }, 1500);
+  }, [onCategoryChange]);
+
   // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
   const rawFormat = effectiveIsReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
   const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
@@ -212,11 +233,23 @@ export default function LearningPage({
     const word = queue[pointer];
     if (!word) { setReviewCard(null); return; }
     if (!wordStates[word.id]) wordStates[word.id] = { errorCount: 0, sessionCorrect: 0 };
-    setReviewCard({ word, format: getReviewQuestionType(wordStates[word.id]) });
-  }, []);
+    setReviewCard({ word, format: getReviewQuestionType(wordStates[word.id], isOralMode) });
+  }, [isOralMode]);
 
   useEffect(() => {
-    if (!effectiveIsReview) { setReviewCard(null); return; }
+    if (!effectiveIsReview) {
+      setReviewCard(null);
+      // Drop any stale redirect banner if we exited review.
+      if (reviewRedirectTimerRef.current) {
+        clearTimeout(reviewRedirectTimerRef.current);
+        reviewRedirectTimerRef.current = null;
+      }
+      setReviewRedirect(null);
+      return;
+    }
+    // A redirect is in-flight (e.g. the category change just triggered this re-run).
+    // Skip rebuild — the upcoming category prop change will re-run this effect cleanly.
+    if (reviewRedirect) return;
     const prog = getProgress(storageKey);
     // Restrict the review pool to the selected sub-category (and level, when applicable)
     // for both global review (isReview) and categoryReviewMode. The eligible filter
@@ -229,18 +262,31 @@ export default function LearningPage({
       }
     }
     const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
-    if (eligible.length === 0) { setReviewCard(null); return; }
+    if (eligible.length === 0) {
+      // No learned words in this category → auto-redirect to "all".
+      // For "all" itself, fall through to the existing all-done screen.
+      if (selectedCategory !== 'all') {
+        completedCatNameRef.current = catLabels[selectedCategory] || '';
+        triggerReviewRedirect('empty');
+        return;
+      }
+      setReviewCard(null);
+      return;
+    }
     // Load persisted word states so card types (B/C/A) and error weights survive re-entry.
     const savedStates = getReviewWordStates(storageKey);
-    // categoryReviewMode fresh-start rule: if EVERY in-scope word is already
-    // "review-mastered" from a prior completed cycle (sessionCorrect >= 2 & no
-    // outstanding errors), zero those words out so the user gets a fresh B→C pass.
-    // Partial progress is preserved — that handles the "exited mid-review, resume"
-    // case required by the spec.
+    // Per-word "mastered for this cycle" threshold:
+    //   normal categories: sessionCorrect >= 3 (B + C + D all passed)
+    //   oral categories:   sessionCorrect >= 2 (C + D — oral has no images)
+    const masteredThreshold = isOralMode ? 2 : 3;
+    // categoryReviewMode fresh-start rule: if EVERY in-scope word already cleared
+    // the threshold with no outstanding errors, zero those words out so the user
+    // gets a fresh pass. Partial progress is preserved — that handles the
+    // "exited mid-review, resume" case required by the spec.
     if (categoryReviewMode) {
       const allAlreadyMastered = eligible.every(w => {
         const s = savedStates[w.id];
-        return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+        return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
       });
       if (allAlreadyMastered) {
         for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
@@ -252,7 +298,12 @@ export default function LearningPage({
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
     showNextReviewCard(queue, 0, reviewWordStatesRef.current);
-  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey, reviewRedirect]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cancel a pending redirect timer on unmount so it can't fire after we're gone.
+  useEffect(() => () => {
+    if (reviewRedirectTimerRef.current) clearTimeout(reviewRedirectTimerRef.current);
+  }, []);
 
   // Speak function based on target language
   const speakCurrent = useCallback((text) => {
@@ -419,6 +470,10 @@ export default function LearningPage({
     if (effectiveIsReview) {
       setSrsCard(null);
       sessionInitKey.current = ''; // invalidate so session rebuilds when user returns
+      // Clear any stale SRS-done popup state — review has its own redirect path now,
+      // and the categoryDone popup belongs to the learning flow.
+      setCategoryDoneVisible(false);
+      setCategoryCycleDone(false);
       return;
     }
 
@@ -672,7 +727,14 @@ export default function LearningPage({
     if (effectiveIsReview) {
       const card = reviewCard;
       if (!card) return;
-      const hadWrong = wrongSelections.size > 0 || wrongImageIds.size > 0;
+      // D-mode (know/don't-know) replaces the wrongSelections signal:
+      // "认识" = right, "不认识" = wrong. Reset the ref so the next card starts clean.
+      const isDMode = card.format === 'D';
+      const dResult = dModeResultRef.current;
+      const hadWrong = isDMode
+        ? dResult === 'dontknow'
+        : (wrongSelections.size > 0 || wrongImageIds.size > 0);
+      if (isDMode) dModeResultRef.current = null;
       const wordId = card.word.id;
       const state = reviewWordStatesRef.current[wordId] || { errorCount: 0, sessionCorrect: 0 };
 
@@ -695,11 +757,10 @@ export default function LearningPage({
       reviewPointerRef.current++;
 
       // If cycle exhausted, decide whether to continue (rebuild queue) or finish.
-      // · categoryReviewMode → finish only once every in-scope word is "review-mastered"
-      //   (sessionCorrect >= 2 && errorCount === 0). This guarantees at least a B pass
-      //   followed by a C pass — matching the word-list review algorithm. If any word
-      //   hasn't reached that state yet, rebuild the queue and keep cycling.
-      // · global review mode → rebuild indefinitely, user exits manually.
+      // · specific-category review → finish once every in-scope word is review-mastered
+      //   (errorCount === 0 and sessionCorrect >= threshold). Threshold is 3 in normal
+      //   mode (B → C → D each passed once) or 2 in oral mode (C → D — no images).
+      // · global ('all') review → rebuild indefinitely, user exits manually.
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
         const prog = getProgress(storageKey);
         let basePool = allWordsFiltered;
@@ -710,17 +771,25 @@ export default function LearningPage({
           }
         }
         const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
-        if (eligible.length === 0) { setReviewCard(null); return; }
+        if (eligible.length === 0) {
+          if (selectedCategory !== 'all') {
+            completedCatNameRef.current = catLabels[selectedCategory] || '';
+            triggerReviewRedirect('empty');
+            return;
+          }
+          setReviewCard(null);
+          return;
+        }
 
-        if (categoryReviewMode) {
+        if (selectedCategory !== 'all') {
+          const masteredThreshold = isOralMode ? 2 : 3;
           const allMastered = eligible.every(w => {
             const s = reviewWordStatesRef.current[w.id];
-            return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+            return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
           });
           if (allMastered) {
             completedCatNameRef.current = catLabels[selectedCategory] || '';
-            setCategoryCycleDone(true);
-            setReviewCard(null);
+            triggerReviewRedirect('roundsDone');
             return;
           }
         }
@@ -932,17 +1001,26 @@ export default function LearningPage({
           if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
         }
         const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
-        if (eligible.length === 0) { setReviewCard(null); return; }
+        if (eligible.length === 0) {
+          if (selectedCategory !== 'all') {
+            completedCatNameRef.current = catLabels[selectedCategory] || '';
+            triggerReviewRedirect('empty');
+            setProgress(prog);
+            return;
+          }
+          setReviewCard(null);
+          return;
+        }
         if (reviewPointerRef.current >= reviewQueueRef.current.length) {
-          if (categoryReviewMode) {
+          if (selectedCategory !== 'all') {
+            const masteredThreshold = isOralMode ? 2 : 3;
             const allMastered = eligible.every(w => {
               const s = reviewWordStatesRef.current[w.id];
-              return s && s.sessionCorrect >= 2 && s.errorCount === 0;
+              return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
             });
             if (allMastered) {
               completedCatNameRef.current = catLabels[selectedCategory] || '';
-              setCategoryCycleDone(true);
-              setReviewCard(null);
+              triggerReviewRedirect('roundsDone');
               setProgress(prog);
               return;
             }
@@ -1071,6 +1149,47 @@ export default function LearningPage({
     : pendingLevel === 'oral'
       ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh)
       : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
+
+  // ── Auto-redirect banner (review only) ──
+  // Shown for 1.5s when the user is in review on a specific category and either
+  // (a) the category has no learned words yet, or (b) the 2-round pass finished.
+  // After the timer fires we switch to "all" and let the queue rebuild.
+  if (!currentWord && reviewRedirect && effectiveIsReview) {
+    const headline = reviewRedirect === 'empty' ? t.reviewEmptyCategory : t.reviewRoundsDone;
+    return (
+      <div className="relative flex flex-col h-full">
+        <img
+          src={isReview ? '/assets/figma/vocablist-study-background.jpg' : '/assets/figma/study_background.jpg'}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          style={{ zIndex: 0 }}
+        />
+        <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
+          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+            {isReview ? (
+              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
+                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+              </button>
+            ) : (
+              <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
+                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+              </button>
+            )}
+          </div>
+          <div className="flex-1 flex items-center justify-center px-6">
+            <div className="bg-white rounded-2xl px-7 py-7 shadow-xl flex flex-col items-center text-center"
+              style={{ border: '2px solid #000', maxWidth: 320 }}>
+              <div className="text-4xl mb-3">{reviewRedirect === 'empty' ? '📚' : '🎉'}</div>
+              <div className="text-base font-extrabold text-textMain mb-1">
+                {completedCatNameRef.current ? `「${completedCatNameRef.current}」` : ''}{headline}
+              </div>
+              <div className="text-textSub text-sm mt-2">{t.reviewSwitchingToAll}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Category done popup (more words exist in other categories) ──
   // Fires from TWO sources: SRS session exhausted (categoryDoneVisible) or
@@ -1375,9 +1494,9 @@ export default function LearningPage({
             </p>
           )}
 
-          {/* Translation — always visible in format A (& oral C step 0); cover in B/C; hidden in D */}
+          {/* Translation — always visible in formats A & B (& oral C step 0); cover in C; hidden in D */}
           {displaySentence && quizFormat !== 'D' && needsTranslation && (
-            quizFormat === 'A' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
+            quizFormat === 'A' || quizFormat === 'B' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
               <p
                 className="text-center px-2"
                 style={{ marginTop: 5, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }}
