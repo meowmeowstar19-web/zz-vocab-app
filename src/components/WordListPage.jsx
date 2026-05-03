@@ -4,6 +4,7 @@ import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralP
 import { jaData } from '../data/jaData';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
+import RubyText, { stripRuby } from './RubyText';
 import { phoneticMap } from '../data/phonetics';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
@@ -225,12 +226,12 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
       });
     }
     setPopupWord(word);
-    speakWordByLang(getWordText(word, targetLang) || word.en, targetLang);
+    speakWordByLang(stripRuby(getWordText(word, targetLang) || word.en), targetLang);
   }, [revealedWords, targetLang, nativeLang]);
 
   const handleSpeak = useCallback((e, word) => {
     e.stopPropagation();
-    const text = getWordText(word, targetLang) || word.en;
+    const text = stripRuby(getWordText(word, targetLang) || word.en);
     speakWordByLang(text, targetLang);
   }, [targetLang]);
 
@@ -461,19 +462,16 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
 
                     {/* Word info */}
                     <div className="flex-1 ml-2.5 min-w-0">
-                      <span
+                      <RubyText
+                        text={displayText}
                         className="text-black font-normal"
                         style={{
                           fontSize: (isReverse ? (nativeLang === 'ja') : isTargetJa) ? 20 : 18,
-                          // English uses "Arial Black" elsewhere (intentional bold look),
-                          // but the WordList row should be regular weight.
                           fontFamily: (isReverse ? nativeLang : targetLang) === 'en'
                             ? 'Arial, sans-serif'
                             : (isReverse ? getFontFamily(nativeLang) : targetFont),
                         }}
-                      >
-                        {displayText}
-                      </span>
+                      />
                     </div>
 
                     {/* Mastered checkbox */}
@@ -643,7 +641,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
   }, [imgSrc]);
 
   const handleSpeak = () => {
-    speakWordByLang(displayText, targetLang);
+    speakWordByLang(stripRuby(displayText), targetLang);
   };
 
   return (
@@ -668,17 +666,16 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         {imgSrc && (
           <img
             src={imgSrc}
-            alt={displayText}
+            alt={stripRuby(displayText)}
             className="w-full rounded-xl"
             style={{ maxHeight: 280, objectFit: 'contain' }}
           />
         )}
-        <p
-          className="text-center mt-4"
+        <RubyText
+          text={displayText}
+          className="block text-center mt-4"
           style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}
-        >
-          {displayText}
-        </p>
+        />
         <div className="flex items-center justify-center gap-1.5 mt-2">
           <button onClick={handleSpeak} className="active:scale-90 shrink-0">
             <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15 }} />

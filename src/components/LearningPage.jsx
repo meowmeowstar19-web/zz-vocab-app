@@ -4,6 +4,7 @@ import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
+import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
@@ -307,7 +308,7 @@ export default function LearningPage({
 
   // Speak function based on target language
   const speakCurrent = useCallback((text) => {
-    speakWordByLang(text, targetLang);
+    speakWordByLang(stripRuby(text), targetLang);
   }, [targetLang]);
 
   // Measure container height for responsive layout
@@ -1422,7 +1423,7 @@ export default function LearningPage({
               >
                 <img
                   src={`/images/${encodeURIComponent(currentWord.img)}`}
-                  alt={displayWord}
+                  alt={stripRuby(displayWord)}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -1452,7 +1453,8 @@ export default function LearningPage({
           zIndex: 5,
         }}>
           {/* Main word display */}
-          <span
+          <RubyText
+            text={isTargetJa ? displayWord : displayWord.toLowerCase()}
             className="text-textMain text-center"
             style={{
               fontSize: wordTextFS,
@@ -1460,9 +1462,7 @@ export default function LearningPage({
               fontWeight: 900,
               lineHeight: isCJK(targetLang) ? 1.5 : 1.25,
             }}
-          >
-            {displayWord.toLowerCase()}
-          </span>
+          />
 
           {/* Speaker + phonetic / reading */}
           <button
