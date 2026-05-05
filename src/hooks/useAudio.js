@@ -8,6 +8,28 @@ function getAudioCtx() {
   return audioCtx;
 }
 
+// Pre-recorded word audio files. Vite resolves /public/assets/audio/{lang}/*.mp3 at build time.
+// Lookup key: `${lang}:${lowercase word}` → URL string.
+const RECORDED_AUDIO = (() => {
+  const files = import.meta.glob('/public/assets/audio/*/*.mp3', { eager: true, query: '?url', import: 'default' });
+  const map = {};
+  for (const path in files) {
+    const m = path.match(/\/audio\/([^/]+)\/([^/]+)\.mp3$/);
+    if (m) map[`${m[1]}:${m[2].toLowerCase()}`] = files[path];
+  }
+  return map;
+})();
+
+let _recordedAudio = null;
+function playRecorded(url) {
+  if (_recordedAudio) {
+    _recordedAudio.pause();
+    _recordedAudio.currentTime = 0;
+  }
+  _recordedAudio = new Audio(url);
+  _recordedAudio.play().catch(() => {});
+}
+
 let _lastSpeak = { text: '', time: 0 };
 export function speakWord(text, lang = 'en-US') {
   const now = Date.now();
@@ -35,6 +57,16 @@ export function speakWordZh(text) {
 
 const TTS_MAP = { en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' };
 export function speakWordByLang(text, lang) {
+  const key = `${lang}:${(text || '').trim().toLowerCase()}`;
+  const url = RECORDED_AUDIO[key];
+  if (url) {
+    const now = Date.now();
+    if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
+    _lastSpeak = { text, time: now };
+    window.speechSynthesis.cancel();
+    playRecorded(url);
+    return;
+  }
   speakWord(text, TTS_MAP[lang] || 'en-US');
 }
 

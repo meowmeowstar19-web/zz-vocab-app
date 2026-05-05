@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "sync": "node scripts/sync-data.mjs",
     "sync:push": "node scripts/sync-data.mjs --auto",
+    "sync:audio": "node scripts/sync-audio.mjs",
     "compress:figma": "node scripts/compress-figma-assets.mjs",
     "predev": "node scripts/compress-figma-assets.mjs",
     "prebuild": "node scripts/compress-figma-assets.mjs"
