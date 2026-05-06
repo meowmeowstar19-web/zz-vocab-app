@@ -18,6 +18,7 @@ import { join, dirname, basename, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import readline from 'node:readline';
+import { audioKey } from '../src/utils/audioKey.js';
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,9 +29,36 @@ const ORAL_XLSX = join(DATA_DIR, 'PhraseList.xlsx');
 const CATEGORY_XLSX = join(DATA_DIR, 'category.xlsx');
 const IMG_IN = join(DATA_DIR, 'updated_image');
 const IMG_OUT = join(ROOT, 'public', 'images');
+const AUDIO_OUT = join(ROOT, 'public', 'assets', 'audio');
 const PROCESSED_DIR = join(DATA_DIR, '_processed_images');
 const DELETED_DIR = join(DATA_DIR, 'deleted_image');
 const SRC_DATA = join(ROOT, 'src', 'data');
+
+// Required content columns. A row must have every one of these filled to be
+// emitted into the generated data files. Optional/legacy columns ("Image
+// Prompt", "Subcategory", and "Level" for words) are intentionally excluded.
+const VOCAB_REQUIRED_COLS = [
+  'English', 'Example', 'Category',
+  '英语音标', '单词中文翻译', '中文拼音', '例句中文翻译',
+  '单词日语翻译', '日语音标', '例句日语翻译',
+];
+const PHRASE_REQUIRED_COLS = [
+  'English', 'Example', 'Category', 'Level',
+  '英语音标', '短语中文翻译', '中文拼音', '例句中文翻译',
+  '短语日语翻译', '日语音标',
+];
+// Either spelling counts as the Japanese example sentence column for phrases.
+const PHRASE_REQUIRED_ANY = [['例句日语翻译', '例句r日语翻译']];
+
+function rowComplete(row, required, requireAny = []) {
+  for (const c of required) {
+    if (!String(row[c] || '').trim()) return false;
+  }
+  for (const group of requireAny) {
+    if (!group.some(c => String(row[c] || '').trim())) return false;
+  }
+  return true;
+}
 
 const AUTO_PUSH = process.argv.includes('--auto');
 
@@ -255,6 +283,7 @@ function readVocab() {
   const words = [];
   const allRows = []; // all rows including those without sentences (for pinyin/phonetics)
   const unknownCats = new Set();
+  let incomplete = 0;
 
   for (const row of rows) {
     const en = String(row['English'] || '').trim();
@@ -286,9 +315,12 @@ function readVocab() {
 
     allRows.push(entry);
 
-    // Only include words that have an example sentence for the main word list
-    if (sentence) {
+    // Only include words whose every content column is filled. Image presence
+    // is checked separately in main() once images have been processed.
+    if (rowComplete(row, VOCAB_REQUIRED_COLS)) {
       words.push(entry);
+    } else {
+      incomplete++;
     }
   }
 
@@ -296,8 +328,11 @@ function readVocab() {
     log.warn(`Unmapped vocab categories (add to VOCAB_CATEGORY_MAP in sync-data.mjs):`);
     unknownCats.forEach(c => console.log(`     · ${c}`));
   }
+  if (incomplete > 0) {
+    log.info(`Skipped ${incomplete} incomplete vocab row(s) (one or more required columns blank)`);
+  }
 
-  log.ok(`Parsed ${words.length} vocab entries with sentences (${allRows.length} total rows)`);
+  log.ok(`Parsed ${words.length} complete vocab entries (${allRows.length} total rows)`);
   return { words, allRows };
 }
 
@@ -500,7 +535,7 @@ function readOral() {
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
   const phrases = [];
-  const missingCatRows = [];     // rows with empty/blank Category
+  const incompleteRows = [];     // rows with blank required columns
   const unknownCats = new Map(); // rawCat → [english]
 
   // Japanese sentence column header is "例句r日语翻译" (typo in source); fall back
@@ -513,11 +548,12 @@ function readOral() {
     const en = String(row['English'] || '').trim();
     if (!en) continue;
 
-    const rawCat = String(row['Category'] || '').trim();
-    if (!rawCat) {
-      missingCatRows.push({ rowNum: i + 2, en });
+    if (!rowComplete(row, PHRASE_REQUIRED_COLS, PHRASE_REQUIRED_ANY)) {
+      incompleteRows.push({ rowNum: i + 2, en });
       continue;
     }
+
+    const rawCat = String(row['Category'] || '').trim();
     const cat = PHRASE_CATEGORY_MAP[rawCat];
     if (!cat) {
       if (!unknownCats.has(rawCat)) unknownCats.set(rawCat, []);
@@ -533,13 +569,15 @@ function readOral() {
       sentenceZh: String(row['例句中文翻译'] || '').trim(),
       ja:         String(row['短语日语翻译'] || '').trim(),
       jaSentence: pickJaSentence(row),
+      ipa:        String(row['英语音标'] || '').trim(),
+      pinyin:     String(row['中文拼音'] || '').trim(),
+      jaReading:  String(row['日语音标'] || '').trim(),
     });
   }
 
-  if (missingCatRows.length > 0) {
-    log.warn(`${missingCatRows.length} phrase(s) have empty Category — SKIPPED:`);
-    missingCatRows.forEach(({ rowNum, en }) => console.log(`     · Row ${rowNum}: "${en}"`));
-    log.warn(`Please fill the Category column in PhraseList.xlsx and re-run.`);
+  if (incompleteRows.length > 0) {
+    log.warn(`${incompleteRows.length} phrase row(s) skipped — one or more required columns blank:`);
+    incompleteRows.forEach(({ rowNum, en }) => console.log(`     · Row ${rowNum}: "${en}"`));
   }
   if (unknownCats.size > 0) {
     log.warn(`Unmapped phrase categories (add to PHRASE_CATEGORY_MAP in sync-data.mjs):`);
@@ -548,8 +586,35 @@ function readOral() {
     }
   }
 
-  log.ok(`Parsed ${phrases.length} phrases`);
+  log.ok(`Parsed ${phrases.length} complete phrases`);
   return phrases;
+}
+
+// ── Filter phrases without complete pre-recorded audio ───────────────────────
+// A phrase is only emitted if mp3 files exist in public/assets/audio/{en,zh,ja}/
+// for the audioKey of that phrase's text in each language.
+function filterPhrasesWithAudio(phrases) {
+  const kept = [];
+  const dropped = [];
+  for (const p of phrases) {
+    const enKey = audioKey(p.en, 'en');
+    const zhKey = audioKey(p.zh, 'zh');
+    const jaKey = audioKey(p.ja, 'ja');
+    const enOk = enKey && existsSync(join(AUDIO_OUT, 'en', `${enKey}.mp3`));
+    const zhOk = zhKey && existsSync(join(AUDIO_OUT, 'zh', `${zhKey}.mp3`));
+    const jaOk = jaKey && existsSync(join(AUDIO_OUT, 'ja', `${jaKey}.mp3`));
+    if (enOk && zhOk && jaOk) {
+      kept.push(p);
+    } else {
+      const missing = [!enOk && 'en', !zhOk && 'zh', !jaOk && 'ja'].filter(Boolean).join(',');
+      dropped.push({ en: p.en, missing });
+    }
+  }
+  if (dropped.length > 0) {
+    log.warn(`${dropped.length} phrase(s) skipped — missing audio:`);
+    dropped.forEach(({ en, missing }) => console.log(`     · "${en}" (missing: ${missing})`));
+  }
+  return kept;
 }
 
 // ── Generate src/data/words.js ──────────────────────────────────────────────
@@ -673,7 +738,7 @@ function writeOralPhrasesJs(phrases, catOrder) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
   out += `// Source: update_data_folder/PhraseList.xlsx\n`;
-  out += `// Format: [english, chinese, category, sentence, sentenceZh, ja, jaSentence]\n\n`;
+  out += `// Format: [english, chinese, category, sentence, sentenceZh, ja, jaSentence, ipa, pinyin, jaReading]\n\n`;
 
   out += `const raw = [\n`;
   for (const p of orderedPhrases) {
@@ -685,6 +750,9 @@ function writeOralPhrasesJs(phrases, catOrder) {
       jsStr(p.sentenceZh),
       jsStr(p.ja || ''),
       jsStr(p.jaSentence || ''),
+      jsStr(p.ipa || ''),
+      jsStr(p.pinyin || ''),
+      jsStr(p.jaReading || ''),
     ].join(', ')}],\n`;
   }
   out += `];\n\n`;
@@ -693,13 +761,14 @@ function writeOralPhrasesJs(phrases, catOrder) {
   out += `function makeId(en) {\n`;
   out += `  return 'oral-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
   out += `}\n\n`;
-  out += `export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh, ja, jaSentence]) => ({\n`;
+  out += `export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh, ja, jaSentence, ipa, pinyin, jaReading]) => ({\n`;
   out += `  id: makeId(en),\n`;
   out += `  en, zh, category,\n`;
   out += `  img: null,\n`;
   out += `  level: 'oral',\n`;
   out += `  sentence, sentenceZh,\n`;
   out += `  ja, jaSentence,\n`;
+  out += `  ipa, pinyin, jaReading,\n`;
   out += `}));\n\n`;
   out += `function shuffleArray(arr) {\n`;
   out += `  const a = [...arr];\n`;
@@ -990,7 +1059,12 @@ async function main() {
   await dedupCheck(ORAL_XLSX, 'English', 'PhraseList.xlsx');
 
   const { words: allWords, allRows } = readVocab();
-  const phrases = readOral();
+  const allPhrases = readOral();
+  const phrases = filterPhrasesWithAudio(allPhrases);
+  const phraseAudioSkipped = allPhrases.length - phrases.length;
+  if (phraseAudioSkipped > 0) {
+    log.info(`Filtered out ${phraseAudioSkipped} phrase(s) without complete audio (${phrases.length} remain)`);
+  }
 
   // Process images first so new images are available for the filter below
   const { processed, unmatched } = await processImages(allWords);

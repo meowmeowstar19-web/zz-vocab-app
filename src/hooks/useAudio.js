@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { audioKey } from '../utils/audioKey';
 
 let audioCtx = null;
 function getAudioCtx() {
@@ -8,14 +9,15 @@ function getAudioCtx() {
   return audioCtx;
 }
 
-// Pre-recorded word audio files. Vite resolves /public/assets/audio/{lang}/*.mp3 at build time.
-// Lookup key: `${lang}:${lowercase word}` → URL string.
+// Pre-recorded audio files. Vite resolves /public/assets/audio/{lang}/*.mp3 at build time.
+// Filenames are produced by scripts/sync-audio.mjs using `audioKey(text, lang)`,
+// and looked up here with the same function so the two always match.
 const RECORDED_AUDIO = (() => {
   const files = import.meta.glob('/public/assets/audio/*/*.mp3', { eager: true, query: '?url', import: 'default' });
   const map = {};
   for (const path in files) {
     const m = path.match(/\/audio\/([^/]+)\/([^/]+)\.mp3$/);
-    if (m) map[`${m[1]}:${m[2].toLowerCase()}`] = files[path];
+    if (m) map[`${m[1]}:${m[2]}`] = files[path];
   }
   return map;
 })();
@@ -57,7 +59,7 @@ export function speakWordZh(text) {
 
 const TTS_MAP = { en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' };
 export function speakWordByLang(text, lang) {
-  const key = `${lang}:${(text || '').trim().toLowerCase()}`;
+  const key = `${lang}:${audioKey(text, lang)}`;
   const url = RECORDED_AUDIO[key];
   if (url) {
     const now = Date.now();

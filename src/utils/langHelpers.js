@@ -43,17 +43,22 @@ function katakanaToHiragana(str) {
 export function getPhonetic(word, targetLang) {
   if (!word) return '';
   if (targetLang === 'en') {
+    if (word.ipa) return word.ipa;
     const local = phoneticMap[word.en];
     return local || null; // null → trigger API fetch
   }
   if (targetLang === 'ja') {
+    if (word.jaReading) return word.jaReading;
     const entry = jaData[word.en];
     if (!entry) return '';
     // Use explicit reading if available; otherwise auto-convert katakana → hiragana
     if (entry.reading) return entry.reading;
     return katakanaToHiragana(entry.ja);
   }
-  if (targetLang === 'zh') return pinyinMap[word.zh] || '';
+  if (targetLang === 'zh') {
+    if (word.pinyin) return word.pinyin;
+    return pinyinMap[word.zh] || '';
+  }
   return '';
 }
 

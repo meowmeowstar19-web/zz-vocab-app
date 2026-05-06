@@ -636,12 +636,13 @@ export default function LearningPage({
     // state resets when a word cycles back (e.g. cycle rebuild → Monday again).
   }, [currentWord?.id, quizFormat, srsCard, reviewCard]);
 
-  // Phonetics (skip for oral phrases)
+  // Phonetics
   useEffect(() => {
-    if (!currentWord || isOralMode) { setPhonetic(''); return; }
+    if (!currentWord) { setPhonetic(''); return; }
     const staticPhonetic = getPhonetic(currentWord, targetLang);
     if (staticPhonetic !== null) { setPhonetic(staticPhonetic); return; }
     setPhonetic('');
+    if (isOralMode) return; // no API fallback for phrases
     let cancelled = false;
     const parts = currentWord.en.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
     (async () => {
@@ -657,7 +658,7 @@ export default function LearningPage({
       }
     })();
     return () => { cancelled = true; };
-  }, [currentWord?.id, targetLang]);
+  }, [currentWord?.id, targetLang, isOralMode]);
 
   // Sentence translation — translate to whichever language differs from sentenceLang
   const translationLang = sentenceLang !== nativeLang ? nativeLang : targetLang;
