@@ -1685,7 +1685,7 @@ export default function LearningPage({
                       className="absolute inset-0 flex items-center justify-center rounded-[8px] text-textMain font-normal"
                       style={{ fontSize: 17, zIndex: 2, padding: 10, transition: 'none' }}
                     >
-                      {option}
+                      <RubyText text={option} />
                     </button>
                   </div>
                 );
