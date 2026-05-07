@@ -168,7 +168,7 @@ export const UI_TEXT = {
     installIosTip: '请点击底部 Safari 的「分享」按钮，选择 View More，下滑，然后选择「添加到主屏幕」。',
     installIosChromeTip: '请点击底部「⋯」按钮，选择「分享」，再选择 View More，下滑，然后选择「添加到主屏幕」。',
     installAndroidTip: '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」或「添加到主屏幕」即可。\n\n（如果是首次访问，请刷新一下页面再试。）',
-    installDesktopTip: '看看程序坞 / 桌面里是不是已经装过啦~\n\n如果还没装：点地址栏右侧的「安装」图标，或浏览器右上角菜单 →「安装应用」。',
+    installDesktopTip: '从浏览器菜单装：\n\n1. 点击右上角的「⋮」三点菜单\n2. 找到「投放、保存和分享」（Save and share）\n3. 选择「安装 PlushieWord...」\n\n或者：地址栏右侧通常会出现一个「安装」小图标，点一下也行。',
     installUnsupported: '当前浏览器不支持一键添加。请用手机自带的「分享 / 添加到主屏幕」功能。',
     iKnow: '知道了',
   },

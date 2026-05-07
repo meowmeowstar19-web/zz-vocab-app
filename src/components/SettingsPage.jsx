@@ -38,11 +38,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
 
-  // Install-to-home-screen state
-  const isStandalone = typeof window !== 'undefined' && (
-    window.matchMedia?.('(display-mode: standalone)').matches ||
-    window.navigator?.standalone === true
-  );
+  // Install-to-home-screen state.
+  // Note: we deliberately do NOT short-circuit on display-mode/standalone —
+  // that detection misfires on iOS after a user has previously installed +
+  // deleted the home-screen icon, leaving the button incorrectly disabled.
+  // Always let the click happen and show the appropriate modal / native prompt.
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
   const isAndroid = /Android/.test(ua);
@@ -50,31 +50,15 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // iOS Chrome (and other non-Safari iOS browsers) — share menu lives at
   // the top, not the bottom, so the screenshot we show needs to differ.
   const isIOSNonSafari = isIOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
-  const [canInstall, setCanInstall] = useState(typeof window !== 'undefined' && !!window.__deferredInstallPrompt);
-  const [installed, setInstalled] = useState(isStandalone);
-  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'unsupported' | null
-
-  useEffect(() => {
-    const onReady = () => setCanInstall(true);
-    const onInstalled = () => { setCanInstall(false); setInstalled(true); };
-    window.addEventListener('installpromptready', onReady);
-    window.addEventListener('appinstalled-custom', onInstalled);
-    return () => {
-      window.removeEventListener('installpromptready', onReady);
-      window.removeEventListener('appinstalled-custom', onInstalled);
-    };
-  }, []);
+  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'desktop' | 'unsupported' | null
 
   const handleInstallClick = async () => {
-    if (installed) return;
     const dp = window.__deferredInstallPrompt;
     if (dp) {
       try {
         dp.prompt();
-        const choice = await dp.userChoice;
+        await dp.userChoice;
         window.__deferredInstallPrompt = null;
-        setCanInstall(false);
-        if (choice?.outcome === 'accepted') setInstalled(true);
       } catch {}
       return;
     }
@@ -322,12 +306,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             backgroundColor: '#fff',
             border: '2px solid #000',
             borderRadius: 100,
-            opacity: installed ? 0.6 : 1,
           }}
         >
           <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
             <span style={{ marginRight: 8 }}>📲</span>
-            {installed ? (t.installAlready || '已添加到桌面') : (t.installToHome || '添加到桌面')}
+            {t.installToHome || '添加到桌面'}
           </span>
           <span style={{ marginLeft: 'auto', marginRight: 17, display: 'flex', alignItems: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
