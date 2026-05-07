@@ -46,6 +46,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
   const isAndroid = /Android/.test(ua);
+  const isMobile = isIOS || isAndroid;
   // iOS Chrome (and other non-Safari iOS browsers) — share menu lives at
   // the top, not the bottom, so the screenshot we show needs to differ.
   const isIOSNonSafari = isIOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
@@ -79,6 +80,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     }
     if (isIOS) { setInstallModal('ios'); return; }
     if (isAndroid) { setInstallModal('android'); return; }
+    if (!isMobile) { setInstallModal('desktop'); return; }
     setInstallModal('unsupported');
   };
 
@@ -544,6 +546,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                     : (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。'))
                 : installModal === 'android'
                 ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
+                : installModal === 'desktop'
+                ? (t.installDesktopTip || '看看桌面 / 程序坞里是不是已经装过啦~\n\n如果还没装：点地址栏右侧的安装图标，或浏览器菜单里的「安装应用」。')
                 : (t.installUnsupported || '当前浏览器不支持一键添加。')}
             </p>
             {installModal === 'ios' && (
