@@ -43,6 +43,13 @@
         window.__deferredInstallPrompt = null;
         window.dispatchEvent(new Event('appinstalled-custom'));
       });
+      // Register service worker so Chrome treats us as installable
+      // and so static assets are cached for offline / fast loads.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
