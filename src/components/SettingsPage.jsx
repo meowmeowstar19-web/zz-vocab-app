@@ -38,6 +38,44 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
 
+  // Install-to-home-screen state
+  const isStandalone = typeof window !== 'undefined' && (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    window.navigator?.standalone === true
+  );
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const [canInstall, setCanInstall] = useState(typeof window !== 'undefined' && !!window.__deferredInstallPrompt);
+  const [installed, setInstalled] = useState(isStandalone);
+  const [installModal, setInstallModal] = useState(null); // 'ios' | 'unsupported' | null
+
+  useEffect(() => {
+    const onReady = () => setCanInstall(true);
+    const onInstalled = () => { setCanInstall(false); setInstalled(true); };
+    window.addEventListener('installpromptready', onReady);
+    window.addEventListener('appinstalled-custom', onInstalled);
+    return () => {
+      window.removeEventListener('installpromptready', onReady);
+      window.removeEventListener('appinstalled-custom', onInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (installed) return;
+    const dp = window.__deferredInstallPrompt;
+    if (dp) {
+      try {
+        dp.prompt();
+        const choice = await dp.userChoice;
+        window.__deferredInstallPrompt = null;
+        setCanInstall(false);
+        if (choice?.outcome === 'accepted') setInstalled(true);
+      } catch {}
+      return;
+    }
+    if (isIOS) { setInstallModal('ios'); return; }
+    setInstallModal('unsupported');
+  };
+
   // Password binding state
   const [user, setUser] = useState(null);
   const [showPwdModal, setShowPwdModal] = useState(false);
@@ -266,13 +304,38 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </span>
         </button>
 
+        {/* Add-to-home-screen pill — placed above password row */}
+        <button
+          onClick={handleInstallClick}
+          className="absolute flex items-center active:scale-[0.98]"
+          style={{
+            left: 20, top: 368,
+            width: 353, height: 50,
+            backgroundColor: '#fff',
+            border: '2px solid #000',
+            borderRadius: 100,
+            opacity: installed ? 0.6 : 1,
+          }}
+        >
+          <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
+            <span style={{ marginRight: 8 }}>📲</span>
+            {installed ? (t.installAlready || '已添加到桌面') : (t.installToHome || '添加到桌面')}
+          </span>
+          <span style={{ marginLeft: 'auto', marginRight: 17, display: 'flex', alignItems: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M9 1.5V11.5M9 11.5L4.5 7M9 11.5L13.5 7" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2.5 13.5V15.5C2.5 16.0523 2.94772 16.5 3.5 16.5H14.5C15.0523 16.5 15.5 16.0523 15.5 15.5V13.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </button>
+
         {/* Password pill — only for logged-in users (not guest) */}
         {showPasswordRow && (
           <button
             onClick={openPwdModal}
             className="absolute flex items-center active:scale-[0.98]"
             style={{
-              left: 20, top: 368,
+              left: 20, top: 471,
               width: 353, height: 50,
               backgroundColor: '#fff',
               border: '2px solid #000',
@@ -290,7 +353,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Logout / Sign-in button — yellow pill. Position follows last button above. */}
         {onLogout && (
-          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 458 : 355, left: 0, right: 0 }}>
+          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 561 : 458, left: 0, right: 0 }}>
             <button
               onClick={() => {
                 if (!user) {
@@ -443,6 +506,51 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             >
               {t.ok}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Install info modal (iOS instructions or unsupported notice) */}
+      {installModal && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setInstallModal(null)}
+        >
+          <div
+            style={{
+              width: 320,
+              backgroundColor: '#fff',
+              border: '2px solid #000',
+              borderRadius: 20,
+              padding: '26px 22px 22px',
+              display: 'flex', flexDirection: 'column',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 14 }}>
+              {t.installIosTitle || '添加到主屏幕'}
+            </p>
+            <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5 }}>
+              {installModal === 'ios'
+                ? (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。')
+                : (t.installUnsupported || '当前浏览器不支持一键添加。')}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+              <button
+                onClick={() => setInstallModal(null)}
+                className="active:scale-95"
+                style={{
+                  width: 130, height: 39,
+                  backgroundColor: '#ffd016',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 18, color: '#000',
+                }}
+              >
+                {t.iKnow || (t.ok || '确认')}
+              </button>
+            </div>
           </div>
         </div>
       )}

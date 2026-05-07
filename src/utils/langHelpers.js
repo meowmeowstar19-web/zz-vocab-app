@@ -161,6 +161,13 @@ export const UI_TEXT = {
     wrongPassword: '密码错误，请重试。',
     authOrOauthError: '邮箱或密码错误。可能原因：未注册、密码错误，或之前用了其他方式登录。',
     emailUnconfirmed: '请先到邮箱点击验证链接完成注册，然后再登录。',
+    // Add to home screen
+    installToHome: '添加到桌面',
+    installAlready: '已添加到桌面',
+    installIosTitle: '添加到桌面',
+    installIosTip: '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。',
+    installUnsupported: '当前浏览器不支持一键添加。请用手机自带的「分享 / 添加到主屏幕」功能。',
+    iKnow: '知道了',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -222,6 +229,13 @@ export const UI_TEXT = {
     wrongPassword: 'Wrong password, please try again.',
     authOrOauthError: 'Email or password is incorrect. The account may not exist, the password may be wrong, or you may have signed in another way.',
     emailUnconfirmed: 'Please click the verification link in your email first, then log in.',
+    // Add to home screen
+    installToHome: 'Add to Home',
+    installAlready: 'Already added',
+    installIosTitle: 'Add to Home',
+    installIosTip: 'Tap the Share button at the bottom of Safari, then choose "Add to Home Screen".',
+    installUnsupported: 'This browser doesn\'t support one-tap install. Please use your browser\'s Share / Add to Home Screen menu.',
+    iKnow: 'Got it',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -283,6 +297,13 @@ export const UI_TEXT = {
     wrongPassword: 'パスワードが間違っています。もう一度お試しください。',
     authOrOauthError: 'メールアドレスまたはパスワードが間違っています。未登録、パスワードの誤り、または他の方法でログインした可能性があります。',
     emailUnconfirmed: 'メールの認証リンクをクリックしてからログインしてください。',
+    // Add to home screen
+    installToHome: 'ホームに追加',
+    installAlready: '追加済み',
+    installIosTitle: 'ホームに追加',
+    installIosTip: 'Safari 下部の「共有」ボタンをタップし、「ホーム画面に追加」を選択してください。',
+    installUnsupported: 'このブラウザはワンタップ追加に対応していません。ブラウザの「共有 / ホーム画面に追加」をご利用ください。',
+    iKnow: 'OK',
   },
 };
 
