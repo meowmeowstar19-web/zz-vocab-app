@@ -23,6 +23,40 @@ const PICKER_TITLES = {
   ja: { native: '母語を選んでください', target: '学習言語を選んでください' },
 };
 
+// Renders a tip string, turning every "chrome://apps" occurrence into a
+// highlighted pill that copies the URL to the clipboard on click.
+function renderTipWithCode(text, { copied, copiedLabel, onCopy }) {
+  const TOKEN = 'chrome://apps';
+  const segments = String(text).split(TOKEN);
+  return segments.map((seg, i) => (
+    <span key={i}>
+      {seg}
+      {i < segments.length - 1 && (
+        <span
+          onClick={(e) => { e.stopPropagation(); onCopy(TOKEN); }}
+          title={TOKEN}
+          style={{
+            display: 'inline-block',
+            backgroundColor: copied ? '#9ddc7d' : '#fff3a8',
+            border: '1px solid #000',
+            borderRadius: 6,
+            padding: '0 8px',
+            margin: '0 2px',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontSize: 14,
+            color: '#000',
+            cursor: 'pointer',
+            userSelect: 'all',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          {copied ? '✓ ' + copiedLabel : TOKEN}
+        </span>
+      )}
+    </span>
+  ));
+}
+
 function ChevronDown() {
   return (
     <svg width="18" height="12" viewBox="0 0 18 12" fill="none">
@@ -55,6 +89,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // "desktop" instructions written for Chrome don't apply here.
   const isSafariDesktop = !isMobile && /Safari/.test(ua) && !/Chrome|Chromium|Edg\/|Firefox|OPR\//.test(ua);
   const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'desktop' | 'safari-desktop' | 'unsupported' | null
+  const [copiedFlash, setCopiedFlash] = useState(false);
 
   // Wait briefly for `beforeinstallprompt` to fire — Chrome often captures it
   // a moment after page load (after SW registration / engagement heuristics).
@@ -555,17 +590,35 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               {t.installIosTitle || '添加到主屏幕'}
             </p>
             <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-              {installModal === 'ios'
-                ? (isIOSNonSafari
-                    ? (t.installIosChromeTip || '请点击右上角「分享」按钮，然后选择「添加到主屏幕」。')
-                    : (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。'))
-                : installModal === 'android'
-                ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
-                : installModal === 'desktop'
-                ? (t.installDesktopTip || '看到这个提示，多半是你之前装过 PlushieWord 但卸载得不够干净。请在地址栏输入 chrome://apps，找到 PlushieWord 右键选择「从 Chrome 中删除」，回来再试一次。')
-                : installModal === 'safari-desktop'
-                ? (t.installSafariDesktopTip || '请点击 Safari 窗口右上角的分享按钮，在弹出的菜单里选择「添加到程序坞」。')
-                : (t.installUnsupported || '当前浏览器不支持一键添加。')}
+              {renderTipWithCode(
+                installModal === 'ios'
+                  ? (isIOSNonSafari
+                      ? (t.installIosChromeTip || '请点击右上角「分享」按钮，然后选择「添加到主屏幕」。')
+                      : (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。'))
+                  : installModal === 'android'
+                  ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
+                  : installModal === 'desktop'
+                  ? (t.installDesktopTip || '看到这个提示，多半是你之前装过 PlushieWord 但卸载得不够干净。请在地址栏输入 chrome://apps，找到 PlushieWord 右键选择「从 Chrome 中删除」，回来再试一次。')
+                  : installModal === 'safari-desktop'
+                  ? (t.installSafariDesktopTip || '请点击 Safari 窗口右上角的分享按钮，在弹出的菜单里选择「添加到程序坞」。')
+                  : (t.installUnsupported || '当前浏览器不支持一键添加。'),
+                {
+                  copied: copiedFlash,
+                  copiedLabel: t.copied || 'Copied!',
+                  onCopy: async (txt) => {
+                    try { await navigator.clipboard.writeText(txt); }
+                    catch {
+                      const ta = document.createElement('textarea');
+                      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                      document.body.appendChild(ta); ta.select();
+                      try { document.execCommand('copy'); } catch {}
+                      document.body.removeChild(ta);
+                    }
+                    setCopiedFlash(true);
+                    setTimeout(() => setCopiedFlash(false), 1500);
+                  },
+                }
+              )}
             </p>
             {(installModal === 'ios' || installModal === 'safari-desktop') && (
               <img

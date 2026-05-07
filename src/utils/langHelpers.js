@@ -172,6 +172,7 @@ export const UI_TEXT = {
     installSafariDesktopTip: '请点击 Safari 窗口右上角的分享按钮，在弹出的菜单里选择「添加到程序坞」。',
     installUnsupported: '当前浏览器不支持一键添加。请用手机自带的「分享 / 添加到主屏幕」功能。',
     iKnow: '知道了',
+    copied: '已复制！',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -244,6 +245,7 @@ export const UI_TEXT = {
     installSafariDesktopTip: 'Click the Share button at the top-right of the Safari window and choose "Add to Dock" from the menu.',
     installUnsupported: 'This browser doesn\'t support one-tap install. Please use your browser\'s Share / Add to Home Screen menu.',
     iKnow: 'Got it',
+    copied: 'Copied!',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -316,6 +318,7 @@ export const UI_TEXT = {
     installSafariDesktopTip: 'Safari ウィンドウの右上にある共有ボタンをクリックし、表示されたメニューから「Dock に追加」を選んでください。',
     installUnsupported: 'このブラウザはワンタップ追加に対応していません。ブラウザの「共有 / ホーム画面に追加」をご利用ください。',
     iKnow: 'OK',
+    copied: 'コピーしました！',
   },
 };
 
