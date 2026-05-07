@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // ============================================================================
-// Compress Figma Assets
+// Compress Public Assets
 // ----------------------------------------------------------------------------
-// Compresses PNG/JPG/WebP files in public/assets/figma/ in place using sharp.
-// Tracks already-processed files via .compressed-manifest.json (fingerprint =
-// post-compression size+mtime); if the user replaces a file, the fingerprint
-// changes and it gets re-processed next run. SVGs are ignored.
+// Compresses PNG/JPG/WebP files in public/assets/{figma,install}/ in place
+// using sharp. Tracks already-processed files per directory via
+// .compressed-manifest.json (fingerprint = post-compression size+mtime); if
+// the user replaces a file, the fingerprint changes and it gets re-processed
+// next run. SVGs are ignored.
 //
 // Usage: node scripts/compress-figma-assets.mjs [--dry] [--force]
 //   --dry    show what would change without writing
@@ -22,17 +23,19 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-const ASSET_DIR = join(ROOT, 'public', 'assets', 'figma');
-const MANIFEST = join(ASSET_DIR, '.compressed-manifest.json');
+const ASSET_DIRS = [
+  join(ROOT, 'public', 'assets', 'figma'),
+  join(ROOT, 'public', 'assets', 'install'),
+];
 
 const DRY = process.argv.includes('--dry');
 const FORCE = process.argv.includes('--force');
 
 const EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
-function loadManifest() {
-  if (!existsSync(MANIFEST)) return {};
-  try { return JSON.parse(readFileSync(MANIFEST, 'utf8')); }
+function loadManifest(manifestPath) {
+  if (!existsSync(manifestPath)) return {};
+  try { return JSON.parse(readFileSync(manifestPath, 'utf8')); }
   catch { return {}; }
 }
 
@@ -76,21 +79,20 @@ function fmt(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(2)}MB`;
 }
 
-async function main() {
-  if (!existsSync(ASSET_DIR)) {
-    console.error(`asset dir not found: ${ASSET_DIR}`);
-    process.exit(1);
-  }
-  const manifest = FORCE ? {} : loadManifest();
-  const files = readdirSync(ASSET_DIR)
+async function processDir(dir) {
+  if (!existsSync(dir)) return { processed: 0, skipped: 0, savedTotal: 0 };
+  const manifestPath = join(dir, '.compressed-manifest.json');
+  const manifest = FORCE ? {} : loadManifest(manifestPath);
+  const files = readdirSync(dir)
     .filter(f => !f.startsWith('.') && EXTS.has(extname(f).toLowerCase()))
     .sort();
 
   let processed = 0, skipped = 0, savedTotal = 0;
   const newManifest = { ...manifest };
+  const label = dir.split('/').slice(-2).join('/');
 
   for (const file of files) {
-    const full = join(ASSET_DIR, file);
+    const full = join(dir, file);
     const fp = fingerprint(full);
     if (manifest[file] === fp) {
       skipped++;
@@ -103,26 +105,34 @@ async function main() {
         const saved = r.before - r.after;
         savedTotal += saved;
         const pct = ((saved / r.before) * 100).toFixed(0);
-        console.log(`${DRY ? '[dry] ' : ''}✓ ${file.padEnd(36)} ${fmt(r.before)} → ${fmt(r.after)}  (-${pct}%)`);
+        console.log(`${DRY ? '[dry] ' : ''}✓ ${label}/${file.padEnd(36)} ${fmt(r.before)} → ${fmt(r.after)}  (-${pct}%)`);
         processed++;
         if (!DRY) newManifest[file] = fingerprint(full);
       } else {
-        // No savings — record fingerprint anyway so we don't retry
-        console.log(`· ${file.padEnd(36)} ${fmt(r.before)} (already optimal, skipping next run)`);
+        console.log(`· ${label}/${file.padEnd(36)} ${fmt(r.before)} (already optimal, skipping next run)`);
         if (!DRY) newManifest[file] = fp;
       }
     } catch (err) {
-      console.warn(`! ${file}: ${err.message}`);
+      console.warn(`! ${label}/${file}: ${err.message}`);
     }
   }
 
-  // Drop manifest entries for files that no longer exist
   for (const k of Object.keys(newManifest)) {
-    if (!existsSync(join(ASSET_DIR, k))) delete newManifest[k];
+    if (!existsSync(join(dir, k))) delete newManifest[k];
   }
+  if (!DRY) writeFileSync(manifestPath, JSON.stringify(newManifest, null, 2));
 
-  if (!DRY) writeFileSync(MANIFEST, JSON.stringify(newManifest, null, 2));
+  return { processed, skipped, savedTotal };
+}
 
+async function main() {
+  let processed = 0, skipped = 0, savedTotal = 0;
+  for (const dir of ASSET_DIRS) {
+    const r = await processDir(dir);
+    processed += r.processed;
+    skipped += r.skipped;
+    savedTotal += r.savedTotal;
+  }
   console.log(`\nDone: ${processed} compressed, ${skipped} already done, total saved ${fmt(savedTotal)}.`);
 }
 

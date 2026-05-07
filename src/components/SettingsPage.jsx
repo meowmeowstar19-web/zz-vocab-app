@@ -622,13 +622,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </p>
             {(installModal === 'ios' || installModal === 'safari-desktop') && (
               <img
-                src={
-                  installModal === 'safari-desktop'
-                    ? '/assets/install/install-safari-desktop.png'
-                    : isIOSNonSafari
-                    ? '/assets/install/install-chrome.jpg'
-                    : '/assets/install/install-safari.jpg'
-                }
+                src={(() => {
+                  const lang = ['en','zh','ja','es','fr','ko'].includes(nativeLang) ? nativeLang : 'en';
+                  if (installModal === 'safari-desktop') return `/assets/install/safari-desktop-${lang}.png`;
+                  if (isIOSNonSafari) return `/assets/install/chrome-mobile-${lang}.jpg`;
+                  return `/assets/install/safari-mobile-${lang}.jpg`;
+                })()}
                 alt=""
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                 style={{
