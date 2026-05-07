@@ -498,7 +498,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
                       <div style={{ height: 24, width: '100%', backgroundColor: 'rgba(255,255,255,0.60)', borderRadius: 4 }} />
                     ) : (
                       <div style={{ height: 24, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', paddingLeft: 29 }}>
-                        <span className="text-[14px] text-[#3f3e3e]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nativeText}</span>
+                        <RubyText text={nativeText} className="text-[14px] text-[#3f3e3e]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5" style={{ flexShrink: 0 }}>
                           <rect x="3" y="3" width="18" height="18" rx="2" />
                           <circle cx="8.5" cy="8.5" r="1.5" fill="#555" />
@@ -578,15 +578,14 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
             </div>
             <div style={{ height: 26, marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
               {isRevealed ? (
-                <span
+                <RubyText
+                  text={display}
                   className="text-[14px] text-black font-medium"
                   style={{
                     fontFamily: targetFont,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
                   }}
-                >
-                  {display}
-                </span>
+                />
               ) : (
                 <div style={{ width: 70, height: 18, borderRadius: 100, backgroundColor: '#A6D9FF' }} />
               )}
@@ -689,7 +688,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             </span>
           )}
         </div>
-        <p className="text-center text-[16px] text-[#3f3e3e] mt-2 font-medium">{nativeText}</p>
+        <RubyText text={nativeText} className="block text-center text-[16px] text-[#3f3e3e] mt-2 font-medium" />
         {displaySentence && (
           <p
             className="text-center text-[14px] text-[#555] mt-2 leading-snug px-1"
