@@ -311,17 +311,28 @@ export default function LearningPage({
     speakWordByLang(stripRuby(text), targetLang);
   }, [targetLang]);
 
-  // Measure container height for responsive layout
+  // Measure container height for responsive layout.
+  // Skip when offsetHeight is 0 — this page stays mounted while other tabs are
+  // shown (display:none), and a resize during that time would otherwise zero out
+  // contentH and lock the layout into ultra-compact mode after returning.
   useLayoutEffect(() => {
     const measure = () => {
-      if (containerRef.current) {
-        setContentH(containerRef.current.offsetHeight);
-      }
+      const h = containerRef.current?.offsetHeight;
+      if (h && h > 0) setContentH(h);
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
+  // Re-measure whenever the page becomes visible again, in case the window was
+  // resized while we were hidden (offsetHeight readings during display:none are 0
+  // and get skipped above).
+  useLayoutEffect(() => {
+    if (!isVisible) return;
+    const h = containerRef.current?.offsetHeight;
+    if (h && h > 0) setContentH(h);
+  }, [isVisible]);
 
 
   // ── Continuous responsive scaling (two-segment, matches Figma reference) ──
@@ -364,8 +375,8 @@ export default function LearningPage({
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   // CJK (zh/ja) text gets -2px for visual balance
   const isCJK = (lang) => lang === 'zh' || lang === 'ja';
-  const wordTextFS = Math.round(responsive2(24, 24, 19)) - (isCJK(targetLang) ? 2 : 0);
-  const phoneticFS = Math.round(responsive2(16, 16, 13));
+  const wordTextFS = Math.round(responsive2(24, 24, 19)) - (targetLang === 'ja' ? 6 : isCJK(targetLang) ? 2 : 0);
+  const phoneticFS = Math.round(responsive2(16, 16, 13)) - (targetLang === 'ja' ? 2 : 0);
   const sentenceFS_base = Math.round(responsive2(16, 16, 13));
   const translationFS_base = Math.round(responsive2(15, 15, 11));
 
@@ -1445,7 +1456,7 @@ export default function LearningPage({
         )}
 
         {/* ── WORD INFO TOP SPACER (shrinks when sentence is long, so content moves up) ── */}
-        <div style={{ flexShrink: 1, height: showBigImage ? 36 : 96, minHeight: 0 }} />
+        <div style={{ flexShrink: 1, height: (showBigImage ? 36 : 96) + (isTargetJa && displayWord.includes('<ruby>') ? 32 : 0), minHeight: 0 }} />
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
@@ -1469,7 +1480,7 @@ export default function LearningPage({
           <button
             onClick={handleSpeak}
             className="flex items-center gap-1.5 text-[#999] active:scale-95"
-            style={{ marginTop: 5 }}
+            style={{ marginTop: isTargetJa ? 4 : 5 }}
           >
             <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
@@ -1484,7 +1495,7 @@ export default function LearningPage({
             <p
               className="text-textMain text-center"
               style={{
-                marginTop: 6,
+                marginTop: isTargetJa ? 5 : 6,
                 fontSize: sentenceFS_base - (isCJK(sentenceLang) ? 2 : 0),
                 fontWeight: 'normal',
                 lineHeight: isCJK(sentenceLang) ? 1.5 : 1.25,
