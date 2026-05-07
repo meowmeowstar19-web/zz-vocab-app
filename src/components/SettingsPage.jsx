@@ -562,7 +562,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 : installModal === 'android'
                 ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
                 : installModal === 'desktop'
-                ? (t.installDesktopTip || '看看桌面 / 程序坞里是不是已经装过啦~\n\n如果还没装：点地址栏右侧的安装图标，或浏览器菜单里的「安装应用」。')
+                ? (t.installDesktopTip || '看到这个提示，多半是你之前装过 PlushieWord 但卸载得不够干净。请在地址栏输入 chrome://apps，找到 PlushieWord 右键选择「从 Chrome 中删除」，回来再试一次。')
                 : installModal === 'safari-desktop'
                 ? (t.installSafariDesktopTip || '请点击 Safari 窗口右上角的分享按钮，在弹出的菜单里选择「添加到程序坞」。')
                 : (t.installUnsupported || '当前浏览器不支持一键添加。')}
