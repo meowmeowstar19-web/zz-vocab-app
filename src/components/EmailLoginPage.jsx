@@ -4,10 +4,11 @@ import { UI_TEXT } from '../utils/langHelpers';
 
 export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
-  const [mode, setMode] = useState('login'); // 'login' or 'signup'
+  const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'verify'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | ''
   const [oauthProvider, setOauthProvider] = useState(''); // 'google' | 'discord' | ''
@@ -28,8 +29,9 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
       });
       if (fnErr || !data || !data.status) return false;
       if (data.status === 'not_registered') {
-        setError(t.emailNotRegistered);
-        setErrorKind('not_registered');
+        setMode('signup');
+        setInfo(t.switchedToSignup);
+        setConfirmPassword('');
         return true;
       }
       if (data.status === 'oauth_only') {
@@ -60,8 +62,56 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
     if (error) setError(error.message);
   };
 
+  const handleVerifyCode = async () => {
+    resetMessages();
+    const trimmed = code.replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(trimmed)) {
+      setError(t.codeIncomplete);
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: trimmed,
+        type: 'email',
+      });
+      if (error) {
+        if (/expired|invalid|incorrect/i.test(error.message)) {
+          setError(t.codeInvalid);
+          return;
+        }
+        throw error;
+      }
+      onLogin();
+    } catch (err) {
+      setError(err.message || t.operationFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    resetMessages();
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) throw error;
+      setInfo(t.codeResent);
+    } catch (err) {
+      setError(err.message || t.operationFailed);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (mode === 'verify') {
+      return handleVerifyCode();
+    }
+
     resetMessages();
 
     if (!email || !password) {
@@ -94,7 +144,8 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
         if (data.session) {
           onLogin();
         } else {
-          setInfo(t.signupSuccess);
+          setMode('verify');
+          setCode('');
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -108,8 +159,8 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
             return;
           }
           if (/email not confirmed/i.test(error.message)) {
-            setError(t.emailUnconfirmed);
-            setErrorKind('unconfirmed');
+            setMode('verify');
+            setCode('');
             return;
           }
           throw error;
@@ -144,37 +195,63 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="absolute left-0 right-0 top-[111px] px-[29px]">
-        {/* Email */}
-        <label className="block text-[16px] text-black mb-1">{t.emailLabel}</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
-          placeholder={t.emailPlaceholder}
-        />
-
-        {/* Password */}
-        <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.loginPasswordLabel}</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
-          placeholder={t.passwordDots}
-        />
-
-        {/* Confirm Password (signup only) */}
-        {mode === 'signup' && (
+        {mode === 'verify' ? (
           <>
-            <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.confirmPasswordSignupLabel}</label>
+            <p className="text-[20px] text-black font-medium mb-2">{t.verifyCodeTitle}</p>
+            <p className="text-[14px] text-black/70 mb-2 leading-snug">
+              {(t.verifyCodeSubtitle || '').replace('{email}', email)}
+            </p>
+            <p className="text-[12px] text-black/50 mb-5 leading-snug">
+              {t.verifyCodeHint}
+            </p>
+            <label className="block text-[16px] text-black mb-1">{t.verifyCodeLabel}</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[22px] tracking-[0.3em] text-center outline-none focus:border-[#ffd016] transition-colors"
+              placeholder={t.verifyCodePlaceholder}
+              autoFocus
+            />
+          </>
+        ) : (
+          <>
+            {/* Email */}
+            <label className="block text-[16px] text-black mb-1">{t.emailLabel}</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
+              placeholder={t.emailPlaceholder}
+            />
+
+            {/* Password */}
+            <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.loginPasswordLabel}</label>
             <input
               type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
               placeholder={t.passwordDots}
             />
+
+            {/* Confirm Password (signup only) */}
+            {mode === 'signup' && (
+              <>
+                <label className="block text-[16px] text-black mb-1 mt-[20px]">{t.confirmPasswordSignupLabel}</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
+                  placeholder={t.passwordDots}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -189,6 +266,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
         {/* OAuth icon CTAs — show only when error suggests OAuth is the right path.
             For "not_registered", we rely on the existing "还没有账号？注册" toggle below. */}
         {(() => {
+          if (mode === 'verify') return null;
           const showAllOAuth = errorKind === 'auth_or_oauth' || errorKind === 'email_taken';
           const showOnlyOneOAuth = errorKind === 'oauth_only';
           if (!showAllOAuth && !showOnlyOneOAuth) return null;
@@ -230,18 +308,33 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
             disabled={loading}
             className="w-[128px] h-[48px] rounded-[100px] bg-[#ffd016] border-2 border-black text-[20px] text-black font-normal active:scale-95 transition-transform disabled:opacity-50"
           >
-            {loading ? '...' : (mode === 'signup' ? t.signupBtn : t.loginBtn)}
+            {loading ? '...' : (mode === 'verify' ? t.verifyBtn : mode === 'signup' ? t.signupBtn : t.loginBtn)}
           </button>
         </div>
 
-        {/* Toggle login/signup */}
-        <p className="text-center mt-[20px] text-[14px] text-black/60">
-          {mode === 'login' ? (
-            <>{t.noAccountYet}<button type="button" onClick={() => { setMode('signup'); setError(''); }} className="text-black underline">{t.signupBtn}</button></>
-          ) : (
-            <>{t.hasAccountAlready}<button type="button" onClick={() => { setMode('login'); setError(''); }} className="text-black underline">{t.loginBtn}</button></>
-          )}
-        </p>
+        {/* Bottom toggle / actions */}
+        {mode === 'verify' ? (
+          <div className="text-center mt-[20px] text-[14px] text-black/60 space-y-2">
+            <p>
+              <button type="button" onClick={handleResendCode} disabled={loading} className="text-black underline disabled:opacity-50">
+                {t.resendCode}
+              </button>
+            </p>
+            <p>
+              <button type="button" onClick={() => { setMode('signup'); setCode(''); resetMessages(); }} className="text-black underline">
+                {t.changeEmail}
+              </button>
+            </p>
+          </div>
+        ) : (
+          <p className="text-center mt-[20px] text-[14px] text-black/60">
+            {mode === 'login' ? (
+              <>{t.noAccountYet}<button type="button" onClick={() => { setMode('signup'); setError(''); }} className="text-black underline">{t.signupBtn}</button></>
+            ) : (
+              <>{t.hasAccountAlready}<button type="button" onClick={() => { setMode('login'); setError(''); }} className="text-black underline">{t.loginBtn}</button></>
+            )}
+          </p>
+        )}
       </form>
     </div>
   );
