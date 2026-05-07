@@ -30,3 +30,6 @@ Tab2_进阶地道_语义分类.csv
 
 # Claude Code worktrees (git-internal, not project code)
 .claude/worktrees/
+
+# Claude Code session lock
+.claude/scheduled_tasks.lock
