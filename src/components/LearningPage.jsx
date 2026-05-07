@@ -375,7 +375,7 @@ export default function LearningPage({
   // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
   // CJK (zh/ja) text gets -2px for visual balance
   const isCJK = (lang) => lang === 'zh' || lang === 'ja';
-  const wordTextFS = Math.round(responsive2(24, 24, 19)) - (targetLang === 'ja' ? 6 : isCJK(targetLang) ? 2 : 0);
+  const wordTextFS = Math.round(responsive2(22, 22, 19)) - (isCJK(targetLang) ? 2 : 0);
   const phoneticFS = Math.round(responsive2(16, 16, 13)) - (targetLang === 'ja' ? 2 : 0);
   const sentenceFS_base = Math.round(responsive2(16, 16, 13));
   const translationFS_base = Math.round(responsive2(15, 15, 11));
@@ -1399,7 +1399,8 @@ export default function LearningPage({
       {/* ── CONTENT ── */}
       <div ref={containerRef} className="relative flex flex-col h-full" style={{
         zIndex: 2,
-        paddingBottom: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale,
+        // Subtract choicesPadTop so the flex content area ends at the *visible* card top, not the choices region top — this makes the bottom spacer naturally line up with the cards
+        paddingBottom: (quizFormat === 'B' ? IMG_CHOICES_H : TEXT_CHOICES_H) * choiceScale - choicesPadTop * choiceScale,
       }}>
 
         {/* ── TOP BAR ── */}
@@ -1455,8 +1456,8 @@ export default function LearningPage({
           </div>
         )}
 
-        {/* ── WORD INFO TOP SPACER (shrinks when sentence is long, so content moves up) ── */}
-        <div style={{ flexShrink: 1, height: (showBigImage ? 36 : 96) + (isTargetJa && displayWord.includes('<ruby>') ? 32 : 0), minHeight: 0 }} />
+        {/* ── WORD INFO TOP SPACER (flex-grow; pairs with bottom spacer to center wordInfo) ── */}
+        <div style={{ flex: 1, minHeight: 0 }} />
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
@@ -1472,7 +1473,7 @@ export default function LearningPage({
               fontSize: wordTextFS,
               fontFamily: targetFont,
               fontWeight: 900,
-              lineHeight: isCJK(targetLang) ? 1.5 : 1.25,
+              lineHeight: isCJK(targetLang) ? 1.35 : 1.25,
             }}
           />
 
@@ -1537,6 +1538,9 @@ export default function LearningPage({
             )
           )}
         </div>
+
+        {/* ── WORD INFO BOTTOM SPACER (pairs with top spacer to center word block) ── */}
+        <div style={{ flex: 1, minHeight: 0 }} />
 
         {/* ── CHOICES AREA (absolutely pinned to bottom, never moves) ── */}
         <div style={{
