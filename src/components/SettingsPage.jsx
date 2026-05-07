@@ -50,22 +50,52 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // iOS Chrome (and other non-Safari iOS browsers) — share menu lives at
   // the top, not the bottom, so the screenshot we show needs to differ.
   const isIOSNonSafari = isIOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
-  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'desktop' | 'unsupported' | null
+  // Safari macOS has no beforeinstallprompt and no address-bar install icon;
+  // the only install path is File menu → Add to Dock (Sonoma+). Generic
+  // "desktop" instructions written for Chrome don't apply here.
+  const isSafariDesktop = !isMobile && /Safari/.test(ua) && !/Chrome|Chromium|Edg\/|Firefox|OPR\//.test(ua);
+  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'desktop' | 'safari-desktop' | 'unsupported' | null
+
+  // Wait briefly for `beforeinstallprompt` to fire — Chrome often captures it
+  // a moment after page load (after SW registration / engagement heuristics).
+  // Without this wait, an early click falls straight to the manual modal even
+  // though Chrome would have offered the native prompt half a second later.
+  const waitForPrompt = (ms) => new Promise((resolve) => {
+    if (window.__deferredInstallPrompt) { resolve(window.__deferredInstallPrompt); return; }
+    let done = false;
+    const onReady = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('installpromptready', onReady);
+      resolve(window.__deferredInstallPrompt || null);
+    };
+    window.addEventListener('installpromptready', onReady);
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('installpromptready', onReady);
+      resolve(window.__deferredInstallPrompt || null);
+    }, ms);
+  });
 
   const handleInstallClick = async () => {
-    const dp = window.__deferredInstallPrompt;
-    if (dp) {
-      try {
-        dp.prompt();
-        const choice = await dp.userChoice;
-        window.__deferredInstallPrompt = null;
-        if (choice?.outcome === 'accepted') return; // installed
-        // dismissed (or "already installed" sheet) → fall through to
-        // platform-specific manual instructions.
-      } catch { /* fall through to manual instructions */ }
+    // iOS Safari/Chrome don't support beforeinstallprompt at all — go
+    // straight to the manual instructions.
+    if (!isIOS) {
+      const dp = await waitForPrompt(700);
+      if (dp) {
+        try {
+          dp.prompt();
+          const choice = await dp.userChoice;
+          window.__deferredInstallPrompt = null;
+          if (choice?.outcome === 'accepted') return; // installed
+          // dismissed → fall through to platform-specific manual instructions.
+        } catch { /* fall through */ }
+      }
     }
     if (isIOS) { setInstallModal('ios'); return; }
     if (isAndroid) { setInstallModal('android'); return; }
+    if (isSafariDesktop) { setInstallModal('safari-desktop'); return; }
     if (!isMobile) { setInstallModal('desktop'); return; }
     setInstallModal('unsupported');
   };
@@ -533,12 +563,21 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
                 : installModal === 'desktop'
                 ? (t.installDesktopTip || '看看桌面 / 程序坞里是不是已经装过啦~\n\n如果还没装：点地址栏右侧的安装图标，或浏览器菜单里的「安装应用」。')
+                : installModal === 'safari-desktop'
+                ? (t.installSafariDesktopTip || '请点击 Safari 窗口右上角的分享按钮，在弹出的菜单里选择「添加到程序坞」。')
                 : (t.installUnsupported || '当前浏览器不支持一键添加。')}
             </p>
-            {installModal === 'ios' && (
+            {(installModal === 'ios' || installModal === 'safari-desktop') && (
               <img
-                src={isIOSNonSafari ? '/assets/install/install-chrome.jpg' : '/assets/install/install-safari.jpg'}
+                src={
+                  installModal === 'safari-desktop'
+                    ? '/assets/install/install-safari-desktop.png'
+                    : isIOSNonSafari
+                    ? '/assets/install/install-chrome.jpg'
+                    : '/assets/install/install-safari.jpg'
+                }
                 alt=""
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
                 style={{
                   marginTop: 14,
                   width: '100%',
