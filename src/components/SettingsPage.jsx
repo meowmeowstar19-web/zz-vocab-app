@@ -57,10 +57,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     if (dp) {
       try {
         dp.prompt();
-        await dp.userChoice;
+        const choice = await dp.userChoice;
         window.__deferredInstallPrompt = null;
-      } catch {}
-      return;
+        if (choice?.outcome === 'accepted') return; // installed
+        // dismissed (or "already installed" sheet) → fall through to
+        // platform-specific manual instructions.
+      } catch { /* fall through to manual instructions */ }
     }
     if (isIOS) { setInstallModal('ios'); return; }
     if (isAndroid) { setInstallModal('android'); return; }
