@@ -43,10 +43,13 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     window.matchMedia?.('(display-mode: standalone)').matches ||
     window.navigator?.standalone === true
   );
-  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isAndroid = /Android/.test(ua);
+  const isChrome = /Chrome\/\d+/.test(ua) && !/Edg\/|OPR\/|SamsungBrowser/.test(ua);
   const [canInstall, setCanInstall] = useState(typeof window !== 'undefined' && !!window.__deferredInstallPrompt);
   const [installed, setInstalled] = useState(isStandalone);
-  const [installModal, setInstallModal] = useState(null); // 'ios' | 'unsupported' | null
+  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'unsupported' | null
 
   useEffect(() => {
     const onReady = () => setCanInstall(true);
@@ -73,6 +76,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       return;
     }
     if (isIOS) { setInstallModal('ios'); return; }
+    if (isAndroid) { setInstallModal('android'); return; }
     setInstallModal('unsupported');
   };
 
@@ -531,9 +535,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             <p style={{ textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 14 }}>
               {t.installIosTitle || '添加到主屏幕'}
             </p>
-            <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5 }}>
+            <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
               {installModal === 'ios'
                 ? (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。')
+                : installModal === 'android'
+                ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
                 : (t.installUnsupported || '当前浏览器不支持一键添加。')}
             </p>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
