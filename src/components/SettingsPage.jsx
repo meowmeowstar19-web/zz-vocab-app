@@ -46,10 +46,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
   const isAndroid = /Android/.test(ua);
-  const isChrome = /Chrome\/\d+/.test(ua) && !/Edg\/|OPR\/|SamsungBrowser/.test(ua);
+  // On iOS, only Safari can add PWAs to home screen. Chrome / Firefox / Edge
+  // on iOS are WebKit wrappers without that capability.
+  const isIOSSafari = isIOS && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
   const [canInstall, setCanInstall] = useState(typeof window !== 'undefined' && !!window.__deferredInstallPrompt);
   const [installed, setInstalled] = useState(isStandalone);
-  const [installModal, setInstallModal] = useState(null); // 'ios' | 'android' | 'unsupported' | null
+  const [installModal, setInstallModal] = useState(null); // 'ios' | 'iosOther' | 'android' | 'unsupported' | null
 
   useEffect(() => {
     const onReady = () => setCanInstall(true);
@@ -75,7 +77,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       } catch {}
       return;
     }
-    if (isIOS) { setInstallModal('ios'); return; }
+    if (isIOSSafari) { setInstallModal('ios'); return; }
+    if (isIOS) { setInstallModal('iosOther'); return; }
     if (isAndroid) { setInstallModal('android'); return; }
     setInstallModal('unsupported');
   };
@@ -538,6 +541,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
               {installModal === 'ios'
                 ? (t.installIosTip || '请点击底部 Safari 的「分享」按钮，然后选择「添加到主屏幕」。')
+                : installModal === 'iosOther'
+                ? (t.installIosOtherTip || '由于苹果限制，iPhone 上只有 Safari 才能添加到主屏幕。\n\n请复制本页网址，在 Safari 中打开，然后点击底部「分享」→「添加到主屏幕」。')
                 : installModal === 'android'
                 ? (t.installAndroidTip || '请点击 Chrome 右上角的「⋮」菜单，选择「安装应用」即可。')
                 : (t.installUnsupported || '当前浏览器不支持一键添加。')}
