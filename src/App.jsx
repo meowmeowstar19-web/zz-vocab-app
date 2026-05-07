@@ -119,6 +119,14 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Sync <html lang> with the user's native language so the browser uses the
+  // correct font shaping, line-breaking, and screen-reader voice — and (because
+  // it now matches the visible UI) won't flag the page as foreign for translation.
+  useEffect(() => {
+    const tag = nativeLang === 'zh' ? 'zh-CN' : nativeLang === 'ja' ? 'ja' : 'en';
+    document.documentElement.lang = tag;
+  }, [nativeLang]);
+
   // Decide whether to show language setup whenever auth state changes.
   useEffect(() => {
     if (!isLoggedIn) {
