@@ -14,8 +14,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.join(__dirname, '..', 'public');
-const ICON_SRC = path.join(PUB, 'icon-source.png');
-const FAVI_SRC = path.join(PUB, 'favicon.png');
+const ICONS_DIR = path.join(PUB, 'icons');
+const ICON_SRC = path.join(ICONS_DIR, 'icon-source.png');
+const FAVI_SRC = path.join(ICONS_DIR, 'favicon.png');
 
 const RADIUS_RATIO = 0.2237;
 const INSET_RATIO = 0.04;
@@ -42,7 +43,7 @@ const trimmedFavi = await sharp(FAVI_SRC)
   .toBuffer();
 
 for (const { src, out, size, round, inset: insetRatio } of TARGETS) {
-  const outPath = path.join(PUB, out);
+  const outPath = path.join(ICONS_DIR, out);
   const trimmed = src === 'favicon' ? trimmedFavi : trimmedIcon;
   const inset = Math.round(size * insetRatio);
   const inner = size - inset * 2;

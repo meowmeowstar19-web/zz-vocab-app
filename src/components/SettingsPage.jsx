@@ -3,7 +3,8 @@ import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 
-const DEFAULT_AVATAR = '/icon-192.png';
+const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
+const AVATAR_BG = '#fff5e1'; // warm cream backdrop for the default icon
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
 
 function readStoredAvatar(uid) {
@@ -164,7 +165,16 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       const u = data.user || null;
       setUser(u);
       const stored = readStoredAvatar(u?.id);
-      const oauthPic = u?.user_metadata?.avatar_url || u?.user_metadata?.picture || '';
+      // OAuth providers expose the profile picture under different keys.
+      // Check user_metadata first, then drill into each identity's identity_data.
+      const m = u?.user_metadata || {};
+      const fromIdentities = (u?.identities || [])
+        .map((i) => i.identity_data || {})
+        .find((d) => d.avatar_url || d.picture);
+      const oauthPic = m.avatar_url
+        || m.picture
+        || (fromIdentities && (fromIdentities.avatar_url || fromIdentities.picture))
+        || '';
       setAvatarUrl(stored || oauthPic || '');
       // Ensure today's login is counted even if App.jsx mounted before sign-in
       bumpLoginDay(u?.id);
@@ -371,7 +381,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           const days = getLoginDayCount(user?.id);
           const memberLine = (t.memberDays || '累计登录第 {n} 天').replace('{n}', String(days));
           const avatarSize = 54; // 63 × 0.85 (shrunk 15%)
-          const showAvatar = avatarUrl || DEFAULT_AVATAR;
+          const isDefaultAvatar = !avatarUrl;
           return (
             <div style={{ position: 'absolute', left: 26, top: 58, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
               <button
@@ -384,17 +394,29 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   flexShrink: 0,
                   padding: 0,
                   border: 'none',
-                  background: 'transparent',
+                  background: isDefaultAvatar ? AVATAR_BG : 'transparent',
                   borderRadius: '50%',
                   cursor: 'pointer',
                   overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
                 <img
-                  src={showAvatar}
+                  src={isDefaultAvatar ? DEFAULT_AVATAR_ICON : avatarUrl}
                   alt=""
-                  onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
-                  style={{
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    if (e.currentTarget.dataset.fallback) return;
+                    e.currentTarget.dataset.fallback = '1';
+                    e.currentTarget.src = DEFAULT_AVATAR_ICON;
+                  }}
+                  style={isDefaultAvatar ? {
+                    width: '78%', height: '78%',
+                    objectFit: 'contain',
+                    display: 'block',
+                  } : {
                     width: '100%', height: '100%',
                     objectFit: 'cover',
                     display: 'block',
