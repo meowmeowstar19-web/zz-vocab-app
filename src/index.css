@@ -90,3 +90,11 @@ button:active {
   82%  { transform: rotate(1deg); }
   100% { transform: rotate(0deg); }
 }
+
+/* Legal doc popup typography */
+.legal-doc h1 { font-size: 16px; font-weight: 700; margin: 8px 0 6px; }
+.legal-doc h2 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; }
+.legal-doc h3 { font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+.legal-doc p { margin: 4px 0 8px; }
+.legal-doc strong { font-weight: 700; }
+.legal-doc a { color: #2563eb; text-decoration: underline; }

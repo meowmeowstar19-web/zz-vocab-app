@@ -186,6 +186,11 @@ export const UI_TEXT = {
     memberDays: '累计登录第 {n} 天',
     guestSubtitle: '测试模式',
     avatarUploadFailed: '头像上传失败，请重试',
+    // Legal agreements (login page)
+    tosName: '《服务条款》',
+    privacyName: '《隐私协议》',
+    acknowledgeFmt: '我已阅读并同意{name}',
+    agreementsRequired: '请先勾选同意以上两份协议才能进入应用',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -272,6 +277,11 @@ export const UI_TEXT = {
     memberDays: 'Day {n} of total visits',
     guestSubtitle: 'Test mode',
     avatarUploadFailed: 'Avatar upload failed, please retry',
+    // Legal agreements (login page)
+    tosName: 'Terms of Service',
+    privacyName: 'Privacy Policy',
+    acknowledgeFmt: 'I have read and agree to the {name}',
+    agreementsRequired: 'Please accept both agreements to continue',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -358,6 +368,11 @@ export const UI_TEXT = {
     memberDays: '累計ログイン {n} 日目',
     guestSubtitle: 'テストモード',
     avatarUploadFailed: 'アイコンのアップロードに失敗しました',
+    // Legal agreements (login page)
+    tosName: '「利用規約」',
+    privacyName: '「プライバシーポリシー」',
+    acknowledgeFmt: '{name}を読んで同意します',
+    agreementsRequired: 'アプリに入るには上の2つの同意事項にチェックしてください',
   },
 };
 
