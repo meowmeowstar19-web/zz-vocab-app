@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
-import { clearAllProgress } from '../utils/storage';
 import { supabase } from '../lib/supabase';
+import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
+
+const DEFAULT_AVATAR = '/icon-192.png';
+const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
+
+function readStoredAvatar(uid) {
+  try { return localStorage.getItem(AVATAR_KEY(uid)) || ''; } catch { return ''; }
+}
 
 const LANG_CODES = ['en', 'ja', 'zh'];
 
@@ -72,6 +79,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
 
+  const GUEST_LABEL = { zh: '游客', en: 'Guest', ja: 'ゲスト' };
+
   // Install-to-home-screen state.
   // Note: we deliberately do NOT short-circuit on display-mode/standalone —
   // that detection misfires on iOS after a user has previously installed +
@@ -137,6 +146,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
   // Password binding state
   const [user, setUser] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarError, setAvatarError] = useState('');
+  const avatarInputRef = useRef(null);
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
@@ -148,10 +160,64 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   useEffect(() => {
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => {
-      if (mounted) setUser(data.user || null);
+      if (!mounted) return;
+      const u = data.user || null;
+      setUser(u);
+      const stored = readStoredAvatar(u?.id);
+      const oauthPic = u?.user_metadata?.avatar_url || u?.user_metadata?.picture || '';
+      setAvatarUrl(stored || oauthPic || '');
+      // Ensure today's login is counted even if App.jsx mounted before sign-in
+      bumpLoginDay(u?.id);
     });
     return () => { mounted = false; };
   }, []);
+
+  const handleAvatarClick = () => {
+    avatarInputRef.current?.click();
+  };
+
+  const handleAvatarChange = (e) => {
+    setAvatarError('');
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setAvatarError(t.avatarUploadFailed || '头像上传失败，请重试');
+    };
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') return;
+      // Downscale large images to keep localStorage usage modest.
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const target = 256; // max dimension
+          const scale = Math.min(1, target / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          try { localStorage.setItem(AVATAR_KEY(user?.id), dataUrl); } catch {
+            setAvatarError(t.avatarUploadFailed || '头像上传失败，请重试');
+            return;
+          }
+          setAvatarUrl(dataUrl);
+        } catch {
+          setAvatarError(t.avatarUploadFailed || '头像上传失败，请重试');
+        }
+      };
+      img.onerror = () => {
+        setAvatarError(t.avatarUploadFailed || '头像上传失败，请重试');
+      };
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Detect password presence reliably. OAuth users (Google/Discord) who later
   // set a password don't get an "email" identity automatically, so we also check
@@ -294,18 +360,70 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {/* Main content */}
       <div className="relative z-10 h-full">
 
-        {/* Profile section (decorative) */}
-        <div style={{ position: 'absolute', left: 26, top: 58, display: 'flex', alignItems: 'center', gap: 11 }}>
-          <img
-            src="/assets/figma/setting-profile.png"
-            alt=""
-            style={{ width: 63, height: 63 }}
-          />
-          <div>
-            <p style={{ fontSize: 24, color: '#000', lineHeight: 1.2 }}>Larissa</p>
-            <p style={{ fontSize: 16, color: '#000', lineHeight: 1.2 }}>{(t.loginDays || '累计登录 {n}天').replace('{n}', 99)}</p>
-          </div>
-        </div>
+        {/* Profile section */}
+        {(() => {
+          const guestLabel = GUEST_LABEL[nativeLang] || GUEST_LABEL.zh;
+          const displayName = user
+            ? (user.user_metadata?.full_name
+                || user.user_metadata?.name
+                || (user.email ? user.email.split('@')[0] : guestLabel))
+            : guestLabel;
+          const days = getLoginDayCount(user?.id);
+          const memberLine = (t.memberDays || '累计登录第 {n} 天').replace('{n}', String(days));
+          const avatarSize = 54; // 63 × 0.85 (shrunk 15%)
+          const showAvatar = avatarUrl || DEFAULT_AVATAR;
+          return (
+            <div style={{ position: 'absolute', left: 26, top: 58, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
+              <button
+                type="button"
+                onClick={handleAvatarClick}
+                aria-label="Change avatar"
+                className="active:scale-95"
+                style={{
+                  width: avatarSize, height: avatarSize,
+                  flexShrink: 0,
+                  padding: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  overflow: 'hidden',
+                }}
+              >
+                <img
+                  src={showAvatar}
+                  alt=""
+                  onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                  style={{
+                    width: '100%', height: '100%',
+                    objectFit: 'cover',
+                    display: 'block',
+                    borderRadius: '50%',
+                  }}
+                />
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarChange}
+                style={{ display: 'none' }}
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{
+                  fontSize: 22, color: '#000', lineHeight: 1.2,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>{displayName}</p>
+                <p style={{
+                  fontSize: 14, color: '#000', lineHeight: 1.2, marginTop: 2,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {avatarError || memberLine}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Cat decoration (above native row) */}
         <img
@@ -429,7 +547,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 backgroundColor: '#ffd016',
                 border: '2px solid #000',
                 borderRadius: 100,
-                fontSize: 20, color: '#000',
+                fontSize: nativeLang === 'ja' ? 16 : 18,
+                color: '#000',
+                whiteSpace: 'nowrap',
               }}
             >
               {user
@@ -438,20 +558,6 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </button>
           </div>
         )}
-
-        {/* Dev mode: clear all progress */}
-        <button
-          onClick={() => {
-            if (window.confirm(t.devModeConfirm || '确定要清除所有学习记录吗？')) {
-              clearAllProgress();
-              window.location.reload();
-            }
-          }}
-          className="absolute active:opacity-60"
-          style={{ bottom: 12, left: 0, right: 0, textAlign: 'center' }}
-        >
-          <span style={{ fontSize: 13, color: '#3F3E3E' }}>{t.devMode || '开发者模式：清除学习记录'}</span>
-        </button>
 
       </div>
 

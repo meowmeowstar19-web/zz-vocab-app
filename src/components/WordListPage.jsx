@@ -83,7 +83,7 @@ function usePhonetic(wordEn, targetLang) {
   return phonetic;
 }
 
-export default function WordListPage({ onStartReview, initialFilter, nativeLang = 'zh', targetLang = 'en', refreshKey = 0 }) {
+export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', refreshKey = 0 }) {
   const langKey = targetLang; // progress keyed by target language only
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
@@ -95,7 +95,7 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
     { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
-  const [filter, setFilter] = useState(initialFilter || 'vocabIllustrated');
+  const [filter, setFilter] = useState('vocabIllustrated');
   const [subTab, setSubTab] = useState('words'); // 'words' | 'phrases'
   const [galleryCat, setGalleryCat] = useState('all');
   const [galleryShuffleKey, setGalleryShuffleKey] = useState(0);
@@ -120,13 +120,6 @@ export default function WordListPage({ onStartReview, initialFilter, nativeLang 
   useEffect(() => {
     setRevealedWords(new Set());
   }, [filter]);
-
-  useEffect(() => {
-    if (initialFilter) {
-      setFilter(initialFilter);
-      setProgress(getProgress(langKey));
-    }
-  }, [initialFilter, langKey]);
 
   // Full pool — words + oral phrases.
   const allWords = useMemo(() => {

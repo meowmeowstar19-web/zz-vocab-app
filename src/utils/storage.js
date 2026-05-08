@@ -50,7 +50,7 @@ export function saveProgress(progress, langKey = 'zh_en') {
 export function markWordLearned(wordId, langKey = 'zh_en') {
   const progress = getProgress(langKey);
   if (!progress[wordId]) {
-    progress[wordId] = { timestamp: Date.now(), mastered: false, starred: false };
+    progress[wordId] = { timestamp: Date.now(), mastered: false };
   } else if (!progress[wordId].timestamp) {
     progress[wordId].timestamp = Date.now();
   }
@@ -68,44 +68,6 @@ export function toggleMastered(wordId, mastered, langKey = 'zh_en') {
   return progress;
 }
 
-export function toggleStar(wordId, langKey = 'zh_en') {
-  const progress = getProgress(langKey);
-  if (!progress[wordId]) {
-    progress[wordId] = { mastered: false, starred: true, starredAt: Date.now() };
-  } else {
-    const wasStarred = progress[wordId].starred;
-    progress[wordId].starred = !wasStarred;
-    progress[wordId].starredAt = wasStarred ? null : Date.now();
-  }
-  saveProgress(progress, langKey);
-  return progress;
-}
-
-export function isLearned(wordId, langKey = 'zh_en') {
-  const progress = getProgress(langKey);
-  return !!progress[wordId];
-}
-
-export function isMastered(wordId, langKey = 'zh_en') {
-  const progress = getProgress(langKey);
-  return progress[wordId]?.mastered === true;
-}
-
-export function isStarred(wordId, langKey = 'zh_en') {
-  const progress = getProgress(langKey);
-  return progress[wordId]?.starred === true;
-}
-
-// Clear ALL learning progress across all language pairs
-export function clearAllProgress() {
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith('vocab_kids_progress_')) keysToRemove.push(key);
-  }
-  keysToRemove.forEach(key => localStorage.removeItem(key));
-}
-
 // ── Review session word states (errorCount, sessionCorrect) — persisted per target language ──
 // This lets card types (B→C→A) and error weights survive between review sessions.
 export function getReviewWordStates(targetLang = 'en') {
@@ -121,11 +83,51 @@ export function saveReviewWordStates(states, targetLang = 'en') {
   localStorage.setItem(`vocab_review_states_${targetLang}`, JSON.stringify(states));
 }
 
+// ── Cumulative login-day tracking ──
+// Counts the number of distinct calendar days (local time) the user has opened
+// the app. Stored per user id (or 'guest' when signed out) so it survives
+// across reloads and is independent of signup time.
+const LOGIN_DAYS_KEY = (uid) => `login_days_${uid || 'guest'}`;
+
+function todayLocalIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function bumpLoginDay(uid) {
+  try {
+    const key = LOGIN_DAYS_KEY(uid);
+    const raw = localStorage.getItem(key);
+    const days = raw ? JSON.parse(raw) : [];
+    const today = todayLocalIso();
+    if (!days.includes(today)) {
+      days.push(today);
+      localStorage.setItem(key, JSON.stringify(days));
+    }
+    return days.length;
+  } catch {
+    return 1;
+  }
+}
+
+export function getLoginDayCount(uid) {
+  try {
+    const raw = localStorage.getItem(LOGIN_DAYS_KEY(uid));
+    const days = raw ? JSON.parse(raw) : [];
+    return Math.max(1, days.length);
+  } catch {
+    return 1;
+  }
+}
+
 // Update SRS fields on a word's progress entry
 export function updateWordSRS(wordId, srsUpdate, langKey = 'zh_en') {
   const progress = getProgress(langKey);
   if (!progress[wordId]) {
-    progress[wordId] = { timestamp: Date.now(), mastered: false, starred: false };
+    progress[wordId] = { timestamp: Date.now(), mastered: false };
   }
   Object.assign(progress[wordId], srsUpdate);
   saveProgress(progress, langKey);

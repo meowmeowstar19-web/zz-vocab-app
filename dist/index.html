@@ -1,19 +1,64 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#e5e5e5" />
+    <meta name="apple-mobile-web-app-title" content="PlushieWord" />
+    <meta name="application-name" content="PlushieWord" />
+    <meta name="theme-color" content="#ffffff" />
+    <script>
+      // Set <html lang> from saved native language BEFORE React mounts, so
+      // first-paint font shaping is correct and the browser's auto-translate
+      // detector never sees a mismatched lang.
+      (function () {
+        try {
+          var n = localStorage.getItem('app_native');
+          if (!n) {
+            var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'en'];
+            for (var i = 0; i < langs.length; i++) {
+              var c = (langs[i] || '').toLowerCase();
+              if (c.indexOf('zh') === 0) { n = 'zh'; break; }
+              if (c.indexOf('ja') === 0) { n = 'ja'; break; }
+              if (c.indexOf('en') === 0) { n = 'en'; break; }
+            }
+          }
+          document.documentElement.lang = n === 'zh' ? 'zh-CN' : n === 'ja' ? 'ja' : 'en';
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
+    <script>
+      // Capture the install prompt before React mounts; Chrome only fires this
+      // once and very early. Stash it on window for SettingsPage to consume.
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.__deferredInstallPrompt = e;
+        window.dispatchEvent(new Event('installpromptready'));
+      });
+      window.addEventListener('appinstalled', function () {
+        window.__deferredInstallPrompt = null;
+        window.dispatchEvent(new Event('appinstalled-custom'));
+      });
+      // Register service worker so Chrome treats us as installable
+      // and so static assets are cached for offline / fast loads.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <title>VocabKids</title>
-    <script type="module" crossorigin src="/assets/index-DJOMY5pk.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-ac57aa15.css">
+    <title>PlushieWord</title>
+    <script type="module" crossorigin src="/assets/index-Cjbwb8xq.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DeFWmzdp.css">
   </head>
   <body>
     <div id="root"></div>

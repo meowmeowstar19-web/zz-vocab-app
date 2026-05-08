@@ -5,7 +5,7 @@ import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS 
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
-import { getProgress, markWordLearned, toggleStar, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
+import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, CATEGORY_LABELS,
@@ -100,7 +100,7 @@ const CATEGORY_TAB_LABELS = {
 const _sentenceCache = new Map();
 
 export default function LearningPage({
-  isReview = false, onExitReview, onGoToStarred,
+  isReview = false, onExitReview,
   nativeLang = 'zh', targetLang = 'en',
   selectedCategory = 'all', selectedLevel = 'beginner',
   onCategoryChange, onLevelChange,
@@ -603,11 +603,6 @@ export default function LearningPage({
     return base.filter(w => isWordAvailable(w, nativeLang, targetLang));
   }, [currentWord, nativeLang, targetLang, isOralMode]);
 
-  const isWordStarred = useMemo(() => {
-    if (!currentWord) return false;
-    return progress[currentWord.id]?.starred === true;
-  }, [currentWord, progress]);
-
   const tagColorMap = useMemo(() => {
     const cats = activeCategories.filter(c => c !== 'all');
     const map = {};
@@ -985,12 +980,6 @@ export default function LearningPage({
     if (currentWord) speakCurrent(displayWord);
   }, [currentWord, displayWord, speakCurrent]);
 
-
-  const handleStar = useCallback(() => {
-    if (!currentWord) return;
-    toggleStar(currentWord.id, storageKey);
-    setProgress(getProgress(storageKey));
-  }, [currentWord, storageKey]);
 
   const handleSkip = useCallback(() => {
     if (!currentWord) return;

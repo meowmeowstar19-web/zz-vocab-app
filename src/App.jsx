@@ -4,7 +4,7 @@ import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { migrateOldProgress, migrateProgressToTargetOnly } from './utils/storage';
+import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay } from './utils/storage';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
 
@@ -89,7 +89,6 @@ export default function App() {
   const [needsLangSetup, setNeedsLangSetup] = useState(false);
   const [page, setPage] = useState('learn');
   const [reviewMode, setReviewMode] = useState(false);
-  const [wordListFilter, setWordListFilter] = useState(null);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
   const [nativeLang, setNativeLang] = useState(() => {
     const saved = localStorage.getItem('app_native');
@@ -114,8 +113,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      bumpLoginDay(data.session?.user?.id);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      bumpLoginDay(s?.user?.id);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -160,7 +165,6 @@ export default function App() {
 
   const handleTabClick = (tab) => {
     if (reviewMode) setReviewMode(false);
-    setWordListFilter(null);
     setPage(tab);
     if (tab === 'wordlist') setWordListRefreshKey(k => k + 1);
   };
@@ -175,11 +179,6 @@ export default function App() {
     setWordListRefreshKey(k => k + 1);
   };
 
-  const handleGoToStarred = () => {
-    setWordListFilter('starred');
-    setPage('wordlist');
-  };
-
   const handleLogin = () => {
     localStorage.setItem('app_logged_in', 'true');
     localStorage.setItem('app_last_active', String(Date.now()));
@@ -189,7 +188,6 @@ export default function App() {
     setIsGuest(true);
     setPage('learn');
     setReviewMode(false);
-    setWordListFilter(null);
   };
 
   const handleLogout = async () => {
@@ -197,7 +195,6 @@ export default function App() {
     setIsGuest(false);
     setPage('learn');
     setReviewMode(false);
-    setWordListFilter(null);
     if (session) await supabase.auth.signOut();
   };
 
@@ -258,7 +255,6 @@ export default function App() {
             <LearningPage
               isReview={reviewMode}
               onExitReview={handleExitReview}
-              onGoToStarred={handleGoToStarred}
               nativeLang={nativeLang}
               targetLang={targetLang}
               selectedCategory={learningCategory}
@@ -273,7 +269,6 @@ export default function App() {
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
             <WordListPage
               onStartReview={handleStartReview}
-              initialFilter={wordListFilter}
               nativeLang={nativeLang}
               targetLang={targetLang}
               refreshKey={wordListRefreshKey}
