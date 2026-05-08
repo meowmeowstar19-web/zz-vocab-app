@@ -229,7 +229,7 @@ export default function App() {
   // Show login page if not logged in
   if (!isLoggedIn) {
     return (
-      <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} nativeLang={nativeLang} />
         </div>
@@ -240,7 +240,7 @@ export default function App() {
   // Show language setup for first-time accounts (or every time in test mode)
   if (needsLangSetup) {
     return (
-      <div className="w-screen bg-neutral-200 flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} />
         </div>
@@ -249,7 +249,7 @@ export default function App() {
   }
 
   return (
-    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#e5e5e5' }}>
+    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
       <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
