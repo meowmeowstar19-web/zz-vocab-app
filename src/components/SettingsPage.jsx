@@ -3,10 +3,7 @@ import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 
-// icon-192.png is the trimmed watermelon on a transparent canvas, so a white
-// container backdrop shows through naturally → clean white circle + big icon.
-const DEFAULT_AVATAR_ICON = '/icons/icon-192.png';
-const AVATAR_BG = '#fff';
+const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
 
 function readStoredAvatar(uid) {
@@ -383,7 +380,6 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           const days = getLoginDayCount(user?.id);
           const memberLine = (t.memberDays || '累计登录第 {n} 天').replace('{n}', String(days));
           const avatarSize = 54; // 63 × 0.85 (shrunk 15%)
-          const isDefaultAvatar = !avatarUrl;
           return (
             <div style={{ position: 'absolute', left: 26, top: 58, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
               <button
@@ -396,18 +392,15 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   flexShrink: 0,
                   padding: 0,
                   border: '2px solid #000',
-                  background: isDefaultAvatar ? AVATAR_BG : '#fff',
+                  background: '#fff',
                   borderRadius: '50%',
                   cursor: 'pointer',
                   overflow: 'hidden',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
                   boxSizing: 'border-box',
                 }}
               >
                 <img
-                  src={isDefaultAvatar ? DEFAULT_AVATAR_ICON : avatarUrl}
+                  src={avatarUrl || DEFAULT_AVATAR_ICON}
                   alt=""
                   referrerPolicy="no-referrer"
                   onError={(e) => {
