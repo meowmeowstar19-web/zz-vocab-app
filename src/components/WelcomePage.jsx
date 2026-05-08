@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import EmailLoginPage from './EmailLoginPage';
 import { supabase } from '../lib/supabase';
 
-export default function WelcomePage({ onLogin, nativeLang = 'en' }) {
+export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) {
   const [showEmail, setShowEmail] = useState(false);
   const [oauthError, setOauthError] = useState('');
 
@@ -80,7 +80,7 @@ export default function WelcomePage({ onLogin, nativeLang = 'en' }) {
       {/* Guest Mode */}
       <div className="absolute left-0 right-0 top-[312px] flex justify-center">
         <button
-          onClick={onLogin}
+          onClick={onTestMode || onLogin}
           className="text-[16px] text-black text-center underline whitespace-nowrap hover:opacity-70 active:opacity-50"
         >
           Test Mode

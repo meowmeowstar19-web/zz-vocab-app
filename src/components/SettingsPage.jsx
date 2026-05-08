@@ -393,14 +393,15 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   width: avatarSize, height: avatarSize,
                   flexShrink: 0,
                   padding: 0,
-                  border: 'none',
-                  background: isDefaultAvatar ? AVATAR_BG : 'transparent',
+                  border: '2px solid #000',
+                  background: isDefaultAvatar ? AVATAR_BG : '#fff',
                   borderRadius: '50%',
                   cursor: 'pointer',
                   overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  boxSizing: 'border-box',
                 }}
               >
                 <img
