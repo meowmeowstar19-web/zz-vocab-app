@@ -3,8 +3,10 @@ import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 
-const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
-const AVATAR_BG = '#fff5e1'; // warm cream backdrop for the default icon
+// icon-192.png is the trimmed watermelon on a transparent canvas, so a white
+// container backdrop shows through naturally → clean white circle + big icon.
+const DEFAULT_AVATAR_ICON = '/icons/icon-192.png';
+const AVATAR_BG = '#fff';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
 
 function readStoredAvatar(uid) {
@@ -413,15 +415,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                     e.currentTarget.dataset.fallback = '1';
                     e.currentTarget.src = DEFAULT_AVATAR_ICON;
                   }}
-                  style={isDefaultAvatar ? {
-                    width: '78%', height: '78%',
-                    objectFit: 'contain',
-                    display: 'block',
-                  } : {
+                  style={{
                     width: '100%', height: '100%',
                     objectFit: 'cover',
                     display: 'block',
-                    borderRadius: '50%',
                   }}
                 />
               </button>
