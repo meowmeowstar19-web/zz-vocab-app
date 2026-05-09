@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getLangName } from '../utils/langHelpers';
+import { usePostHog } from '@posthog/react';
 
 const LANG_CODES = ['en', 'ja', 'zh'];
 
@@ -94,6 +95,7 @@ function YellowButton({ label, onClick, width = 130 }) {
 }
 
 export default function LanguageSetupPage({ onComplete }) {
+  const posthog = usePostHog();
   const [step, setStep] = useState(1); // 1 = native, 2 = target
   const [native, setNative] = useState('zh');
   const [target, setTarget] = useState(null);
@@ -107,6 +109,7 @@ export default function LanguageSetupPage({ onComplete }) {
 
   const handleConfirm = () => {
     if (!target || target === native) return;
+    posthog?.capture('language_setup_completed', { native_lang: native, target_lang: target });
     onComplete({ native, target });
   };
 

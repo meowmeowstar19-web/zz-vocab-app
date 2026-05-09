@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import EmailLoginPage from './EmailLoginPage';
 import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
+import { usePostHog } from '@posthog/react';
 
 const TOS_URL = '/legal/PlushieWord_Terms_of_Service.html';
 const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
 
 export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) {
+  const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
   const [showEmail, setShowEmail] = useState(false);
   const [oauthError, setOauthError] = useState('');
@@ -43,6 +45,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
   const signInWithProvider = async (provider) => {
     if (!guard()) return;
     setOauthError('');
+    posthog?.capture('login_oauth_initiated', { provider, native_lang: nativeLang });
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: window.location.origin },
@@ -52,11 +55,13 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
 
   const handleEmailClick = () => {
     if (!guard()) return;
+    posthog?.capture('login_email_clicked', { native_lang: nativeLang });
     setShowEmail(true);
   };
 
   const handleTestMode = () => {
     if (!guard()) return;
+    posthog?.capture('guest_mode_started', { native_lang: nativeLang });
     (onTestMode || onLogin)();
   };
 

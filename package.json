@@ -15,8 +15,10 @@
     "prebuild": "node scripts/compress-figma-assets.mjs"
   },
   "dependencies": {
+    "@posthog/react": "^1.9.0",
     "@supabase/supabase-js": "^2.105.1",
     "@vercel/analytics": "^2.0.1",
+    "posthog-js": "^1.372.10",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

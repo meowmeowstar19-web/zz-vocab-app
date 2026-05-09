@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
+import { usePostHog } from '@posthog/react';
 
 const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
@@ -73,6 +74,7 @@ function ChevronDown() {
 }
 
 export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout }) {
+  const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
@@ -123,6 +125,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   });
 
   const handleInstallClick = async () => {
+    posthog?.capture('install_prompt_clicked', { platform: isIOS ? 'ios' : isAndroid ? 'android' : 'desktop', native_lang: nativeLang });
     // iOS Safari/Chrome don't support beforeinstallprompt at all — go
     // straight to the manual instructions.
     if (!isIOS) {
@@ -188,6 +191,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
       });
       if (error) throw error;
+      posthog?.capture('feedback_submitted', { native_lang: nativeLang, target_lang: targetLang });
       setShowFeedbackModal(false);
       setToast(t.feedbackSent || '反馈已发送，谢谢你！');
     } catch (err) {
@@ -384,6 +388,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     if (pickerType && pendingCode) {
       if (pickerType === 'native') {
         if (pendingCode !== nativeLang) {
+          posthog?.capture('language_changed', { type: 'native', from: nativeLang, to: pendingCode });
           if (pendingCode === targetLang) {
             onLanguageChange({ native: pendingCode, target: nativeLang });
           } else {
@@ -392,6 +397,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         }
       } else {
         if (pendingCode !== targetLang) {
+          posthog?.capture('language_changed', { type: 'target', from: targetLang, to: pendingCode, native_lang: nativeLang });
           if (pendingCode === nativeLang) {
             onLanguageChange({ native: targetLang, target: pendingCode });
           } else {
@@ -1019,7 +1025,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         >
           <div
             style={{
-              width: 353,
+              width: 373,
               backgroundColor: '#fff',
               border: '2px solid #000',
               borderRadius: 20,

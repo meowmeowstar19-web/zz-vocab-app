@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
+import { usePostHog } from '@posthog/react';
 
 export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
+  const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
   const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'verify'
   const [email, setEmail] = useState('');
@@ -83,6 +85,8 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
         }
         throw error;
       }
+      posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
+      posthog?.identify(email, { email, native_lang: nativeLang });
       onLogin();
     } catch (err) {
       setError(err.message || t.operationFailed);
@@ -142,13 +146,15 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
           return;
         }
         if (data.session) {
+          posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
+          posthog?.identify(data.session.user.id, { email, native_lang: nativeLang });
           onLogin();
         } else {
           setMode('verify');
           setCode('');
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: loginData, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           if (/invalid login credentials/i.test(error.message)) {
             const refined = await refineLoginError(email);
@@ -164,6 +170,10 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
             return;
           }
           throw error;
+        }
+        posthog?.capture('user_logged_in', { method: 'email', native_lang: nativeLang });
+        if (loginData?.user) {
+          posthog?.identify(loginData.user.id, { email, native_lang: nativeLang });
         }
         onLogin();
       }

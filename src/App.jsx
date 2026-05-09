@@ -8,6 +8,7 @@ import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay } from '.
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
 import { Analytics } from '@vercel/analytics/react';
+import { usePostHog } from '@posthog/react';
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
@@ -82,6 +83,7 @@ function defaultTargetFor(native) {
 }
 
 export default function App() {
+  const posthog = usePostHog();
   const [session, setSession] = useState(null);
   const [isGuest, setIsGuest] = useState(() => localStorage.getItem('app_logged_in') === 'true');
   const isLoggedIn = !!session || isGuest;
@@ -117,10 +119,18 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       bumpLoginDay(data.session?.user?.id);
+      if (data.session?.user) {
+        posthog?.identify(data.session.user.id, {
+          email: data.session.user.email,
+        });
+      }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       bumpLoginDay(s?.user?.id);
+      if (s?.user) {
+        posthog?.identify(s.user.id, { email: s.user.email });
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -163,6 +173,7 @@ export default function App() {
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
   const handleTabClick = (tab) => {
+    posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
     if (reviewMode) setReviewMode(false);
     setPage(tab);
     if (tab === 'wordlist') setWordListRefreshKey(k => k + 1);

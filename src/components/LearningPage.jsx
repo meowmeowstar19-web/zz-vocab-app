@@ -14,6 +14,7 @@ import {
   getDueReviewWords, calcBudget, buildInterleaved, getInterval,
   getReviewFormat, SESSION_GAPS, SESSION_FORMATS, D_KNOW_GAP,
 } from '../utils/srs';
+import { usePostHog } from '@posthog/react';
 
 function shuffle(arr) {
   const a = [...arr];
@@ -108,6 +109,7 @@ export default function LearningPage({
   contentHFromParent,
   onCategoryModalChange,
 }) {
+  const posthog = usePostHog();
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
   const storageKey = targetLang; // progress keyed by target language only
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
@@ -929,52 +931,58 @@ export default function LearningPage({
     triggerAnim(option);
     const correctAnswer = getWordText(currentWord, nativeLang);
     if (option === correctAnswer) {
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'choice', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(true);
       playCorrectSound();
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(false);
       playWrongSound();
       setWrongSelections(prev => new Set([...prev, option]));
       setShowSentence(true); // auto-reveal translation on wrong answer
     }
-  }, [currentWord, isCorrect, advanceToNext, nativeLang, triggerAnim]);
+  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
 
   const handleImageClick = useCallback((optWord) => {
     if (isCorrect) return;
     triggerAnim(`img-${optWord.id}`);
     if (optWord.id === currentWord.id) {
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(true);
       playCorrectSound();
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(false);
       playWrongSound();
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
       setShowSentence(true); // auto-reveal translation on wrong answer
     }
-  }, [currentWord, isCorrect, advanceToNext, triggerAnim]);
+  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
 
   // ── D mode handlers ──
   const handleDKnow = useCallback(() => {
     if (!currentWord) return;
+    posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dKnow');
     playCorrectSound();
     dModeResultRef.current = 'know';
     autoAdvanceTimer.current = setTimeout(advanceToNext, 600);
-  }, [currentWord, advanceToNext, triggerAnim]);
+  }, [currentWord, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
 
   const handleDDontKnow = useCallback(() => {
     if (!currentWord) return;
+    posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dDontKnow');
     playWrongSound();
     dModeResultRef.current = 'dontknow';
     // Show the answer briefly: reveal the sentence translation, then advance
     setShowSentence(true);
     autoAdvanceTimer.current = setTimeout(advanceToNext, 1200);
-  }, [currentWord, advanceToNext, triggerAnim]);
+  }, [currentWord, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
 
   const handleSpeak = useCallback(() => {
     if (currentWord) speakCurrent(displayWord);
@@ -983,6 +991,7 @@ export default function LearningPage({
 
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
+    posthog?.capture('word_skipped', { word: currentWord?.en, is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();
@@ -1044,7 +1053,7 @@ export default function LearningPage({
         showNextCard();
       }, 400);
     }
-  }, [currentWord, effectiveIsReview, storageKey, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
+  }, [currentWord, effectiveIsReview, storageKey, nativeLang, targetLang, posthog, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
 
   // Counter text
   const counterText = useMemo(() => {

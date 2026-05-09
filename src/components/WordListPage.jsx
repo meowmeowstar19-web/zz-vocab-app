@@ -11,6 +11,7 @@ import {
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
   CATEGORY_LABELS,
 } from '../utils/langHelpers';
+import { usePostHog } from '@posthog/react';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -84,6 +85,7 @@ function usePhonetic(wordEn, targetLang) {
 }
 
 export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', refreshKey = 0 }) {
+  const posthog = usePostHog();
   const langKey = targetLang; // progress keyed by target language only
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
@@ -193,6 +195,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
     const newMastered = !currentMastered;
+    posthog?.capture('word_mastered_toggled', { word_id: wordId, mastered: newMastered, native_lang: nativeLang, target_lang: targetLang });
 
     // Step 1: show new check state visually (word stays in list, no storage update yet)
     setPendingMasteredWords(prev => new Map(prev).set(wordId, newMastered));
@@ -256,7 +259,10 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           <span className="text-[14px] text-[#3f3e3e]">{t.learning}</span>
           <span className="text-[36px] font-extrabold text-black leading-none mt-1">{totalLearning}</span>
           <button
-            onClick={onStartReview}
+            onClick={() => {
+              posthog?.capture('review_session_started', { word_count: totalLearning, native_lang: nativeLang, target_lang: targetLang });
+              onStartReview();
+            }}
             className="mt-3 flex items-center justify-center bg-[#ffd016] text-black rounded-full border-2 border-black active:scale-95"
             style={{ width: 113, height: 39 }}
           >
