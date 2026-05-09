@@ -66,9 +66,12 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
     try {
       const res = await fetch(url);
       const html = await res.text();
-      setDoc({ title, html });
+      // If the user closed the popup mid-fetch, don't reopen it.
+      setDoc((prev) => (prev && prev.title === title ? { title, html } : prev));
     } catch {
-      setDoc({ title, html: '<p style="color:#b91c1c;">Failed to load.</p>' });
+      setDoc((prev) => (prev && prev.title === title
+        ? { title, html: '<p style="color:#b91c1c;">Failed to load.</p>' }
+        : prev));
     } finally {
       setDocLoading(false);
     }
@@ -205,15 +208,23 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
           >
             <div className="relative flex items-center justify-center px-[44px] py-[10px] border-b border-black/10">
               <span className="text-[14px] font-semibold text-black text-center">{doc.title}</span>
+              {/* Big invisible hit-area button — wraps the X icon. The visible
+                  glyph is just a child; the whole 44x44 target closes the
+                  popup on the first pointer-down so stray finger movement
+                  on mobile doesn't cancel the click. */}
               <button
                 type="button"
-                onClick={() => setDoc(null)}
-                className="absolute right-[8px] top-1/2 -translate-y-1/2 w-[28px] h-[28px] rounded-full flex items-center justify-center hover:bg-black/5 active:bg-black/10"
-                aria-label={t.close}
+                onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); setDoc(null); }}
+                onClick={(e) => { e.stopPropagation(); setDoc(null); }}
+                className="absolute right-0 top-0 bottom-0 w-[44px] flex items-center justify-center active:bg-black/10"
+                aria-label={t.close || 'Close'}
+                style={{ touchAction: 'manipulation' }}
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M2 2 L12 12 M12 2 L2 12" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                <span className="w-[28px] h-[28px] rounded-full flex items-center justify-center pointer-events-none">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 2 L12 12 M12 2 L2 12" stroke="#333" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </span>
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-[16px] py-[14px] legal-doc text-[13px] text-black leading-relaxed">

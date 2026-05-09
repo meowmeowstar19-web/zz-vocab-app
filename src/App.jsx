@@ -141,10 +141,8 @@ export default function App() {
     if (session?.user?.id) {
       const onboarded = localStorage.getItem('lang_onboarded_' + session.user.id) === 'true';
       setNeedsLangSetup(!onboarded);
-    } else if (isGuest) {
-      // Guest/test mode: show setup only if language hasn't been picked yet
-      const hasLang = localStorage.getItem('app_native') && localStorage.getItem('app_target');
-      setNeedsLangSetup(!hasLang);
+    } else {
+      setNeedsLangSetup(false);
     }
   }, [isLoggedIn, session, isGuest]);
   // Persist category/level filters across tab switches AND page refreshes

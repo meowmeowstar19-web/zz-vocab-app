@@ -182,6 +182,15 @@ export const UI_TEXT = {
     installUnsupported: '当前浏览器不支持一键添加。请用手机自带的「分享 / 添加到主屏幕」功能。',
     iKnow: '知道了',
     copied: '已复制！',
+    // Feedback
+    feedbackRow: '意见反馈',
+    feedbackTitle: '意见反馈',
+    feedbackPlaceholder: '欢迎告诉我们你的想法、问题或建议……',
+    feedbackEmpty: '请先输入反馈内容',
+    feedbackLoginRequired: '登录后才能发送意见反馈哦~',
+    feedbackSent: '反馈已发送，谢谢你！',
+    feedbackSendFailed: '发送失败，请稍后再试',
+    send: '发送',
     // Profile
     memberDays: '累计登录第 {n} 天',
     guestSubtitle: '测试模式',
@@ -273,6 +282,15 @@ export const UI_TEXT = {
     installUnsupported: 'This browser doesn\'t support one-tap install. Please use your browser\'s Share / Add to Home Screen menu.',
     iKnow: 'Got it',
     copied: 'Copied!',
+    // Feedback
+    feedbackRow: 'Feedback',
+    feedbackTitle: 'Send us feedback',
+    feedbackPlaceholder: 'Tell us what you think, found a bug, or have an idea…',
+    feedbackEmpty: 'Please enter your feedback first',
+    feedbackLoginRequired: 'Sign in first to send feedback~',
+    feedbackSent: 'Feedback sent — thank you!',
+    feedbackSendFailed: 'Send failed, please try again',
+    send: 'Send',
     // Profile
     memberDays: 'Day {n} of total visits',
     guestSubtitle: 'Test mode',
@@ -364,6 +382,15 @@ export const UI_TEXT = {
     installUnsupported: 'このブラウザはワンタップ追加に対応していません。ブラウザの「共有 / ホーム画面に追加」をご利用ください。',
     iKnow: 'OK',
     copied: 'コピーしました！',
+    // Feedback
+    feedbackRow: 'ご意見・フィードバック',
+    feedbackTitle: 'フィードバックを送る',
+    feedbackPlaceholder: 'ご意見、不具合、ご要望などお聞かせください…',
+    feedbackEmpty: '先に内容を入力してください',
+    feedbackLoginRequired: 'ログイン後にフィードバックを送信できます~',
+    feedbackSent: '送信しました。ありがとうございます！',
+    feedbackSendFailed: '送信に失敗しました。あとでもう一度お試しください',
+    send: '送信',
     // Profile
     memberDays: '累計ログイン {n} 日目',
     guestSubtitle: 'テストモード',

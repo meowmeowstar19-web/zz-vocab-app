@@ -144,6 +144,59 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     setInstallModal('unsupported');
   };
 
+  // Feedback state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackError, setFeedbackError] = useState('');
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(''), 2400);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const openFeedbackModal = () => {
+    if (!user) {
+      setToast(t.feedbackLoginRequired || '登录后才能发送意见反馈哦~');
+      return;
+    }
+    setFeedbackText('');
+    setFeedbackError('');
+    setShowFeedbackModal(true);
+  };
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false);
+  };
+  const handleFeedbackSend = async () => {
+    const msg = feedbackText.trim();
+    if (!msg) {
+      setFeedbackError(t.feedbackEmpty || '请先输入反馈内容');
+      return;
+    }
+    if (!user) return; // safety — modal shouldn't be open in test mode
+    setFeedbackError('');
+    setFeedbackSending(true);
+    try {
+      const { error } = await supabase.from('feedback').insert({
+        user_id: user.id,
+        email: user.email || null,
+        message: msg,
+        native_lang: nativeLang,
+        target_lang: targetLang,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      });
+      if (error) throw error;
+      setShowFeedbackModal(false);
+      setToast(t.feedbackSent || '反馈已发送，谢谢你！');
+    } catch (err) {
+      setFeedbackError(err?.message || t.feedbackSendFailed || '发送失败，请稍后再试');
+    } finally {
+      setFeedbackSending(false);
+    }
+  };
+
   // Password binding state
   const [user, setUser] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -518,13 +571,36 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </span>
         </button>
 
+        {/* Feedback pill — placed below "Add to home screen" */}
+        <button
+          onClick={openFeedbackModal}
+          className="absolute flex items-center active:scale-[0.98]"
+          style={{
+            left: 20, top: 471,
+            width: 353, height: 50,
+            backgroundColor: '#fff',
+            border: '2px solid #000',
+            borderRadius: 100,
+          }}
+        >
+          <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
+            <span style={{ marginRight: 8 }}>💬</span>
+            {t.feedbackRow || '意见反馈'}
+          </span>
+          <span style={{ marginLeft: 'auto', marginRight: 17, display: 'flex', alignItems: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <path d="M3 3H15V12H10L6 15V12H3V3Z" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </button>
+
         {/* Password pill — only for logged-in users (not guest) */}
         {showPasswordRow && (
           <button
             onClick={openPwdModal}
             className="absolute flex items-center active:scale-[0.98]"
             style={{
-              left: 20, top: 471,
+              left: 20, top: 574,
               width: 353, height: 50,
               backgroundColor: '#fff',
               border: '2px solid #000',
@@ -542,7 +618,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Logout / Sign-in button — yellow pill. Position follows last button above. */}
         {onLogout && (
-          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 561 : 458, left: 0, right: 0 }}>
+          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 664 : 561, left: 0, right: 0 }}>
             <button
               onClick={() => {
                 if (!user) {
@@ -919,6 +995,105 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 }}
               >
                 {pwdLoading ? '...' : (t.ok || '确认')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast (login-required, send-success, etc.) */}
+      {toast && (
+        <div
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] max-w-[320px] px-[16px] py-[10px] rounded-[14px] bg-black/80 text-white text-[13px] text-center leading-snug shadow-lg pointer-events-none whitespace-nowrap"
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Feedback modal */}
+      {showFeedbackModal && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          onClick={closeFeedbackModal}
+        >
+          <div
+            style={{
+              width: 353,
+              backgroundColor: '#fff',
+              border: '2px solid #000',
+              borderRadius: 20,
+              padding: '30px 24px 28px',
+              display: 'flex', flexDirection: 'column',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{
+              textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 18,
+            }}>
+              {t.feedbackTitle || '意见反馈'}
+            </p>
+
+            <textarea
+              value={feedbackText}
+              onChange={(e) => { setFeedbackText(e.target.value); if (feedbackError) setFeedbackError(''); }}
+              placeholder={t.feedbackPlaceholder || '欢迎告诉我们你的想法、问题或建议……'}
+              autoFocus
+              rows={5}
+              style={{
+                width: '100%',
+                minHeight: 120,
+                border: '2px solid #000',
+                borderRadius: 16,
+                padding: '12px 14px',
+                fontSize: 15, color: '#000',
+                lineHeight: 1.4,
+                outline: 'none',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+                backgroundColor: '#fff',
+              }}
+            />
+
+            {feedbackError && (
+              <p style={{
+                textAlign: 'center', fontSize: 13, color: '#dc2626',
+                lineHeight: 1.3, marginTop: 10,
+              }}>
+                {feedbackError}
+              </p>
+            )}
+
+            <div style={{
+              display: 'flex', justifyContent: 'center', gap: 16, marginTop: 18,
+            }}>
+              <button
+                onClick={closeFeedbackModal}
+                className="active:scale-95"
+                style={{
+                  width: 110, height: 39,
+                  backgroundColor: '#fff',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 16, color: '#000',
+                }}
+              >
+                {t.cancel || '取消'}
+              </button>
+              <button
+                onClick={handleFeedbackSend}
+                disabled={feedbackSending}
+                className="active:scale-95 disabled:opacity-50"
+                style={{
+                  width: 130, height: 39,
+                  backgroundColor: '#ffd016',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 18, color: '#000',
+                }}
+              >
+                {feedbackSending ? '...' : (t.send || '发送')}
               </button>
             </div>
           </div>
