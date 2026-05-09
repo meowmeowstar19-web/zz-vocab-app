@@ -7,6 +7,7 @@ import LanguageSetupPage from './components/LanguageSetupPage';
 import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay } from './utils/storage';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
+import { Analytics } from '@vercel/analytics/react';
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
@@ -325,6 +326,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      <Analytics />
     </div>
   );
 }
