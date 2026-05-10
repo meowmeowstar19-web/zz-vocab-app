@@ -2,10 +2,25 @@ import { useState, useEffect, useRef } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
+import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { usePostHog } from '@posthog/react';
 
 const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
+
+// Per-user lifetime cap on language switches. Whitelist + test mode bypass.
+// Native and target are tracked separately, each with its own cap.
+const MAX_LANG_SWITCHES = 2;
+const SWITCH_KEY = (type, uid) => `lang_switches_${type}_${uid || 'guest'}`;
+function readSwitchCount(type, uid) {
+  try { return parseInt(localStorage.getItem(SWITCH_KEY(type, uid)) || '0', 10) || 0; }
+  catch { return 0; }
+}
+function bumpSwitchCount(type, uid) {
+  const next = readSwitchCount(type, uid) + 1;
+  try { localStorage.setItem(SWITCH_KEY(type, uid), String(next)); } catch {}
+  return next;
+}
 
 function readStoredAvatar(uid) {
   try { return localStorage.getItem(AVATAR_KEY(uid)) || ''; } catch { return ''; }
@@ -77,6 +92,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
+  // { type: 'native'|'target', code: 'en'|'ja'|'zh', remainingAfter: number } — confirmation popup state
+  const [pendingSwitch, setPendingSwitch] = useState(null);
+  const [switchCounts, setSwitchCounts] = useState({ native: 0, target: 0 });
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
@@ -232,6 +250,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         || (fromIdentities && (fromIdentities.avatar_url || fromIdentities.picture))
         || '';
       setAvatarUrl(stored || oauthPic || '');
+      // Hydrate per-user switch counts so the gate / confirmation popup are accurate.
+      setSwitchCounts({
+        native: readSwitchCount('native', u?.id),
+        target: readSwitchCount('target', u?.id),
+      });
       // Ensure today's login is counted even if App.jsx mounted before sign-in
       bumpLoginDay(u?.id);
     });
@@ -374,7 +397,15 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     }
   };
 
+  // Test mode (guest, no supabase user) and whitelisted emails can switch freely.
+  // Everyone else gets a per-side cap of MAX_LANG_SWITCHES (2 by default).
+  const hasUnlimitedSwitches = !user || canSwitchLanguageFreely(user?.email);
+
   const openPicker = (type) => {
+    if (!hasUnlimitedSwitches && switchCounts[type] >= MAX_LANG_SWITCHES) {
+      setToast(t.languageSwitchLocked || '切换次数已用完，暂时不支持继续切换哦~');
+      return;
+    }
     setPendingCode(type === 'native' ? nativeLang : targetLang);
     setPickerType(type);
   };
@@ -384,29 +415,56 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     setPendingCode(null);
   };
 
-  const handleConfirm = () => {
-    if (pickerType && pendingCode) {
-      if (pickerType === 'native') {
-        if (pendingCode !== nativeLang) {
-          posthog?.capture('language_changed', { type: 'native', from: nativeLang, to: pendingCode });
-          if (pendingCode === targetLang) {
-            onLanguageChange({ native: pendingCode, target: nativeLang });
-          } else {
-            onLanguageChange({ native: pendingCode });
-          }
-        }
+  // Apply the language change without bumping any counter.
+  const applyLanguageChange = (type, code) => {
+    if (type === 'native') {
+      if (code === nativeLang) return;
+      posthog?.capture('language_changed', { type: 'native', from: nativeLang, to: code });
+      if (code === targetLang) {
+        onLanguageChange({ native: code, target: nativeLang });
       } else {
-        if (pendingCode !== targetLang) {
-          posthog?.capture('language_changed', { type: 'target', from: targetLang, to: pendingCode, native_lang: nativeLang });
-          if (pendingCode === nativeLang) {
-            onLanguageChange({ native: targetLang, target: pendingCode });
-          } else {
-            onLanguageChange({ target: pendingCode });
-          }
-        }
+        onLanguageChange({ native: code });
+      }
+    } else {
+      if (code === targetLang) return;
+      posthog?.capture('language_changed', { type: 'target', from: targetLang, to: code, native_lang: nativeLang });
+      if (code === nativeLang) {
+        onLanguageChange({ native: targetLang, target: code });
+      } else {
+        onLanguageChange({ target: code });
       }
     }
+  };
+
+  const handleConfirm = () => {
+    if (!pickerType || !pendingCode) { closePicker(); return; }
+    const isSame = pickerType === 'native' ? pendingCode === nativeLang : pendingCode === targetLang;
+    if (isSame) { closePicker(); return; }
+    if (hasUnlimitedSwitches) {
+      applyLanguageChange(pickerType, pendingCode);
+      closePicker();
+      return;
+    }
+    // Non-allowlisted, real account: show confirmation popup with remaining count.
+    const remainingAfter = Math.max(0, MAX_LANG_SWITCHES - (switchCounts[pickerType] + 1));
+    setPendingSwitch({ type: pickerType, code: pendingCode, remainingAfter });
+  };
+
+  const confirmSwitch = () => {
+    if (!pendingSwitch) return;
+    const { type, code } = pendingSwitch;
+    if (user?.id) {
+      const next = bumpSwitchCount(type, user.id);
+      setSwitchCounts((prev) => ({ ...prev, [type]: next }));
+    }
+    applyLanguageChange(type, code);
+    setPendingSwitch(null);
     closePicker();
+  };
+
+  const cancelSwitch = () => {
+    // Keep the picker open so the user can re-pick or back out.
+    setPendingSwitch(null);
   };
 
   // Icon positions relative to the modal card (card left=20 on screen)
@@ -656,12 +714,13 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
       </div>
 
-      {/* Language picker modal */}
+      {/* Language picker modal — content swaps to a confirmation prompt
+          when the user is on a capped path and has selected a different language. */}
       {pickerType && (
         <div
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-          onClick={closePicker}
+          onClick={pendingSwitch ? cancelSwitch : closePicker}
         >
           {/* Card — centered both axes */}
           <div
@@ -674,97 +733,149 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Title */}
-            <p style={{
-              position: 'absolute', top: 38, left: 16, right: 16,
-              textAlign: 'center', fontSize: 18, color: '#000',
-            }}>
-              {pickerType === 'native' ? pickerTitles.native : pickerTitles.target}
-            </p>
-
-            {/* Language icons — flex row, evenly spaced */}
-            <div style={{
-              position: 'absolute',
-              top: ICON_TOP,
-              left: 0, right: 0,
-              display: 'flex',
-              justifyContent: 'space-evenly',
-              alignItems: 'flex-start',
-            }}>
-              {LANG_CODES.map(code => {
-                const isSelected = pendingCode === code;
-                return (
-                  <div
-                    key={code}
-                    onClick={() => setPendingCode(code)}
+            {pendingSwitch ? (
+              <>
+                {/* Inline confirmation prompt */}
+                <p style={{
+                  position: 'absolute',
+                  left: 28, right: 28,
+                  top: '50%', transform: 'translateY(-50%)',
+                  marginTop: -28,
+                  textAlign: 'center',
+                  fontSize: 18, color: '#000',
+                  lineHeight: 1.6,
+                }}>
+                  {(t.languageSwitchConfirm || '切换后只剩 {n} 次切换机会，确认要切换吗？')
+                    .replace('{n}', String(pendingSwitch.remainingAfter))}
+                </p>
+                <div style={{
+                  position: 'absolute',
+                  left: 0, right: 0, bottom: 34,
+                  display: 'flex', justifyContent: 'center', gap: 16,
+                }}>
+                  <button
+                    onClick={cancelSwitch}
+                    className="active:scale-95"
                     style={{
-                      width: 85,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
+                      width: 110, height: 39,
+                      backgroundColor: '#fff',
+                      border: '2px solid #000',
+                      borderRadius: 100,
+                      fontSize: 16, color: '#000',
                     }}
                   >
-                    {/* Circle with check badge */}
-                    <div style={{ position: 'relative', width: 85, height: 85 }}>
-                      <div style={{
-                        width: 85, height: 85,
-                        borderRadius: '50%',
-                        overflow: 'hidden',
-                      }}>
-                        <img
-                          src={LANG_ICONS[code]}
-                          alt={getLangName(code, nativeLang)}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      </div>
-                      {/* Check badge in top-right */}
-                      {isSelected && (
-                        <div style={{
-                          position: 'absolute',
-                          top: -2, right: -2,
-                          width: 22, height: 22,
-                          borderRadius: '50%',
-                          backgroundColor: '#ffd016',
-                          border: '2px solid #000',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                          <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
-                            <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    <p style={{
-                      marginTop: LABEL_MT,
-                      fontSize: 18, color: '#000', textAlign: 'center',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {getLangName(code, nativeLang)}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
+                    {t.cancel || '取消'}
+                  </button>
+                  <button
+                    onClick={confirmSwitch}
+                    className="active:scale-95"
+                    style={{
+                      width: 130, height: 39,
+                      backgroundColor: '#ffd016',
+                      border: '2px solid #000',
+                      borderRadius: 100,
+                      fontSize: 18, color: '#000',
+                    }}
+                  >
+                    {t.ok || '确认'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Title */}
+                <p style={{
+                  position: 'absolute', top: 38, left: 16, right: 16,
+                  textAlign: 'center', fontSize: 18, color: '#000',
+                }}>
+                  {pickerType === 'native' ? pickerTitles.native : pickerTitles.target}
+                </p>
 
-            {/* Confirm button — centered */}
-            <button
-              onClick={handleConfirm}
-              className="absolute active:scale-95"
-              style={{
-                left: '50%', transform: 'translateX(-50%)',
-                bottom: 34,
-                width: 130, height: 39,
-                backgroundColor: '#ffd016',
-                border: '2px solid #000',
-                borderRadius: 100,
-                fontSize: 18, color: '#000',
-              }}
-            >
-              {t.ok}
-            </button>
+                {/* Language icons — flex row, evenly spaced */}
+                <div style={{
+                  position: 'absolute',
+                  top: ICON_TOP,
+                  left: 0, right: 0,
+                  display: 'flex',
+                  justifyContent: 'space-evenly',
+                  alignItems: 'flex-start',
+                }}>
+                  {LANG_CODES.map(code => {
+                    const isSelected = pendingCode === code;
+                    return (
+                      <div
+                        key={code}
+                        onClick={() => setPendingCode(code)}
+                        style={{
+                          width: 85,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                        }}
+                      >
+                        {/* Circle with check badge */}
+                        <div style={{ position: 'relative', width: 85, height: 85 }}>
+                          <div style={{
+                            width: 85, height: 85,
+                            borderRadius: '50%',
+                            overflow: 'hidden',
+                          }}>
+                            <img
+                              src={LANG_ICONS[code]}
+                              alt={getLangName(code, nativeLang)}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          </div>
+                          {/* Check badge in top-right */}
+                          {isSelected && (
+                            <div style={{
+                              position: 'absolute',
+                              top: -2, right: -2,
+                              width: 22, height: 22,
+                              borderRadius: '50%',
+                              backgroundColor: '#ffd016',
+                              border: '2px solid #000',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                              <svg width="11" height="8" viewBox="0 0 11 8" fill="none">
+                                <polyline points="1.5 4 4 6.5 9.5 1.5" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                        <p style={{
+                          marginTop: LABEL_MT,
+                          fontSize: 18, color: '#000', textAlign: 'center',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {getLangName(code, nativeLang)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Confirm button — centered */}
+                <button
+                  onClick={handleConfirm}
+                  className="absolute active:scale-95"
+                  style={{
+                    left: '50%', transform: 'translateX(-50%)',
+                    bottom: 34,
+                    width: 130, height: 39,
+                    backgroundColor: '#ffd016',
+                    border: '2px solid #000',
+                    borderRadius: 100,
+                    fontSize: 18, color: '#000',
+                  }}
+                >
+                  {t.ok}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
