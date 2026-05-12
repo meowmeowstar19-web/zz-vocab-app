@@ -22,14 +22,46 @@ const RECORDED_AUDIO = (() => {
   return map;
 })();
 
+// Single persistent <audio> element. iOS Safari only allows playback on a
+// media element whose first .play() was triggered by a user gesture — reusing
+// one element across word changes (and priming it in primeAudio below) lets
+// subsequent .src swaps play without re-locking.
 let _recordedAudio = null;
+function getRecordedAudio() {
+  if (!_recordedAudio) _recordedAudio = new Audio();
+  return _recordedAudio;
+}
 function playRecorded(url) {
-  if (_recordedAudio) {
-    _recordedAudio.pause();
-    _recordedAudio.currentTime = 0;
-  }
-  _recordedAudio = new Audio(url);
-  _recordedAudio.play().catch(() => {});
+  const a = getRecordedAudio();
+  a.pause();
+  a.currentTime = 0;
+  a.src = url;
+  a.play().catch(() => {});
+}
+
+// Call once from a user-gesture handler (e.g. the daily check-in button). On
+// iOS Safari this unlocks Web Audio, speechSynthesis, and the shared <audio>
+// element so subsequent auto-speaks on word change actually play.
+export function primeAudio() {
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+  } catch {}
+  try {
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+    window.speechSynthesis.cancel();
+  } catch {}
+  try {
+    const a = getRecordedAudio();
+    // Tiny silent WAV; just enough to satisfy iOS's "first play from gesture" check.
+    a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    const p = a.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => { try { a.pause(); a.currentTime = 0; } catch {} }).catch(() => {});
+    }
+  } catch {}
 }
 
 let _lastSpeak = { text: '', time: 0 };

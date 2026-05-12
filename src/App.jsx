@@ -5,6 +5,7 @@ import SettingsPage from './components/SettingsPage';
 import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
+import { primeAudio } from './hooks/useAudio';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
 import { Analytics } from '@vercel/analytics/react';
@@ -180,6 +181,9 @@ export default function App() {
   }, [isLoggedIn, needsLangSetup, session]);
 
   const handleCheckin = () => {
+    // Unlock audio *inside* the click gesture — iOS Safari requires this for
+    // any later TTS / recorded playback (auto-speak on word change) to work.
+    primeAudio();
     markCheckinShown(session?.user?.id);
     setCheckinDay(null);
   };
@@ -310,7 +314,7 @@ export default function App() {
               onCategoryChange={handleCategoryChange}
               contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
               onLevelChange={handleLevelChange}
-              isVisible={page === 'learn' || reviewMode}
+              isVisible={(page === 'learn' || reviewMode) && checkinDay == null}
               onCategoryModalChange={setCategoryModalOpen}
             />
           </div>
