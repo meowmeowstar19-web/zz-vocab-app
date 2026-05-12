@@ -123,6 +123,25 @@ export function getLoginDayCount(uid) {
   }
 }
 
+// ── Daily check-in popup tracking ──
+// Separate from login_days: tracks whether today's check-in popup has been
+// shown/dismissed, so we only surface it once per calendar day.
+const LAST_CHECKIN_KEY = (uid) => `last_checkin_${uid || 'guest'}`;
+
+export function shouldShowCheckin(uid) {
+  try {
+    return localStorage.getItem(LAST_CHECKIN_KEY(uid)) !== todayLocalIso();
+  } catch {
+    return false;
+  }
+}
+
+export function markCheckinShown(uid) {
+  try {
+    localStorage.setItem(LAST_CHECKIN_KEY(uid), todayLocalIso());
+  } catch {}
+}
+
 // Update SRS fields on a word's progress entry
 export function updateWordSRS(wordId, srsUpdate, langKey = 'zh_en') {
   const progress = getProgress(langKey);

@@ -202,6 +202,10 @@ export const UI_TEXT = {
     privacyName: '《隐私协议》',
     acknowledgeFmt: '我已阅读并同意{name}',
     agreementsRequired: '请先勾选同意以上两份协议才能进入应用',
+    // Daily check-in popup
+    checkinTitle: '每日打卡',
+    checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
+    checkinBtn: '打卡',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -304,6 +308,10 @@ export const UI_TEXT = {
     privacyName: 'Privacy Policy',
     acknowledgeFmt: 'I have read and agree to the {name}',
     agreementsRequired: 'Please accept both agreements to continue',
+    // Daily check-in popup
+    checkinTitle: 'Daily Check-in',
+    checkinFmt: 'Day {n} of your streak\nヾ(◍°∇°◍)ﾉﾞ',
+    checkinBtn: 'Check in',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -406,6 +414,10 @@ export const UI_TEXT = {
     privacyName: '「プライバシーポリシー」',
     acknowledgeFmt: '{name}を読んで同意します',
     agreementsRequired: 'アプリに入るには上の2つの同意事項にチェックしてください',
+    // Daily check-in popup
+    checkinTitle: '毎日チェックイン',
+    checkinFmt: '累計ログイン {n} 日目\nヾ(◍°∇°◍)ﾉﾞ',
+    checkinBtn: 'チェックイン',
   },
 };
 

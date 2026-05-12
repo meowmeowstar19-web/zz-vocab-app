@@ -4,7 +4,7 @@ import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay } from './utils/storage';
+import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
 import { Analytics } from '@vercel/analytics/react';
@@ -105,6 +105,8 @@ export default function App() {
   });
   const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
   const [vpH, setVpH] = useState(() => window.innerHeight);
+  // Daily check-in popup: null when hidden, number = login-day count when shown
+  const [checkinDay, setCheckinDay] = useState(null);
 
   useEffect(() => {
     const update = () => {
@@ -143,6 +145,16 @@ export default function App() {
     document.documentElement.lang = tag;
   }, [nativeLang]);
 
+  useEffect(() => {
+    const props = {
+      native_lang: nativeLang,
+      target_lang: targetLang,
+      language_mode: `${nativeLang}_${targetLang}`,
+    };
+    posthog?.register(props);
+    if (session?.user?.id) posthog?.setPersonProperties(props);
+  }, [nativeLang, targetLang, posthog, session]);
+
   // Decide whether to show language setup whenever auth state changes.
   useEffect(() => {
     if (!isLoggedIn) {
@@ -156,6 +168,21 @@ export default function App() {
       setNeedsLangSetup(false);
     }
   }, [isLoggedIn, session, isGuest]);
+
+  // Daily check-in popup: show once per local-calendar day after the user is
+  // past login + language setup. bumpLoginDay has already added today's date.
+  useEffect(() => {
+    if (!isLoggedIn || needsLangSetup) return;
+    const uid = session?.user?.id;
+    if (shouldShowCheckin(uid)) {
+      setCheckinDay(getLoginDayCount(uid));
+    }
+  }, [isLoggedIn, needsLangSetup, session]);
+
+  const handleCheckin = () => {
+    markCheckinShown(session?.user?.id);
+    setCheckinDay(null);
+  };
   // Persist category/level filters across tab switches AND page refreshes
   const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
   const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
@@ -336,6 +363,48 @@ export default function App() {
             ))}
           </div>
         </div>
+
+        {/* Daily check-in popup — shown once per local-calendar day */}
+        {checkinDay != null && (
+          <div
+            className="absolute inset-0 z-50 flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+            onClick={handleCheckin}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 300,
+                height: 300,
+                backgroundColor: '#fff',
+                border: '2px solid #000',
+                borderRadius: 20,
+                padding: '36px 24px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
+              }}
+            >
+              <p style={{ textAlign: 'center', fontSize: 24, fontWeight: 700, color: '#000', margin: 0 }}>
+                {t.checkinTitle || '每日打卡'}
+              </p>
+              <p style={{ textAlign: 'center', fontSize: 18, color: '#000', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' }}>
+                {(t.checkinFmt || '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ').replace('{n}', checkinDay)}
+              </p>
+              <button
+                onClick={handleCheckin}
+                className="active:scale-95"
+                style={{
+                  width: 140, height: 44,
+                  backgroundColor: '#ffd016',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 18, color: '#000',
+                }}
+              >
+                {t.checkinBtn || '打卡'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <Analytics />
     </div>
