@@ -6,6 +6,7 @@ import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { primeAudio } from './hooks/useAudio';
+import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
 import { Analytics } from '@vercel/analytics/react';
@@ -108,6 +109,53 @@ export default function App() {
   const [vpH, setVpH] = useState(() => window.innerHeight);
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
+  // Whether the PWA is already installed — hides the "add to home screen" hint
+  // inside the check-in popup. Initial sync check covers all browsers when
+  // running in standalone mode; the async getInstalledRelatedApps probe below
+  // covers Chrome desktop / Android even when the user is in a browser tab.
+  //
+  // Tri-state: `null` while the async probe is in flight, `true`/`false` after.
+  // The check-in popup waits for a definitive value before mounting so the
+  // install hint paints in sync with whatever Settings would show. (Without
+  // this, the popup mounts with the sync default `false` and shows the hint
+  // for the ~100ms it takes getInstalledRelatedApps to resolve — even on
+  // installed Chrome.)
+  const [pwaInstalled, setPwaInstalled] = useState(() => {
+    try {
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.navigator.standalone === true) return true; // iOS Safari
+    } catch {}
+    return null;
+  });
+  useEffect(() => {
+    let cancelled = false;
+    // Only flip to installed on a *positive* signal — Chrome's
+    // `beforeinstallprompt` is throttled by engagement heuristics, so absence
+    // of the prompt can't be trusted as a signal.
+
+    // 1) Chrome desktop + Android: explicit query via getInstalledRelatedApps
+    //    (matches against `related_applications` in our manifest).
+    if (navigator.getInstalledRelatedApps) {
+      navigator.getInstalledRelatedApps()
+        .then((apps) => {
+          if (cancelled) return;
+          setPwaInstalled((prev) => prev === true ? true : !!(apps && apps.length > 0));
+        })
+        .catch(() => { if (!cancelled) setPwaInstalled((prev) => prev === true ? true : false); });
+    } else {
+      // No probe available — settle to "not installed" so the popup can mount.
+      setPwaInstalled((prev) => prev === true ? true : false);
+    }
+
+    // 2) Catches users who install during this session.
+    const onInstalled = () => { if (!cancelled) setPwaInstalled(true); };
+    window.addEventListener('appinstalled', onInstalled);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     const update = () => {
@@ -172,13 +220,16 @@ export default function App() {
 
   // Daily check-in popup: show once per local-calendar day after the user is
   // past login + language setup. bumpLoginDay has already added today's date.
+  // Also wait until pwaInstalled is known (not null) so the install hint
+  // inside the popup paints with the correct state from the first frame.
   useEffect(() => {
     if (!isLoggedIn || needsLangSetup) return;
+    if (pwaInstalled === null) return;
     const uid = session?.user?.id;
     if (shouldShowCheckin(uid)) {
       setCheckinDay(getLoginDayCount(uid));
     }
-  }, [isLoggedIn, needsLangSetup, session]);
+  }, [isLoggedIn, needsLangSetup, session, pwaInstalled]);
 
   const handleCheckin = () => {
     // Unlock audio *inside* the click gesture — iOS Safari requires this for
@@ -202,6 +253,7 @@ export default function App() {
   };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
+  const { openInstall, modalNode: installModalNode } = useInstallPrompt(nativeLang, t);
 
   const handleTabClick = (tab) => {
     posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
@@ -332,6 +384,8 @@ export default function App() {
               targetLang={targetLang}
               onLanguageChange={handleLanguageChange}
               onLogout={handleLogout}
+              onInstallClick={openInstall}
+              pwaInstalled={pwaInstalled}
             />
           </div>
         </div>
@@ -379,11 +433,11 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: 300,
-                height: 300,
+                height: pwaInstalled ? 300 : 370,
                 backgroundColor: '#fff',
                 border: '2px solid #000',
                 borderRadius: 20,
-                padding: '36px 24px',
+                padding: '34px 24px 28px',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
               }}
             >
@@ -406,9 +460,39 @@ export default function App() {
               >
                 {t.checkinBtn || '打卡'}
               </button>
+              {!pwaInstalled && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Prime audio + record dismissal first, then open install modal.
+                    // installModalNode renders at z-60 so it overlays the check-in popup.
+                    primeAudio();
+                    markCheckinShown(session?.user?.id);
+                    setCheckinDay(null);
+                    openInstall();
+                  }}
+                  style={{
+                    background: 'none', border: 'none', padding: '4px 8px',
+                    fontSize: 14,
+                    color: '#2563eb',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: 3,
+                    cursor: 'pointer',
+                    whiteSpace: 'pre-line',
+                    textAlign: 'center',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {t.checkinInstallHint || '添加到桌面\n下次打开更顺手'}
+                </button>
+              )}
             </div>
           </div>
         )}
+
+        {/* Install-to-home-screen modal — rendered at app level so the check-in
+            popup link and the Settings button share one modal. */}
+        {installModalNode}
       </div>
       <Analytics />
     </div>

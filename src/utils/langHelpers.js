@@ -206,6 +206,7 @@ export const UI_TEXT = {
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
     checkinBtn: '打卡',
+    checkinInstallHint: '添加到桌面\n下次打开更顺手',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
@@ -312,6 +313,7 @@ export const UI_TEXT = {
     checkinTitle: 'Daily Check-in',
     checkinFmt: 'Day {n} of your streak\nヾ(◍°∇°◍)ﾉﾞ',
     checkinBtn: 'Check in',
+    checkinInstallHint: 'Add to home screen\nfor quicker access',
   },
   ja: {
     learn: '学習', wordlist: '単語帳', settings: '設定',
@@ -418,6 +420,7 @@ export const UI_TEXT = {
     checkinTitle: '毎日チェックイン',
     checkinFmt: '累計ログイン {n} 日目\nヾ(◍°∇°◍)ﾉﾞ',
     checkinBtn: 'チェックイン',
+    checkinInstallHint: 'ホーム画面に追加\n次回もすぐ開けます',
   },
 };
 
