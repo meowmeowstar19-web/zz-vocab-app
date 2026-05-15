@@ -28,7 +28,19 @@ function shuffle(arr) {
 function getOptions(correctWord, wordPool, nativeLang) {
   const correctText = getWordText(correctWord, nativeLang);
   const others = wordPool.filter(w => w.id !== correctWord.id && getWordText(w, nativeLang) !== correctText);
-  const wrongOnes = shuffle(others).slice(0, 3).map(w => getWordText(w, nativeLang));
+  // Dedup by displayed text — two different entries can share the same native-lang
+  // translation (e.g. "you're welcome" and "Don't mention it." both → "不客气"), and
+  // without this dedup both could land in the wrong-options list, producing two
+  // identical buttons.
+  const seen = new Set([correctText]);
+  const wrongOnes = [];
+  for (const w of shuffle(others)) {
+    const t = getWordText(w, nativeLang);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    wrongOnes.push(t);
+    if (wrongOnes.length === 3) break;
+  }
   return shuffle([correctText, ...wrongOnes]);
 }
 
