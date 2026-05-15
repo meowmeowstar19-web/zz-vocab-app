@@ -11,6 +11,20 @@ posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN, {
   defaults: '2026-01-30',
 });
 
+// Tag every event with the user's language mode so retention / funnels can be
+// broken down by it (zh_en, zh_ja, en_zh, en_ja, ja_zh, ja_en).
+{
+  const native = localStorage.getItem('app_native');
+  const target = localStorage.getItem('app_target');
+  if (native && target) {
+    posthog.register({
+      native_lang: native,
+      target_lang: target,
+      language_mode: `${native}_${target}`,
+    });
+  }
+}
+
 installAntiScrape();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
