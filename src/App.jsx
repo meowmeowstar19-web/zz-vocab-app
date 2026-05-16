@@ -253,7 +253,13 @@ export default function App() {
   };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
-  const { openInstall, modalNode: installModalNode } = useInstallPrompt(nativeLang, t);
+  const { openInstall, modalNode: installModalNode, installAvailable } = useInstallPrompt(nativeLang, t);
+  // The check-in popup only nudges install when the flow is actually
+  // actionable — i.e. mobile / Safari desktop (manual steps work) or a
+  // browser that has fired `beforeinstallprompt`. Otherwise the click would
+  // land on the "you previously installed but didn't fully uninstall"
+  // fallback, which isn't a real install path.
+  const showCheckinInstallHint = !pwaInstalled && installAvailable;
 
   const handleTabClick = (tab) => {
     posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
@@ -433,7 +439,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: 300,
-                height: pwaInstalled ? 300 : 370,
+                height: showCheckinInstallHint ? 370 : 300,
                 backgroundColor: '#fff',
                 border: '2px solid #000',
                 borderRadius: 20,
@@ -444,7 +450,7 @@ export default function App() {
               <p style={{ textAlign: 'center', fontSize: 24, fontWeight: 700, color: '#000', margin: 0 }}>
                 {t.checkinTitle || '每日打卡'}
               </p>
-              <p style={{ textAlign: 'center', fontSize: 18, color: '#000', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' }}>
+              <p style={{ textAlign: 'center', fontSize: 18, color: '#000', lineHeight: 2.0, margin: 0, whiteSpace: 'pre-line' }}>
                 {(t.checkinFmt || '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ').replace('{n}', checkinDay)}
               </p>
               <button
@@ -460,32 +466,61 @@ export default function App() {
               >
                 {t.checkinBtn || '打卡'}
               </button>
-              {!pwaInstalled && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Prime audio + record dismissal first, then open install modal.
-                    // installModalNode renders at z-60 so it overlays the check-in popup.
-                    primeAudio();
-                    markCheckinShown(session?.user?.id);
-                    setCheckinDay(null);
-                    openInstall();
-                  }}
-                  style={{
-                    background: 'none', border: 'none', padding: '4px 8px',
-                    fontSize: 14,
-                    color: '#2563eb',
-                    textDecoration: 'underline',
-                    textUnderlineOffset: 3,
-                    cursor: 'pointer',
-                    whiteSpace: 'pre-line',
-                    textAlign: 'center',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {t.checkinInstallHint || '添加到桌面\n下次打开更顺手'}
-                </button>
-              )}
+              {showCheckinInstallHint && (() => {
+                const hint = t.checkinInstallHint || '添加到桌面\n下次打开更方便';
+                const [hintTitle, hintSub] = hint.split('\n');
+                return (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Prime audio + record dismissal first, then open install modal.
+                      // installModalNode renders at z-60 so it overlays the check-in popup.
+                      primeAudio();
+                      markCheckinShown(session?.user?.id);
+                      setCheckinDay(null);
+                      openInstall();
+                    }}
+                    className="active:scale-95"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      padding: '10px 20px 10px 12px',
+                      background: 'rgb(224, 255, 251)',
+                      border: '1.5px solid #2b2a26',
+                      borderRadius: 16,
+                      boxShadow: '0 2px 0 #2b2a26',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'transform 0.08s ease',
+                    }}
+                  >
+                    {/* install-hint-icon.png is a pre-cropped 134x165 version of the
+                        watermelon (the original apple-touch-icon.png has built-in safe-area
+                        padding so the character only fills ~60% of its canvas — bad here). */}
+                    <img
+                      src="/icons/install-hint-icon.png"
+                      alt=""
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 11,
+                        objectFit: 'contain',
+                        backgroundColor: '#fff',
+                        display: 'block',
+                        flexShrink: 0,
+                        border: '1px solid rgba(0,0,0,0.12)',
+                      }}
+                    />
+                    <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#2b2a26' }}>{hintTitle}</span>
+                      {hintSub && (
+                        <span style={{ fontSize: 12, color: '#6b6356', marginTop: 2 }}>{hintSub}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}

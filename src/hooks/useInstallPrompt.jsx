@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePostHog } from '@posthog/react';
 
 // Renders a tip string, turning every "chrome://apps" occurrence into a
@@ -50,6 +50,26 @@ export function useInstallPrompt(nativeLang, t) {
 
   const [installModal, setInstallModal] = useState(null);
   const [copiedFlash, setCopiedFlash] = useState(false);
+  // Whether `openInstall()` will actually lead somewhere actionable. On iOS /
+  // Android / Safari desktop we always show manual instructions (real steps
+  // the user can follow). On other desktops the flow only works if Chrome has
+  // fired `beforeinstallprompt` — otherwise the fallback modal just tells the
+  // user to wipe a stale install. Callers use this to decide whether to even
+  // surface an install nudge.
+  const [deferredReady, setDeferredReady] = useState(
+    typeof window !== 'undefined' && !!window.__deferredInstallPrompt
+  );
+  useEffect(() => {
+    const onReady = () => setDeferredReady(!!window.__deferredInstallPrompt);
+    const onInstalled = () => setDeferredReady(false);
+    window.addEventListener('installpromptready', onReady);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('installpromptready', onReady);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+  const installAvailable = isIOS || isAndroid || isSafariDesktop || deferredReady;
 
   const waitForPrompt = (ms) => new Promise((resolve) => {
     if (window.__deferredInstallPrompt) { resolve(window.__deferredInstallPrompt); return; }
@@ -180,5 +200,5 @@ export function useInstallPrompt(nativeLang, t) {
     </div>
   ) : null;
 
-  return { openInstall, modalNode };
+  return { openInstall, modalNode, installAvailable };
 }
