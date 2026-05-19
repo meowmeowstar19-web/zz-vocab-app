@@ -336,7 +336,15 @@ export default function LearningPage({
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // Catch BFCache restores on mobile browsers — `resize` doesn't fire, but
+    // the viewport (and our container) may have shrunk since the saved state
+    // was taken, leaving contentH stale and the responsive scaling at full
+    // size while the container is too short → choices overlap word info.
+    window.addEventListener('pageshow', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('pageshow', measure);
+    };
   }, []);
 
   // Re-measure whenever the page becomes visible again, in case the window was
