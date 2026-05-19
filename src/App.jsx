@@ -163,7 +163,15 @@ export default function App() {
       setVpH(window.innerHeight);
     };
     window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    // BFCache restore on mobile browsers doesn't fire `resize`, but the
+    // viewport may have changed while the tab was backgrounded — re-read
+    // window.innerHeight on every pageshow (incl. `persisted=true` restores)
+    // so the saved state doesn't drive the layout off the new viewport.
+    window.addEventListener('pageshow', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('pageshow', update);
+    };
   }, []);
 
   useEffect(() => {
