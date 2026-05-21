@@ -387,11 +387,13 @@ export default function LearningPage({
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
   const imgPadTop = Math.max(10, Math.round(responsive2(12, 10, 10)));
-  // Frame decoration scales proportionally with image (Figma: photo 270×270, frame at relative -41,-27 with size 359×316)
-  const frameTop = Math.round(-27 * imgScale);
-  const frameLeft = Math.round(-41 * imgScale);
-  const frameW = imgSize + Math.round(89 * imgScale);
-  const frameH = imgSize + Math.round(46 * imgScale);
+  // Frame decoration scales proportionally with image. Sized so the asset's inner
+  // wobbly outline (insets ~7.9%/6.6%/7.2%/6.0% L/R/T/B) hugs the 270×270 photo —
+  // height-fit so inner top/bottom match photo edges, with ~16px give on sides.
+  const frameTop = Math.round(-22 * imgScale);
+  const frameLeft = Math.round(-44 * imgScale);
+  const frameW = imgSize + Math.round(83 * imgScale);
+  const frameH = imgSize + Math.round(41 * imgScale);
   const imgRadius = Math.round(20 * imgScale);
 
   // Font sizes per Figma (node 181:609): word 24, phonetic 18, sentence 18, translation 16
