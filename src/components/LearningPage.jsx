@@ -387,27 +387,27 @@ export default function LearningPage({
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
   const imgPadTop = Math.max(10, Math.round(responsive2(22, 10, 10)));
-  // Frame decoration scales proportionally with image
-  const frameTop = Math.round(-16 * imgScale);
-  const frameLeft = Math.round(-45 * imgScale);
-  const frameW = imgSize + Math.round(77 * imgScale);
-  const frameH = imgSize + Math.round(47 * imgScale);
+  // Frame decoration scales proportionally with image (Figma: photo 270×270, frame at relative -41,-27 with size 359×316)
+  const frameTop = Math.round(-27 * imgScale);
+  const frameLeft = Math.round(-41 * imgScale);
+  const frameW = imgSize + Math.round(89 * imgScale);
+  const frameH = imgSize + Math.round(46 * imgScale);
   const imgRadius = Math.round(20 * imgScale);
 
-  // Font sizes: 24 / 16 / 14px base; scale ~80% only at very short screens
-  // CJK (zh/ja) text gets -2px for visual balance
+  // Font sizes per Figma (node 181:609): word 24, phonetic 18, sentence 18, translation 16
+  // CJK (zh/ja) text gets -2px for visual balance; scale at smaller screens
   const isCJK = (lang) => lang === 'zh' || lang === 'ja';
   const wordTextFS = Math.round(responsive2(22, 22, 19)) - (isCJK(targetLang) ? 2 : 0);
-  const phoneticFS = Math.round(responsive2(16, 16, 13)) - (targetLang === 'ja' ? 2 : 0);
-  const sentenceFS_base = Math.round(responsive2(16, 16, 13));
-  const translationFS_base = Math.round(responsive2(15, 15, 11));
+  const phoneticFS = Math.round(responsive2(18, 16, 13)) - (targetLang === 'ja' ? 2 : 0);
+  const sentenceFS_base = Math.round(responsive2(18, 16, 13));
+  const translationFS_base = Math.round(responsive2(16, 15, 11));
 
 
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
   // Choices padding-top: drops quickly from 26 to 10 once below MIN_H (reaches 10 within 30px)
   const choicesPadTop = contentH >= MIN_H ? 26 : Math.max(10, Math.round(26 - 16 * Math.min(1, (MIN_H - contentH) / 30)));
-  // Natural (full-size) height of the choices section
+  // Natural (full-size) height of the choices section (Figma: card 109h, row gap 13, skip 91×88)
   const TEXT_CHOICES_H = 26 + 115 * 2 + 7 + 30;   // 293
   const IMG_CHOICES_H = 26 + 145 * 2 + 10 + 30;   // 356
   const skipTop_full = Math.round(26 + 115 + 7 / 2 - 85 / 2);
@@ -415,9 +415,8 @@ export default function LearningPage({
 
   // Decoration thresholds
   const showCatDecor = contentH >= 550;        // cat on choices (hide only on very short screens)
-  const showBigNavDecor = contentH >= FULL_H;  // large nav scene → frog when adapting
   const isCompact = contentH < FULL_H;
-  const navLeftDecorW = Math.round(responsive2(78, 52, 46));
+  const navLeftDecorW = Math.round(responsive2(83, 56, 49));
 
   // Reload progress when target language changes (storage key changed)
   useEffect(() => {
@@ -1196,7 +1195,7 @@ export default function LearningPage({
           style={{ zIndex: 0 }}
         />
         <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
-          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
@@ -1244,20 +1243,9 @@ export default function LearningPage({
             <img src="/assets/figma/nav-decor-top-1.png" alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 0, bottom: -2, width: navLeftDecorW, zIndex: 3 }} />
-            {showBigNavDecor ? (
-              <img src="/assets/figma/nav-decor-top-2.png" alt=""
-                className="absolute pointer-events-none select-none"
-                style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
-            ) : (
-              <div className="absolute pointer-events-none select-none overflow-hidden"
-                style={{ right: 6, bottom: -10, width: 40, height: 38, zIndex: 3 }}>
-                <img src="/assets/figma/nav-decor-frog.png" alt=""
-                  style={{
-                    position: 'absolute', left: 0, top: '-115.8%',
-                    width: '290%', height: '215.82%', maxWidth: 'none',
-                  }} />
-              </div>
-            )}
+            <img src="/assets/figma/nav-decor-top-2.png" alt=""
+              className="absolute pointer-events-none select-none"
+              style={{ right: 8, bottom: -8, width: 37, zIndex: 3 }} />
             <img src="/assets/figma/nav-decor-3.png" alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1267,7 +1255,7 @@ export default function LearningPage({
         {/* ── CONTENT ── */}
         <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
           {/* ── TOP BAR (same as learning page) ── */}
-          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+          <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
@@ -1326,13 +1314,13 @@ export default function LearningPage({
           )}
         </div>
         {isReview && (
-          <div className="relative shrink-0 flex items-center px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+          <div className="relative shrink-0 flex items-center px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             <div className="flex items-center" style={{ gap: 11 }}>
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
               </button>
               <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           </div>
@@ -1393,21 +1381,9 @@ export default function LearningPage({
           <img src="/assets/figma/nav-decor-top-1.png" alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 0, bottom: -2, width: navLeftDecorW, zIndex: 3 }} />
-          {showBigNavDecor ? (
-            <img src="/assets/figma/nav-decor-top-2.png" alt=""
-              className="absolute pointer-events-none select-none"
-              style={{ right: 0, bottom: -10, width: 113, zIndex: 3 }} />
-          ) : (
-            /* Frog: CSS-cropped from source (matches Figma nav_decor_top_2_frog layer) */
-            <div className="absolute pointer-events-none select-none overflow-hidden"
-              style={{ right: 6, bottom: -10, width: 40, height: 38, zIndex: 3 }}>
-              <img src="/assets/figma/nav-decor-frog.png" alt=""
-                style={{
-                  position: 'absolute', left: 0, top: '-115.8%',
-                  width: '290%', height: '215.82%', maxWidth: 'none',
-                }} />
-            </div>
-          )}
+          <img src="/assets/figma/nav-decor-top-2.png" alt=""
+            className="absolute pointer-events-none select-none"
+            style={{ right: 8, bottom: -8, width: 37, zIndex: 3 }} />
           <img src="/assets/figma/nav-decor-3.png" alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1422,14 +1398,14 @@ export default function LearningPage({
       }}>
 
         {/* ── TOP BAR ── */}
-        <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 40, paddingTop: 11, zIndex: 10 }}>
+        <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
           {isReview ? (
             <div className="flex items-center" style={{ gap: 11 }}>
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
               </button>
               <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/category-btn-review.png" alt="分类" className="w-full h-full object-contain" />
+                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           ) : (
@@ -1501,7 +1477,7 @@ export default function LearningPage({
             className="flex items-center gap-1.5 text-[#999] active:scale-95"
             style={{ marginTop: isTargetJa ? 4 : 5 }}
           >
-            <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+            <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
               <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
                 {phonetic}
@@ -1689,12 +1665,6 @@ export default function LearningPage({
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
-                    {/* Leaf decor on bottom-right cell */}
-                    {idx === 3 && !isReview && showCatDecor && (
-                      <img src="/assets/figma/word-decor-2.png" alt=""
-                        className="absolute pointer-events-none select-none"
-                        style={{ right: -18, top: -7, width: 35, zIndex: 5 }} />
-                    )}
                     {/* Background card */}
                     <div
                       className="absolute rounded-[8px]"
@@ -1739,6 +1709,7 @@ export default function LearningPage({
                 src="/assets/figma/skip-btn.png"
                 alt=""
                 className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+                style={{ transform: 'translateY(-5px)' }}
               />
               <button
                 onClick={handleSkip}
@@ -1846,31 +1817,6 @@ export default function LearningPage({
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '4px 6px 8px',
             }}>
-              {/* Letter decoration — top-right corner, rotated 38.7deg (Figma 402:418) */}
-              {hasLetter && (
-                <div className="pointer-events-none select-none" style={{
-                  position: 'absolute', right: -8, top: -11,
-                  width: 24, height: 24,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  zIndex: 3,
-                }}>
-                  <img src="/assets/figma/frame-decor-letter.png" alt=""
-                    style={{ width: 18, height: 15, display: 'block', transform: 'rotate(38.7deg)' }} />
-                </div>
-              )}
-              {/* Star decoration — BL or TR corner, rotated -50.81deg (Figma 425:231) */}
-              {hasStar && (
-                <div className="pointer-events-none select-none" style={{
-                  position: 'absolute',
-                  ...(starAtTR ? { right: -9, top: -11 } : { left: -9, bottom: -11 }),
-                  width: 29, height: 29,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  zIndex: 3,
-                }}>
-                  <img src="/assets/figma/frame-decor-stas.png" alt=""
-                    style={{ width: 20, height: 21, display: 'block', transform: 'rotate(-50.81deg)' }} />
-                </div>
-              )}
               {/* Category image */}
               <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: imageContain ? '#fff' : '#e8dcc8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {imgSrc ? (
@@ -2010,7 +1956,7 @@ export default function LearningPage({
                   {categoryTab === 'detail' && (() => {
                     // Build items: "all" card first, followed by each concrete category
                     const detailItems = [
-                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: vocabPool },
+                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: null, pool: vocabPool },
                       ...detailCats.map(cat => {
                         const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
                         return {
@@ -2050,7 +1996,7 @@ export default function LearningPage({
                   {categoryTab === 'oral' && (() => {
                     // Build items: "all" card first, followed by each concrete oral category
                     const oralItems = [
-                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: oralPhrases },
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: null, pool: oralPhrases },
                       ...oralCats.map(cat => {
                         const imgFile = oralCategoryCovers[cat];
                         return {
