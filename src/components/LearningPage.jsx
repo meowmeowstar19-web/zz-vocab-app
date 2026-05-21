@@ -387,11 +387,16 @@ export default function LearningPage({
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
   const imgPadTop = Math.max(10, Math.round(responsive2(12, 10, 10)));
-  // Frame decoration scales proportionally with image (Figma: photo 270×270, frame at relative -41,-27 with size 359×316)
-  const frameTop = Math.round(-27 * imgScale);
+  // Frame decoration scales proportionally with image (Figma node 181:610: photo 270×270 at (51,18), frame 357×314 at (10,-6) relative to pic-section)
+  const frameTop = Math.round(-24 * imgScale);
   const frameLeft = Math.round(-41 * imgScale);
-  const frameW = imgSize + Math.round(89 * imgScale);
-  const frameH = imgSize + Math.round(46 * imgScale);
+  const frameW = imgSize + Math.round(87 * imgScale);
+  const frameH = imgSize + Math.round(44 * imgScale);
+  // Review-mode plain hand-drawn frame (Figma node 181:564: photo 270×270 at (66,41), frame 275×277 at (64,38))
+  const noDecorFrameTop = Math.round(-3 * imgScale);
+  const noDecorFrameLeft = Math.round(-2 * imgScale);
+  const noDecorFrameW = imgSize + Math.round(5 * imgScale);
+  const noDecorFrameH = imgSize + Math.round(7 * imgScale);
   const imgRadius = Math.round(20 * imgScale);
 
   // Font sizes per Figma (node 181:609): word 24, phonetic 18, sentence 18, translation 16
@@ -1319,7 +1324,7 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+              <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
@@ -1404,14 +1409,14 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button onClick={handleOpenCategories} className="w-[26px] h-[26px] flex items-center justify-center active:scale-90">
+              <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
                 <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           ) : (
             <button
               onClick={handleOpenCategories}
-              className="w-[30px] h-[30px] active:scale-90"
+              className="w-[28px] h-[28px] active:scale-90"
             >
               <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
             </button>
@@ -1425,7 +1430,7 @@ export default function LearningPage({
           <div className="shrink-0 flex justify-center" style={{ paddingTop: imgPadTop, marginTop: imgMarginTop }}>
             <div className="relative" style={{ width: imgSize, height: imgSize }}>
               <div
-                className={`absolute inset-0 overflow-hidden ${isReview ? 'border-2 border-black' : ''}`}
+                className="absolute inset-0 overflow-hidden"
                 style={{ borderRadius: imgRadius }}
               >
                 <img
@@ -1434,24 +1439,32 @@ export default function LearningPage({
                   className="w-full h-full object-cover"
                 />
               </div>
-              {!isReview && (
-                <img
-                  src="/assets/figma/pic_square_wrapper_clean.png"
-                  alt=""
-                  className="absolute pointer-events-none select-none"
-                  style={{
-                    top: frameTop, left: frameLeft,
-                    width: frameW, height: frameH,
-                    maxWidth: 'none', zIndex: 1,
-                  }}
-                />
-              )}
+              <img
+                src={isReview ? '/assets/figma/frame-photo-no-decor.png' : '/assets/figma/pic_square_wrapper_clean.png'}
+                alt=""
+                className="absolute pointer-events-none select-none"
+                style={isReview ? {
+                  top: noDecorFrameTop, left: noDecorFrameLeft,
+                  width: noDecorFrameW, height: noDecorFrameH,
+                  maxWidth: 'none', zIndex: 1,
+                } : {
+                  top: frameTop, left: frameLeft,
+                  width: frameW, height: frameH,
+                  maxWidth: 'none', zIndex: 1,
+                }}
+              />
             </div>
           </div>
         )}
 
-        {/* ── WORD INFO TOP SPACER (flex-grow; pairs with bottom spacer to center wordInfo) ── */}
-        <div style={{ flex: 1, minHeight: 0 }} />
+        {/* ── WORD INFO TOP SPACER ── */}
+        {/* With image (format A): flex-grow on both spacers centers the wordInfo between image and choices.
+            Without image (format B): fixed top spacing so wordInfo sits near the top (Figma 181:868 → vocab-section at y=99, 54px below topbar). */}
+        {showBigImage ? (
+          <div style={{ flex: 1, minHeight: 0 }} />
+        ) : (
+          <div style={{ height: Math.round(54 * imgScale), flexShrink: 0 }} />
+        )}
 
         {/* ── WORD INFO ── */}
         <div className="shrink-0 flex flex-col items-center px-6" style={{
@@ -1523,9 +1536,7 @@ export default function LearningPage({
                 ) : (
                   <div className="rounded-sm" style={{
                     width: 268, height: 24,
-                    background: isReview
-                      ? 'linear-gradient(90deg, #ffffff 0%, #e0feb1 48%, #ffffff 100%)'
-                      : 'linear-gradient(90deg, #fffdf4 0%, #ffd9ba 48%, #fffdf5 100%)',
+                    background: 'linear-gradient(90deg, #ffffff 0%, #D8EEFB 48%, #ffffff 100%)',
                   }} />
                 )}
               </button>
@@ -1575,7 +1586,7 @@ export default function LearningPage({
                       className="absolute rounded-[8px]"
                       style={{
                         left: 2, right: 2, top: 3, bottom: 3,
-                        backgroundColor: isKnowFlash ? '#D4F0A9' : isDontKnowFlash ? '#FAD2CC' : '#ffffff',
+                        backgroundColor: isKnowFlash ? '#ECFFD0' : isDontKnowFlash ? '#FFECEA' : '#ffffff',
                         transition: 'background-color 0.15s',
                       }}
                     />
@@ -1617,7 +1628,7 @@ export default function LearningPage({
                       className="absolute rounded-[12px] overflow-hidden"
                       style={{
                         left: 2, right: 2, top: 3, bottom: 3,
-                        backgroundColor: isThisCorrect ? '#D4F0A9' : isThisWrong ? '#FAD2CC' : '#ffffff',
+                        backgroundColor: isThisCorrect ? '#ECFFD0' : isThisWrong ? '#FFECEA' : '#ffffff',
                         transition: 'background-color 0.15s',
                       }}
                     >
@@ -1665,12 +1676,18 @@ export default function LearningPage({
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
+                    {/* Heart decor on bottom-right cell (Figma 181:616: word-decor-2 at left:90.26%, top:135 of 390×263 section) */}
+                    {idx === 3 && !isReview && showCatDecor && (
+                      <img src="/assets/figma/nav-decor-2.png" alt=""
+                        className="absolute pointer-events-none select-none"
+                        style={{ right: -18, top: -12, width: 40, transform: 'rotate(-10deg)', zIndex: 5 }} />
+                    )}
                     {/* Background card */}
                     <div
                       className="absolute rounded-[8px]"
                       style={{
                         left: 2, right: 2, top: 3, bottom: 3,
-                        backgroundColor: isThisCorrect ? '#D4F0A9' : isThisWrong ? '#FAD2CC' : '#ffffff',
+                        backgroundColor: isThisCorrect ? '#ECFFD0' : isThisWrong ? '#FFECEA' : '#ffffff',
                         transition: 'background-color 0.15s',
                       }}
                     />
