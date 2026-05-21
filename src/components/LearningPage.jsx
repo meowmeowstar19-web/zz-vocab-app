@@ -1245,7 +1245,7 @@ export default function LearningPage({
               style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
             <img src="/assets/figma/nav-decor-top-2.png" alt=""
               className="absolute pointer-events-none select-none"
-              style={{ right: 8, bottom: -13, width: 37, zIndex: 3 }} />
+              style={{ right: 8, bottom: 1, width: 37, zIndex: 3 }} />
             <img src="/assets/figma/nav-decor-3.png" alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1383,7 +1383,7 @@ export default function LearningPage({
             style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
           <img src="/assets/figma/nav-decor-top-2.png" alt=""
             className="absolute pointer-events-none select-none"
-            style={{ right: 8, bottom: -13, width: 37, zIndex: 3 }} />
+            style={{ right: 8, bottom: 1, width: 37, zIndex: 3 }} />
           <img src="/assets/figma/nav-decor-3.png" alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1956,7 +1956,7 @@ export default function LearningPage({
                   {categoryTab === 'detail' && (() => {
                     // Build items: "all" card first, followed by each concrete category
                     const detailItems = [
-                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: null, pool: vocabPool },
+                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: vocabPool },
                       ...detailCats.map(cat => {
                         const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
                         return {
@@ -1996,7 +1996,7 @@ export default function LearningPage({
                   {categoryTab === 'oral' && (() => {
                     // Build items: "all" card first, followed by each concrete oral category
                     const oralItems = [
-                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: null, pool: oralPhrases },
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: oralPhrases },
                       ...oralCats.map(cat => {
                         const imgFile = oralCategoryCovers[cat];
                         return {
