@@ -386,7 +386,7 @@ export default function LearningPage({
   const imgScale = responsive2(1.0, 0.70, 0.65) * (1 - 0.25 * ultraT);
   const imgSize = Math.round(270 * imgScale);
   const imgMarginTop = Math.round(responsive2(0, -25, -32));
-  const imgPadTop = Math.max(10, Math.round(responsive2(22, 10, 10)));
+  const imgPadTop = Math.max(10, Math.round(responsive2(12, 10, 10)));
   // Frame decoration scales proportionally with image (Figma: photo 270×270, frame at relative -41,-27 with size 359×316)
   const frameTop = Math.round(-27 * imgScale);
   const frameLeft = Math.round(-41 * imgScale);
@@ -406,12 +406,12 @@ export default function LearningPage({
   // Choices: 100% → 88% → 80% → ~64% (more aggressive shrinking below MIN_H)
   const choiceScale = responsive2(1.0, 0.88, 0.80) * (1 - 0.20 * ultraT);
   // Choices padding-top: drops quickly from 26 to 10 once below MIN_H (reaches 10 within 30px)
-  const choicesPadTop = contentH >= MIN_H ? 26 : Math.max(10, Math.round(26 - 16 * Math.min(1, (MIN_H - contentH) / 30)));
+  const choicesPadTop = contentH >= MIN_H ? 36 : Math.max(20, Math.round(36 - 16 * Math.min(1, (MIN_H - contentH) / 30)));
   // Natural (full-size) height of the choices section (Figma: card 109h, row gap 13, skip 91×88)
-  const TEXT_CHOICES_H = 26 + 115 * 2 + 7 + 30;   // 293
-  const IMG_CHOICES_H = 26 + 145 * 2 + 10 + 30;   // 356
-  const skipTop_full = Math.round(26 + 115 + 7 / 2 - 85 / 2);
-  const imgSkipTop_full = Math.round(26 + 145 + 10 / 2 - 85 / 2);
+  const TEXT_CHOICES_H = 36 + 115 * 2 + 7 + 20;   // 293
+  const IMG_CHOICES_H = 36 + 145 * 2 + 10 + 20;   // 356
+  const skipTop_full = Math.round(36 + 115 + 7 / 2 - 85 / 2);
+  const imgSkipTop_full = Math.round(36 + 145 + 10 / 2 - 85 / 2);
 
   // Decoration thresholds
   const showCatDecor = contentH >= 550;        // cat on choices (hide only on very short screens)
@@ -1546,7 +1546,7 @@ export default function LearningPage({
            transform: choiceScale < 0.995 ? `scale(${choiceScale})` : undefined,
            transformOrigin: 'top center',
          }}>
-          <div className="relative px-[15px]" style={{ paddingTop: choicesPadTop, paddingBottom: 30 }}>
+          <div className="relative px-[15px]" style={{ paddingTop: choicesPadTop, paddingBottom: 20 }}>
 
           {/* 2 x 2 grid: image choices (B), text choices (A/C), or D-mode (know/don't-know) */}
           {quizFormat === 'D' ? (
