@@ -90,10 +90,10 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
   const FILTERS = useMemo(() => [
-    { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#A3DF8F' },
+    { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#C7BAFB' },
     { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
     { key: 'random', label: t.randomOrder, accent: '#9cd6ff' },
-    { key: 'reverseRandom', label: t.reverseRandom, accent: '#bfafff' },
+    { key: 'reverseRandom', label: t.reverseRandom, accent: '#9FE386' },
     { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
@@ -343,7 +343,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
               })}
             </div>
             {/* Inner area with translucent bg */}
-            <div className="flex-1" style={{ backgroundColor: 'rgba(255,255,255,0.25)', padding: '12px 12px 16px' }}>
+            <div className="flex-1" style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '12px 12px 16px' }}>
               {/* Progress bar */}
               <div className="flex items-center gap-2">
                 <div style={{
@@ -412,7 +412,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         wordList.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-textSub">
             <div className="text-4xl mb-2">
-              {filter === 'mastered' ? '⚔️' : '📚'}
+              {filter === 'mastered' ? '⚔️' : '😭'}
             </div>
             <div className="text-sm font-bold">
               {filter === 'mastered' ? t.noMastered : t.noLearned}
@@ -456,7 +456,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
                       onClick={(e) => handleSpeak(e, word)}
                       className="shrink-0 mt-[9px] active:scale-90"
                     >
-                      <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15, filter: 'brightness(0.45)' }} />
+                      <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15, filter: 'brightness(0.45)' }} />
                     </button>
 
                     {/* Word info */}
@@ -547,7 +547,7 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
   if (words.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-textSub">
-        <div className="text-4xl mb-2">📚</div>
+        <div className="text-4xl mb-2">😭</div>
         <div className="text-sm font-bold">{t.noLearned}</div>
         <div className="text-xs mt-1 text-textLight">{t.learnedTip}</div>
       </div>
@@ -676,7 +676,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         />
         <div className="flex items-center justify-center gap-1.5 mt-2">
           <button onClick={handleSpeak} className="active:scale-90 shrink-0">
-            <img src="/assets/figma/icon-speaker.svg" alt="发音" style={{ width: 19, height: 15 }} />
+            <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15 }} />
           </button>
           {phonetic && (
             <span

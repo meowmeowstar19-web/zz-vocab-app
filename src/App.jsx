@@ -345,7 +345,7 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-        <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleTestMode} nativeLang={nativeLang} />
         </div>
       </div>
@@ -356,7 +356,7 @@ export default function App() {
   if (needsLangSetup) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-        <div className="w-[402px] h-[841px] overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} />
         </div>
       </div>
@@ -365,7 +365,7 @@ export default function App() {
 
   return (
     <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
-      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:shadow-2xl sm:border sm:border-neutral-300 sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
+      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">

@@ -206,7 +206,7 @@ export const UI_TEXT = {
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
     checkinBtn: '打卡',
-    checkinInstallHint: '添加到桌面\n下次打开更顺手',
+    checkinInstallHint: '添加到桌面\n下次打开更方便',
   },
   en: {
     learn: 'Learn', wordlist: 'Words', settings: 'Settings',
