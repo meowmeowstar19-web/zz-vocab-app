@@ -1,0 +1,39 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Every day at 09:00 UTC (17:00 Beijing / 18:00 Tokyo)
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_ANON_KEY secret"
+            exit 1
+          fi
+
+          echo "Pinging $SUPABASE_URL ..."
+          status=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/")
+
+          echo "HTTP $status"
+          head -c 500 /tmp/body; echo
+
+          # 200 = OK; 401/404 also count as activity (request reached the project)
+          if [ "$status" = "200" ] || [ "$status" = "401" ] || [ "$status" = "404" ]; then
+            echo "Keep-alive ping succeeded."
+            exit 0
+          fi
+
+          echo "Unexpected status code."
+          exit 1
