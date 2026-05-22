@@ -1376,7 +1376,7 @@ export default function LearningPage({
           src="/assets/figma/study_background.jpg"
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          style={{ zIndex: 0 }}
+          style={{ zIndex: 0, objectPosition: '85% 50%', transform: 'scale(1.12)', transformOrigin: 'right center' }}
         />
       )}
 
@@ -1536,7 +1536,7 @@ export default function LearningPage({
                 ) : (
                   <div className="rounded-sm" style={{
                     width: 268, height: 24,
-                    background: 'linear-gradient(90deg, #ffffff 0%, #D8EEFB 48%, #ffffff 100%)',
+                    background: 'linear-gradient(90deg, #ffffff 0%, #F1FFDB 48%, #ffffff 100%)',
                   }} />
                 )}
               </button>

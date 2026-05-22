@@ -400,7 +400,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           const memberLine = (t.memberDays || '累计登录第 {n} 天').replace('{n}', String(days));
           const avatarSize = 54; // 63 × 0.85 (shrunk 15%)
           return (
-            <div style={{ position: 'absolute', left: 26, top: 58, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
+            <div style={{ position: 'absolute', left: 26, top: 29, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
               <button
                 type="button"
                 onClick={handleAvatarClick}
@@ -457,22 +457,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           );
         })()}
 
-        {/* Cat decoration (above native row) */}
-        <img
-          src="/assets/figma/setting-cat.png"
-          alt=""
-          className="absolute pointer-events-none select-none"
-          style={{ left: 319, top: 119, width: 55, height: 65 }}
-        />
-
         {/* Native language pill */}
         <button
           onClick={() => openPicker('native')}
           className="absolute flex items-center active:scale-[0.98]"
           style={{
-            left: 20, top: 162,
-            width: 353, height: 50,
-            backgroundColor: '#fff',
+            left: 18, top: 113,
+            width: 357, height: 50,
+            backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
           }}
@@ -485,22 +477,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </span>
         </button>
 
-        {/* Frog decoration (above target row) */}
-        <img
-          src="/assets/figma/setting-frog.png"
-          alt=""
-          className="absolute pointer-events-none select-none"
-          style={{ left: 37, top: 240, width: 47, height: 37 }}
-        />
-
         {/* Target language pill */}
         <button
           onClick={() => openPicker('target')}
           className="absolute flex items-center active:scale-[0.98]"
           style={{
-            left: 20, top: 265,
-            width: 353, height: 50,
-            backgroundColor: '#fff',
+            left: 18, top: 198,
+            width: 357, height: 50,
+            backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
           }}
@@ -522,9 +506,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           disabled={pwaInstalled}
           className={'absolute flex items-center' + (pwaInstalled ? '' : ' active:scale-[0.98]')}
           style={{
-            left: 20, top: 368,
-            width: 353, height: 50,
-            backgroundColor: '#fff',
+            left: 18, top: 283,
+            width: 357, height: 50,
+            backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
             cursor: pwaInstalled ? 'default' : 'pointer',
@@ -549,9 +533,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           onClick={openFeedbackModal}
           className="absolute flex items-center active:scale-[0.98]"
           style={{
-            left: 20, top: 471,
-            width: 353, height: 50,
-            backgroundColor: '#fff',
+            left: 18, top: 368,
+            width: 357, height: 50,
+            backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
           }}
@@ -573,9 +557,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             onClick={openPwdModal}
             className="absolute flex items-center active:scale-[0.98]"
             style={{
-              left: 20, top: 574,
-              width: 353, height: 50,
-              backgroundColor: '#fff',
+              left: 18, top: 453,
+              width: 357, height: 50,
+              backgroundColor: 'rgba(255,255,255,0.4)',
               border: '2px solid #000',
               borderRadius: 100,
             }}
@@ -591,7 +575,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Logout / Sign-in button — yellow pill. Position follows last button above. */}
         {onLogout && (
-          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 664 : 561, left: 0, right: 0 }}>
+          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 544 : 459, left: 0, right: 0 }}>
             <button
               onClick={() => {
                 if (!user) {
