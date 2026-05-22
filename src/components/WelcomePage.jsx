@@ -136,7 +136,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
       <img
         src="/assets/figma/welcome-text.png"
         alt=""
-        className="absolute left-[6px] top-[77px] w-[393px] h-[364px] object-cover opacity-50 pointer-events-none"
+        className="absolute left-[6px] top-[77px] w-[393px] h-[364px] object-cover opacity-70 pointer-events-none"
       />
 
       {/* Welcome :D */}

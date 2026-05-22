@@ -301,7 +301,7 @@ export const UI_TEXT = {
     feedbackSendFailed: 'Send failed, please try again',
     send: 'Send',
     // Profile
-    memberDays: 'Day {n} of total visits',
+    memberDays: 'Day {n} with us',
     guestSubtitle: 'Test mode',
     avatarUploadFailed: 'Avatar upload failed, please retry',
     // Legal agreements (login page)

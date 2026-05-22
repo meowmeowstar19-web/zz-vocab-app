@@ -92,8 +92,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const FILTERS = useMemo(() => [
     { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#C7BAFB' },
     { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
-    { key: 'random', label: t.randomOrder, accent: '#9cd6ff' },
-    { key: 'reverseRandom', label: t.reverseRandom, accent: '#9FE386' },
+    { key: 'random', label: t.randomOrder, accent: '#8ECFFF' },
+    { key: 'reverseRandom', label: t.reverseRandom, accent: '#FFB198' },
     { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
