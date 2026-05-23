@@ -959,6 +959,11 @@ export default function LearningPage({
       setSelected(option);
       setIsCorrect(true);
       playCorrectSound();
+      // Persist the "learned" mark now so a tab switch during the 800ms advance
+      // delay sees this word in storage (wordlist counter otherwise stays at 0).
+      if (!effectiveIsReview && srsCard?.type === 'new') {
+        markWordLearned(srsCard.word.id, storageKey);
+      }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
       posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
@@ -968,7 +973,7 @@ export default function LearningPage({
       setWrongSelections(prev => new Set([...prev, option]));
       setShowSentence(true); // auto-reveal translation on wrong answer
     }
-  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
+  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog, srsCard, storageKey]);
 
   const handleImageClick = useCallback((optWord) => {
     if (isCorrect) return;
@@ -977,6 +982,9 @@ export default function LearningPage({
       posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(true);
       playCorrectSound();
+      if (!effectiveIsReview && srsCard?.type === 'new') {
+        markWordLearned(srsCard.word.id, storageKey);
+      }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
       posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
@@ -985,7 +993,7 @@ export default function LearningPage({
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
       setShowSentence(true); // auto-reveal translation on wrong answer
     }
-  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog]);
+  }, [currentWord, isCorrect, advanceToNext, nativeLang, targetLang, effectiveIsReview, triggerAnim, posthog, srsCard, storageKey]);
 
   // ── D mode handlers ──
   const handleDKnow = useCallback(() => {
