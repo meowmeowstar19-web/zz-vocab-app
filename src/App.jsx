@@ -466,7 +466,7 @@ export default function App() {
                 className="active:scale-95"
                 style={{
                   width: 140, height: 44,
-                  backgroundColor: '#ffd016',
+                  backgroundColor: '#FFDF4E',
                   border: '2px solid #000',
                   borderRadius: 100,
                   fontSize: 18, color: '#000',

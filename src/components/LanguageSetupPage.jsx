@@ -53,7 +53,7 @@ function FlagCircle({ code, label, selected, onClick }) {
             top: -2, right: -2,
             width: 22, height: 22,
             borderRadius: '50%',
-            backgroundColor: '#ffd016',
+            backgroundColor: '#FFDF4E',
             border: '2px solid #000',
             display: 'flex',
             alignItems: 'center',
@@ -83,7 +83,7 @@ function YellowButton({ label, onClick, width = 130 }) {
       className="active:scale-95 transition-transform"
       style={{
         width, height: 39,
-        backgroundColor: '#ffd016',
+        backgroundColor: '#FFDF4E',
         border: '2px solid #000',
         borderRadius: 100,
         fontSize: 18, color: '#000',
@@ -185,7 +185,7 @@ export default function LanguageSetupPage({ onComplete }) {
               left: '50%', transform: 'translateX(-50%)',
               bottom: 34,
               width: 130, height: 39,
-              backgroundColor: '#ffd016',
+              backgroundColor: '#FFDF4E',
               border: '2px solid #000',
               borderRadius: 100,
               fontSize: 18, color: '#000',

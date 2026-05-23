@@ -187,7 +187,7 @@ export function useInstallPrompt(nativeLang, t) {
             className="active:scale-95"
             style={{
               width: 130, height: 39,
-              backgroundColor: '#ffd016',
+              backgroundColor: '#FFDF4E',
               border: '2px solid #000',
               borderRadius: 100,
               fontSize: 18, color: '#000',

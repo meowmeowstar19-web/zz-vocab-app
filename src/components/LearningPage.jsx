@@ -1295,7 +1295,7 @@ export default function LearningPage({
                 <button
                   onClick={handleLearnNew}
                   className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
-                  style={{ backgroundColor: '#ffd016', color: '#000', border: '2px solid #000' }}
+                  style={{ backgroundColor: '#FFDF4E', color: '#000', border: '2px solid #000' }}
                 >
                   {t.learnNew}
                 </button>
@@ -1830,7 +1830,7 @@ export default function LearningPage({
             <div style={{
               position: 'relative',
               width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
-              border: `2px solid ${isSelected ? '#ffd016' : '#000'}`,
+              border: `2px solid ${isSelected ? '#FFDF4E' : '#000'}`,
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '4px 6px 8px',
             }}>
@@ -1872,7 +1872,7 @@ export default function LearningPage({
               <div style={{
                 position: 'absolute', top: -8, right: -8,
                 width: 22, height: 22, borderRadius: '50%',
-                backgroundColor: '#ffd016', border: '2px solid #000',
+                backgroundColor: '#FFDF4E', border: '2px solid #000',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 zIndex: 5,
               }}>
@@ -1923,7 +1923,7 @@ export default function LearningPage({
                       style={{
                         width: tabWidth, height: 32, paddingLeft: 16, paddingRight: 16,
                         borderRadius: 8, border: '1.5px solid #000',
-                        backgroundColor: isActive ? '#FFD016' : '#F5F4EF',
+                        backgroundColor: isActive ? '#FFDF4E' : '#F5F4EF',
                         color: '#000',
                         fontSize: 14, fontWeight: 500, lineHeight: '20px', letterSpacing: 0.1,
                       }}
@@ -2058,7 +2058,7 @@ export default function LearningPage({
                   className="flex items-center justify-center active:scale-95"
                   style={{
                     width: 158, height: 51, borderRadius: 100,
-                    backgroundColor: '#ffd016', border: '2px solid #000',
+                    backgroundColor: '#FFDF4E', border: '2px solid #000',
                     position: 'relative', zIndex: 1,
                   }}
                 >

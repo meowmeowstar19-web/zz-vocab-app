@@ -263,7 +263,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
               posthog?.capture('review_session_started', { word_count: totalLearning, native_lang: nativeLang, target_lang: targetLang });
               onStartReview();
             }}
-            className="mt-3 flex items-center justify-center bg-[#ffd016] text-black rounded-full border-2 border-black active:scale-95"
+            className="mt-3 flex items-center justify-center bg-[#FFDF4E] text-black rounded-full border-2 border-black active:scale-95"
             style={{ width: 113, height: 39 }}
           >
             <span className="text-[18px]">{t.review}</span>

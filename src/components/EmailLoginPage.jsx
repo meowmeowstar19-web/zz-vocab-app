@@ -222,7 +222,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[22px] tracking-[0.3em] text-center outline-none focus:border-[#ffd016] transition-colors"
+              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[22px] tracking-[0.3em] text-center outline-none focus:border-[#FFDF4E] transition-colors"
               placeholder={t.verifyCodePlaceholder}
               autoFocus
             />
@@ -235,7 +235,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
+              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#FFDF4E] transition-colors"
               placeholder={t.emailPlaceholder}
             />
 
@@ -245,7 +245,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
+              className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#FFDF4E] transition-colors"
               placeholder={t.passwordDots}
             />
 
@@ -257,7 +257,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#ffd016] transition-colors"
+                  className="w-[329px] h-[50px] rounded-[25px] border-2 border-black bg-white px-5 text-[15px] outline-none focus:border-[#FFDF4E] transition-colors"
                   placeholder={t.passwordDots}
                 />
               </>
@@ -316,7 +316,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-[128px] h-[48px] rounded-[100px] bg-[#ffd016] border-2 border-black text-[20px] text-black font-normal active:scale-95 transition-transform disabled:opacity-50"
+            className="w-[128px] h-[48px] rounded-[100px] bg-[#FFDF4E] border-2 border-black text-[20px] text-black font-normal active:scale-95 transition-transform disabled:opacity-50"
           >
             {loading ? '...' : (mode === 'verify' ? t.verifyBtn : mode === 'signup' ? t.signupBtn : t.loginBtn)}
           </button>
