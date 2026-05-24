@@ -15,9 +15,14 @@ import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
 import { usePostHog } from '@posthog/react';
 
-// Free quota before the guest daily login gate trips. Set to 4 so the gate
-// fires when the user is about to view their 5th distinct word of the day.
-const GATE_DAILY_LIMIT = 4;
+// Free quota before the guest daily login gate trips. Users want the gate
+// to fire WHEN they're studying the 5th word — meaning they get to fully
+// interact with words 1-4 (view + answer) and the gate appears on word 5's
+// answer click. With the gate using `count >= GATE_DAILY_LIMIT`, the click
+// gating naturally hits after `GATE_DAILY_LIMIT` words have been counted —
+// so this value is the number of distinct words the user successfully
+// answers before being prompted, not the cap minus one.
+const GATE_DAILY_LIMIT = 5;
 const IS_WECHAT = isWeChatBrowser();
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
@@ -696,14 +701,14 @@ export default function App() {
     if (session || IS_WECHAT) return;
     const today = getGateWordIds();
     if (today.includes(wordId)) return; // already counted
-    if (today.length >= GATE_DAILY_LIMIT) {
-      // Past the daily limit — re-show the gate on every new word view.
-      // The X button only closes the modal so the user can read the current
-      // card; advancing (Got it / answering a choice) re-triggers it. The
-      // only way to keep studying is to sign in.
-      setShowLoginGate(true);
-      return;
-    }
+    // Only RECORD the word here; the gate itself is fired from
+    // `requestNextWord` (click handler), never from this display-time
+    // callback. Without this rule, a guest re-entering after a previous
+    // session that already accumulated the day's limit would see the gate
+    // pop the instant the first word painted — before they could read it,
+    // hear it, or look at the image. The click-only trigger lets them
+    // study the current card; the gate appears the moment they try to
+    // advance past it.
     addGateWord(wordId);
   };
 

@@ -31,12 +31,33 @@ function getRecordedAudio() {
   if (!_recordedAudio) _recordedAudio = new Audio();
   return _recordedAudio;
 }
+
+// Deferred-replay slot. On account-switch / OAuth-return / fresh load, the
+// auto-speak for the first word can fire BEFORE the user has produced any
+// gesture — so iOS blocks it silently. We stash the attempt here and replay
+// it from primeAudio once the user does tap (typically via App's global
+// pointerdown primer). Cleared as soon as it fires.
+let _deferredSpeak = null;
+
 function playRecorded(url) {
   const a = getRecordedAudio();
   a.pause();
   a.currentTime = 0;
   a.src = url;
-  a.play().catch(() => {});
+  const p = a.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch(() => {
+      // Likely blocked because audio wasn't unlocked yet — defer and let
+      // primeAudio replay it on the next gesture.
+      _deferredSpeak = () => {
+        const a2 = getRecordedAudio();
+        a2.pause();
+        a2.currentTime = 0;
+        a2.src = url;
+        a2.play().catch(() => {});
+      };
+    });
+  }
 }
 
 // Call once from a user-gesture handler (e.g. the daily check-in button). On
@@ -62,13 +83,41 @@ export function primeAudio() {
       p.then(() => { try { a.pause(); a.currentTime = 0; } catch {} }).catch(() => {});
     }
   } catch {}
+  // Replay any speak attempt that was blocked while audio was still locked.
+  // We're inside a gesture (or the audio context just resumed via one) so
+  // the retry plays normally.
+  const replay = _deferredSpeak;
+  _deferredSpeak = null;
+  if (replay) {
+    try { replay(); } catch {}
+  }
 }
 
 let _lastSpeak = { text: '', time: 0 };
+
+function audioStillLocked() {
+  // Heuristic: if the AudioContext (created at module-load time) is
+  // suspended, we haven't received a user gesture yet — TTS will likely
+  // fail silently too. Don't *create* the context here; just inspect it.
+  return audioCtx ? audioCtx.state === 'suspended' : true;
+}
+
 export function speakWord(text, lang = 'en-US') {
   const now = Date.now();
   if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
   _lastSpeak = { text, time: now };
+  if (audioStillLocked()) {
+    // Defer: replay from primeAudio once a gesture unlocks audio.
+    _deferredSpeak = () => {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = lang;
+      u.rate = 0.85;
+      u.pitch = lang === 'ja-JP' ? 1.0 : 1.1;
+      window.speechSynthesis.speak(u);
+    };
+    return;
+  }
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
