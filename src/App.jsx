@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
-import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount, getGateWordIds, addGateWord } from './utils/storage';
+import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount, getGateWordIds, addGateWord } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
@@ -403,8 +403,23 @@ export default function App() {
         posthog?.identify(data.session.user.id, {
           email: data.session.user.email,
         });
+        // Step 1 of the anon-session refactor: anonymous users get the same
+        // pull/merge/push treatment as real accounts, plus a one-time
+        // migration of legacy `guest_*` localStorage slots into their
+        // u_<anon_uid> scope. Stamp the active anon scope so a subsequent
+        // bind flow can find it post-redirect (see progressSync.js).
+        if (data.session.user.is_anonymous) {
+          migrateScopesToAnon(data.session.user.id);
+          try { localStorage.setItem('app_anon_scope', `u_${data.session.user.id}`); } catch {}
+        }
         // Pull cloud progress, merge with local, push the union back up.
-        runSyncOrReject(data.session.user.id);
+        // Skip for anonymous users — they stay local-only to avoid bloating
+        // user_progress with rows for drive-by visitors and to keep the
+        // anonymous `authenticated` role away from the cloud table entirely.
+        // Their data is promoted to cloud only on a successful bind.
+        if (!data.session.user.is_anonymous) {
+          runSyncOrReject(data.session.user.id);
+        }
       } else {
         // OAuth round-trip resulted in no session (user cancelled on the
         // provider, true OAuth failure, or the redirect raced ahead of
@@ -433,9 +448,12 @@ export default function App() {
       setSession(s);
       bumpLoginDay(s?.user?.id);
       if (s?.user) {
-        // Successful sign-in clears the explicit-logout flag so the user is
-        // no longer trapped on WelcomePage after a session-state refresh.
-        try { localStorage.removeItem('app_logged_out'); } catch {}
+        // Don't blow away `app_logged_out` for anonymous sessions — that
+        // flag is what stops the auto-promotion to guest after an explicit
+        // logout. Only a real sign-in should clear it.
+        if (!s.user.is_anonymous) {
+          try { localStorage.removeItem('app_logged_out'); } catch {}
+        }
         posthog?.identify(s.user.id, { email: s.user.email });
         // Persist the email so a dev-only escape hatch on Settings can still
         // identify the dev user after they drop into guest mode (where
@@ -443,20 +461,77 @@ export default function App() {
         if (s.user.email) {
           try { localStorage.setItem('app_last_email', s.user.email); } catch {}
         }
-        runSyncOrReject(s.user.id);
+        if (s.user.is_anonymous) {
+          // Migrate legacy 'guest_*' data into the anon scope and stamp the
+          // scope pointer for the bind flow. We deliberately do NOT call
+          // runSyncOrReject for anon users — they stay local-only.
+          migrateScopesToAnon(s.user.id);
+          try { localStorage.setItem('app_anon_scope', `u_${s.user.id}`); } catch {}
+        } else {
+          runSyncOrReject(s.user.id);
+        }
       }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Close the 5-word forced-login gate as soon as we have a session AND the
-  // post-OAuth verification has finished. Skipping while gateBindPending is
-  // still true is what keeps the modal in its "verifying…" state during the
-  // brief window between session-arrival and runSyncOrReject's rejection —
-  // without it the modal would flash closed and then reopen in error state.
-  // gateModalError also blocks closure so the rejection message stays put.
+  // Step 1 of the anon-session refactor: every guest gets a real Supabase
+  // anonymous session so the per-user storage scope (`u_<uid>`) replaces
+  // the device-global 'guest' bucket. Fires when isGuest goes true and we
+  // don't already have a session — covers brand-new visitors that just
+  // finished LanguageSetupPage (handleLangSetupComplete sets isGuest) and
+  // returning visitors whose stored anon session may have expired.
+  //
+  // The ref guards against double-firing if isGuest toggles off-then-on
+  // while signInAnonymously is still in flight (each call would mint a
+  // separate anon account on the server). onAuthStateChange resets it
+  // once the session lands.
+  //
+  // Error handling: if anonymous sign-ins are DISABLED at the Supabase
+  // project level the call rejects; we fall back silently to the legacy
+  // 'guest' scope so the app keeps working (userScope derivation below
+  // already handles the !session case).
+  const anonInFlight = useRef(false);
   useEffect(() => {
-    if (session && showLoginGate && !gateModalError && !gateBindPending) {
+    if (session) { anonInFlight.current = false; return; }
+    if (!authReady) return;
+    if (!isGuest) return;
+    // Defensive: don't auto-recreate an anon session if the user explicitly
+    // logged out and React hasn't yet flipped isGuest to false. handleLogout
+    // sets app_logged_out BEFORE signOut, so the onAuthStateChange
+    // (session=null) re-render can see it even before setIsGuest(false)
+    // has been applied.
+    try {
+      if (localStorage.getItem('app_logged_out') === '1') return;
+    } catch {}
+    if (anonInFlight.current) return;
+    anonInFlight.current = true;
+    // Supabase returns errors as `res.error` rather than throwing — handle
+    // both forms. We deliberately leave anonInFlight=true on failure so a
+    // permanent config error (anonymous provider disabled) doesn't spin in
+    // a retry loop on every dependency change; the app gracefully falls
+    // back to the legacy 'guest' scope via the userScope derivation.
+    supabase.auth.signInAnonymously()
+      .then((res) => {
+        if (res?.error) {
+          console.warn('[anon] signInAnonymously rejected:', res.error.message);
+        }
+      })
+      .catch((e) => {
+        console.warn('[anon] signInAnonymously threw:', e?.message || e);
+      });
+  }, [authReady, session, isGuest]);
+
+  // Close the 5-word forced-login gate as soon as we have a REAL (non-anon)
+  // session AND the post-OAuth verification has finished. Skipping while
+  // gateBindPending is still true is what keeps the modal in its
+  // "verifying…" state during the brief window between session-arrival and
+  // runSyncOrReject's rejection — without it the modal would flash closed
+  // and then reopen in error state. gateModalError also blocks closure so
+  // the rejection message stays put. Step 1 of the refactor: anonymous
+  // sessions are guests, so they must NOT auto-close the gate.
+  useEffect(() => {
+    if (session && !session.user.is_anonymous && showLoginGate && !gateModalError && !gateBindPending) {
       setShowLoginGate(false);
     }
   }, [session, showLoginGate, gateModalError, gateBindPending]);
@@ -468,12 +543,15 @@ export default function App() {
     return () => clearTimeout(id);
   }, [bindToast]);
 
-  // Background push: while signed in, ship the local snapshot to the cloud
-  // when the tab is hidden or closed, plus once a minute as a heartbeat.
-  // syncOnLogin handles initial merge; this just keeps the cloud copy fresh.
+  // Background push: while signed in (NON-anon), ship the local snapshot to
+  // the cloud when the tab is hidden or closed, plus once a minute as a
+  // heartbeat. syncOnLogin handles initial merge; this just keeps the cloud
+  // copy fresh. Anon users stay local-only — no cloud row at all until they
+  // bind into a real account.
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
+    if (session.user.is_anonymous) return;
     const flush = () => { pushLocalToCloud(uid); };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flush();
@@ -492,10 +570,12 @@ export default function App() {
   // the user's latest pick — without waiting for the visibilitychange /
   // heartbeat flush. Ensures re-login on another device (or after sign-out)
   // restores the same lang combo. Skipped during sync to avoid clobbering a
-  // freshly-pulled cloud value with the in-flight local state.
+  // freshly-pulled cloud value with the in-flight local state. Anon users
+  // stay local-only (see the heartbeat useEffect above).
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
+    if (session.user.is_anonymous) return;
     pushLocalToCloud(uid);
   }, [session?.user?.id, nativeLang, targetLang]);
 
@@ -669,10 +749,22 @@ export default function App() {
     // auto-speak effect. Tearing down to WelcomePage via !isLoggedIn covers
     // the visual transition. handleLogin restores page='learn' on re-entry.
     setReviewMode(false);
-    if (session) await supabase.auth.signOut();
+    // Order matters with anonymous sessions (Step 1 refactor):
+    //   - Stash the anon scope BEFORE signOut so a future guest re-entry's
+    //     fresh anon session can absorb the progress back (handleLogout was
+    //     never expected to wipe local progress; the carry-over preserves
+    //     that guarantee under the new per-anon-uid scoping).
+    //   - Set `app_logged_out` BEFORE signOut so the anon-creation
+    //     useEffect sees it on the session=null re-render that fires before
+    //     setIsGuest(false) lands.
+    //   - Set `isGuest=false` BEFORE awaiting signOut for the same reason.
+    if (session?.user?.is_anonymous) {
+      try { localStorage.setItem('app_anon_data_to_migrate', `u_${session.user.id}`); } catch {}
+    }
     try { localStorage.removeItem('app_logged_in'); } catch {}
     try { localStorage.setItem('app_logged_out', '1'); } catch {}
     setIsGuest(false);
+    if (session) await supabase.auth.signOut();
   };
 
   // Called by LearningPage every time it presents a new word (learn or
@@ -697,8 +789,10 @@ export default function App() {
     // touch `gate_words_${date}` for them — that counter is exclusive to the
     // guest gate. Letting logged-in usage write to it meant the guest's
     // first word after logout could see a count of 4+ from the prior
-    // signed-in session and trip the gate immediately.
-    if (session || IS_WECHAT) return;
+    // signed-in session and trip the gate immediately. Anonymous sessions
+    // (introduced in Step 1 of the refactor) ARE guests, so they must keep
+    // hitting the counter — the bypass is for non-anonymous sessions only.
+    if ((session && !session.user.is_anonymous) || IS_WECHAT) return;
     const today = getGateWordIds();
     if (today.includes(wordId)) return; // already counted
     // Only RECORD the word here; the gate itself is fired from
@@ -720,9 +814,10 @@ export default function App() {
   const requestNextWord = () => {
     // Same auth-resolved guard as handleWordViewed: until we know whether
     // the user has a real session, treat the click as allowed and let the
-    // gate decide once authReady flips true.
+    // gate decide once authReady flips true. Anonymous sessions are guests
+    // (Step 1 of the refactor) — only non-anonymous sessions bypass.
     if (!authReady) return true;
-    if (session || IS_WECHAT) return true;
+    if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
     if (getGateWordIds().length >= GATE_DAILY_LIMIT) {
       setShowLoginGate(true);
       return false;

@@ -79,6 +79,57 @@ export function migrateProgressToUserScope() {
   localStorage.setItem('vocab_progress_v3_migrated', 'true');
 }
 
+// Move the per-target progress/review slots from one scope to another. Skips
+// destination keys that already exist (caller's data wins) and removes the
+// source keys after copy. Used by migrateScopesToAnon below.
+function moveScopeSlots(fromScope, toScope) {
+  if (!fromScope || !toScope || fromScope === toScope) return;
+  const langs = ['en', 'ja', 'zh'];
+  for (const t of langs) {
+    const progKeyFrom = `vocab_kids_progress_${fromScope}_${t}`;
+    const progKeyTo = `vocab_kids_progress_${toScope}_${t}`;
+    const prog = localStorage.getItem(progKeyFrom);
+    if (prog && !localStorage.getItem(progKeyTo)) {
+      localStorage.setItem(progKeyTo, prog);
+    }
+    if (prog !== null) localStorage.removeItem(progKeyFrom);
+
+    const revKeyFrom = `vocab_review_states_${fromScope}_${t}`;
+    const revKeyTo = `vocab_review_states_${toScope}_${t}`;
+    const rev = localStorage.getItem(revKeyFrom);
+    if (rev && !localStorage.getItem(revKeyTo)) {
+      localStorage.setItem(revKeyTo, rev);
+    }
+    if (rev !== null) localStorage.removeItem(revKeyFrom);
+  }
+}
+
+// Step 1 of the guest-mode anonymous-session refactor: move data from the
+// legacy device-global 'guest' scope into the supabase anonymous user's
+// scope (`u_<anon_uid>`). Idempotent — per-uid flag prevents repeat work.
+//
+// Also absorbs the carry-over pointer `app_anon_data_to_migrate`: when an
+// OAuth bind is rejected (account already in use), supabase.auth.signOut()
+// destroys the anonymous session and App creates a fresh anon with a NEW
+// uid. The previous anon's local data would be orphaned without this step;
+// progressSync stashes the prior scope into `app_anon_data_to_migrate` so
+// the next anon's first migration pass pulls it back in.
+export function migrateScopesToAnon(anonUid) {
+  if (!anonUid) return;
+  const flag = `anon_migrated_${anonUid}`;
+  if (!localStorage.getItem(flag)) {
+    moveScopeSlots('guest', `u_${anonUid}`);
+    localStorage.setItem(flag, '1');
+  }
+  try {
+    const carryFrom = localStorage.getItem('app_anon_data_to_migrate');
+    if (carryFrom && carryFrom !== `u_${anonUid}`) {
+      moveScopeSlots(carryFrom, `u_${anonUid}`);
+      localStorage.removeItem('app_anon_data_to_migrate');
+    }
+  } catch {}
+}
+
 // One-time migration from old single-language keys to new pair keys
 export function migrateOldProgress() {
   if (localStorage.getItem('vocab_progress_migrated')) return;

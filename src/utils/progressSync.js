@@ -220,10 +220,17 @@ export async function syncOnLogin(uid) {
       try { return localStorage.getItem('bind_flow_active') === '1'; }
       catch { return false; }
     })();
-    // Bind flow reads from the GUEST slot — that's where the data the user
-    // generated as a guest lives — and writes the merge into the new
-    // account's UID slot. Plain login reads + writes the UID slot only.
-    const fromScope = isBindFlow ? 'guest' : `u_${uid}`;
+    // Bind flow reads from the GUEST slot (legacy device-global scope) OR
+    // from the supabase anonymous user's scope — whichever was active when
+    // the bind was initiated. App.jsx writes `app_anon_scope` while an anon
+    // session is alive; signInWithOAuth replaces that session, so we have
+    // to snapshot the scope in localStorage before the round-trip. Plain
+    // login reads + writes the UID slot only.
+    const anonScope = (() => {
+      try { return localStorage.getItem('app_anon_scope') || ''; }
+      catch { return ''; }
+    })();
+    const fromScope = isBindFlow ? (anonScope || 'guest') : `u_${uid}`;
     const toScope = `u_${uid}`;
     try {
       const [local, cloud] = await Promise.all([
@@ -234,15 +241,27 @@ export async function syncOnLogin(uid) {
         // Don't write anything — caller is responsible for signing out so the
         // guest's local data survives for a retry against a different account.
         // Flag stays set so any delayed parallel syncOnLogin call also rejects.
+        //
+        // Stash the source scope so the next anon session (App will create a
+        // fresh one after the rejection-induced signOut) can absorb the data
+        // back into its own slot. Without this, the prior anon's progress is
+        // orphaned because every anon sign-in generates a new uid.
+        if (fromScope.startsWith('u_')) {
+          try { localStorage.setItem('app_anon_data_to_migrate', fromScope); } catch {}
+        }
         return { rejected: true, reason: 'account_in_use' };
       }
       const merged = mergeSnapshots(local, cloud || { progress: {}, review_states: {}, login_days: [] }, { isBindFlow });
       writeLocalSnapshot(uid, merged, toScope);
-      // On a successful bind, the guest slot has already been promoted into
-      // the new account — clear it so the same device starting fresh as a
-      // guest later (after logout) doesn't inherit the account's data.
+      // On a successful bind, the source slot (legacy 'guest' or the anon
+      // user's u_<uid>) has already been promoted into the new account —
+      // clear it so the same device starting fresh as a guest later doesn't
+      // inherit the account's data. Also drop the anon-scope pointer since
+      // the previous anonymous session is being replaced.
       if (isBindFlow && fromScope !== toScope) {
-        clearScope('guest');
+        clearScope(fromScope);
+        try { localStorage.removeItem('app_anon_scope'); } catch {}
+        try { localStorage.removeItem('app_anon_data_to_migrate'); } catch {}
       }
       await pushToCloud(uid, merged);
       // Successful merge — clear the bind flag so future TOKEN_REFRESHED or
