@@ -195,13 +195,22 @@ export const UI_TEXT = {
     send: '发送',
     // Profile
     memberDays: '累计登录第 {n} 天',
-    guestSubtitle: '测试模式',
+    guestSubtitle: '游客模式',
+    guestModeLink: '游客模式',
+    exitGuestMode: '退出游客模式',
     avatarUploadFailed: '头像上传失败，请重试',
     // Legal agreements (login page)
     tosName: '《服务条款》',
     privacyName: '《隐私协议》',
     acknowledgeFmt: '我已阅读并同意{name}',
     agreementsRequired: '请先勾选同意以上两份协议才能进入应用',
+    // Save-progress prompt (shown to guest users from Settings)
+    saveProgressBtn: '绑定账号',
+    saveProgressTitle: '绑定账号',
+    saveProgressSubtitle: '保存你的学习进度',
+    signupTitle: '注册',
+    loginTitle: '登录',
+    bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦~',
     // Daily check-in popup
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
@@ -302,13 +311,22 @@ export const UI_TEXT = {
     send: 'Send',
     // Profile
     memberDays: 'Day {n} with us',
-    guestSubtitle: 'Test mode',
+    guestSubtitle: 'Guest Mode',
+    guestModeLink: 'Guest Mode',
+    exitGuestMode: 'Exit Guest Mode',
     avatarUploadFailed: 'Avatar upload failed, please retry',
     // Legal agreements (login page)
     tosName: 'Terms of Service',
     privacyName: 'Privacy Policy',
     acknowledgeFmt: 'I have read and agree to the {name}',
     agreementsRequired: 'Please accept both agreements to continue',
+    // Save-progress prompt (shown to guest users from Settings)
+    saveProgressBtn: 'Link Account',
+    saveProgressTitle: 'Link Account',
+    saveProgressSubtitle: 'Save your learning progress',
+    signupTitle: 'Sign up',
+    loginTitle: 'Sign in',
+    bindAccountTakenToast: 'This account is already registered. Please link a brand-new account.',
     // Daily check-in popup
     checkinTitle: 'Daily Check-in',
     checkinFmt: 'Day {n} of your streak\nヾ(◍°∇°◍)ﾉﾞ',
@@ -409,13 +427,22 @@ export const UI_TEXT = {
     send: '送信',
     // Profile
     memberDays: '累計ログイン {n} 日目',
-    guestSubtitle: 'テストモード',
+    guestSubtitle: 'ゲストモード',
+    guestModeLink: 'ゲストモード',
+    exitGuestMode: 'ゲストモードを終了',
     avatarUploadFailed: 'アイコンのアップロードに失敗しました',
     // Legal agreements (login page)
     tosName: '「利用規約」',
     privacyName: '「プライバシーポリシー」',
     acknowledgeFmt: '{name}を読んで同意します',
     agreementsRequired: 'アプリに入るには上の2つの同意事項にチェックしてください',
+    // Save-progress prompt (shown to guest users from Settings)
+    saveProgressBtn: 'アカウント連携',
+    saveProgressTitle: 'アカウント連携',
+    saveProgressSubtitle: '学習進捗を保存',
+    signupTitle: '新規登録',
+    loginTitle: 'ログイン',
+    bindAccountTakenToast: 'このアカウントは既に登録されています。新しいアカウントで連携してください。',
     // Daily check-in popup
     checkinTitle: '毎日チェックイン',
     checkinFmt: '累計ログイン {n} 日目\nヾ(◍°∇°◍)ﾉﾞ',

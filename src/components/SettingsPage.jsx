@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { usePostHog } from '@posthog/react';
+import LoginPromptModal from './LoginPromptModal';
 
 const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
@@ -54,7 +55,7 @@ function ChevronDown() {
   );
 }
 
-export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled }) {
+export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindModalError = '', onBindModalErrorConsumed, bindOAuthPending = false }) {
   const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
@@ -121,6 +122,33 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     }
   };
 
+  // Save-progress modal (shown to guest users in place of Exit Test Mode).
+  //
+  // No pre-emptive open here based on `bind_oauth_pending`. That flag only
+  // means "an OAuth bind is being resolved" — it does NOT predict the
+  // outcome. The earlier version assumed pending == rejection (and opened
+  // the modal in error state on mount), which wrongly showed the "account
+  // already exists" popup even for a successful bind to a brand-new account.
+  // Instead, App.jsx is the source of truth: only when runSyncOrReject
+  // decides rejection does it call `setBindModalError(msg)` and the effect
+  // below opens the modal. Successful binds leave the modal closed and the
+  // user lands on Settings with their newly linked account already populated.
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [loginPromptError, setLoginPromptError] = useState('');
+  // Pre-selects the Email form's mode if/when the user picks Email inside
+  // the modal. "Sign up" opens it as signup, "Log in" opens it as login.
+  const [loginPromptEmailMode, setLoginPromptEmailMode] = useState('login');
+  // 'bind' attaches the new auth to the current guest (and merges local
+  // progress into the account). 'login' is a plain sign-in — guest local data
+  // is dropped and the account's cloud snapshot takes over.
+  const [loginPromptFlowType, setLoginPromptFlowType] = useState('bind');
+  useEffect(() => {
+    if (bindModalError) {
+      setLoginPromptError(bindModalError);
+      setShowLoginPrompt(true);
+    }
+  }, [bindModalError]);
+
   // Password binding state
   const [user, setUser] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -134,34 +162,73 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const [pwdInfo, setPwdInfo] = useState('');
   const [pwdLoading, setPwdLoading] = useState(false);
 
+  // applyUser is shared between the initial load, the auth listener, and the
+  // OAuth-bind resolution effect below. Wrapped in useCallback so the
+  // dependency closure stays stable across renders.
+  const applyUser = useCallback((u) => {
+    setUser(u);
+    const stored = readStoredAvatar(u?.id);
+    // OAuth providers expose the profile picture under different keys.
+    // Check user_metadata first, then drill into each identity's identity_data.
+    const m = u?.user_metadata || {};
+    const fromIdentities = (u?.identities || [])
+      .map((i) => i.identity_data || {})
+      .find((d) => d.avatar_url || d.picture);
+    const oauthPic = m.avatar_url
+      || m.picture
+      || (fromIdentities && (fromIdentities.avatar_url || fromIdentities.picture))
+      || '';
+    setAvatarUrl(stored || oauthPic || '');
+    // Hydrate per-user switch counts so the gate / confirmation popup are accurate.
+    setSwitchCounts({
+      native: readSwitchCount('native', u?.id),
+      target: readSwitchCount('target', u?.id),
+    });
+    // Ensure today's login is counted even if App.jsx mounted before sign-in
+    bumpLoginDay(u?.id);
+  }, []);
+
+  // Initial and post-OAuth-bind user load. We re-run when `bindOAuthPending`
+  // transitions to false: on mount with the flag set, we deliberately
+  // SKIP fetching the user so SettingsPage doesn't briefly render the
+  // existing account's identity (email, avatar, password row) while
+  // App.jsx is still resolving whether the bind should be rejected. App.jsx
+  // flips `bindOAuthPending` to false in `runSyncOrReject`'s finally — at
+  // which point the session is either kept (success) or cleared via signOut
+  // (rejection), and getUser() returns the correct final state.
   useEffect(() => {
+    if (bindOAuthPending) return;
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => {
-      if (!mounted) return;
-      const u = data.user || null;
-      setUser(u);
-      const stored = readStoredAvatar(u?.id);
-      // OAuth providers expose the profile picture under different keys.
-      // Check user_metadata first, then drill into each identity's identity_data.
-      const m = u?.user_metadata || {};
-      const fromIdentities = (u?.identities || [])
-        .map((i) => i.identity_data || {})
-        .find((d) => d.avatar_url || d.picture);
-      const oauthPic = m.avatar_url
-        || m.picture
-        || (fromIdentities && (fromIdentities.avatar_url || fromIdentities.picture))
-        || '';
-      setAvatarUrl(stored || oauthPic || '');
-      // Hydrate per-user switch counts so the gate / confirmation popup are accurate.
-      setSwitchCounts({
-        native: readSwitchCount('native', u?.id),
-        target: readSwitchCount('target', u?.id),
-      });
-      // Ensure today's login is counted even if App.jsx mounted before sign-in
-      bumpLoginDay(u?.id);
+      if (mounted) applyUser(data.user || null);
     });
     return () => { mounted = false; };
-  }, []);
+  }, [bindOAuthPending, applyUser]);
+
+  // Keep `user` in sync with auth state for the rest of the session. Without
+  // this listener, after a bind-rejection signOut (or any later logout),
+  // SettingsPage would keep rendering the previous account's identity until
+  // the next remount — exactly the bug that made the guest look silently
+  // swapped onto the existing account.
+  useEffect(() => {
+    let mounted = true;
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (!mounted) return;
+      // Suppress SIGNED_IN-type events while an OAuth bind is still being
+      // resolved — applying the OAuth user here would re-introduce the flash.
+      // SIGNED_OUT (s === null) is fine to apply; it's what restores guest UI
+      // after the rejection signOut.
+      if (s?.user) {
+        try {
+          if (localStorage.getItem('bind_oauth_pending') === '1') return;
+        } catch {}
+        applyUser(s.user);
+      } else {
+        applyUser(null);
+      }
+    });
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
+  }, [applyUser]);
 
   const handleAvatarClick = () => {
     avatarInputRef.current?.click();
@@ -302,6 +369,19 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // Test mode (guest, no supabase user) and whitelisted emails can switch freely.
   // Everyone else gets a per-side cap of MAX_LANG_SWITCHES (2 by default).
   const hasUnlimitedSwitches = !user || canSwitchLanguageFreely(user?.email);
+
+  // Dev-only escape hatch (renders as "Dev Mode" at bottom-left). Checks the
+  // current user's email, then falls back to the persisted `app_last_email`
+  // so the link still shows in guest mode after the dev user has signed in
+  // at least once.
+  const DEV_EMAIL = 'meowmeowstar19@gmail.com';
+  const isDevUser = (() => {
+    let e = user?.email || '';
+    if (!e) {
+      try { e = localStorage.getItem('app_last_email') || ''; } catch {}
+    }
+    return e.trim().toLowerCase() === DEV_EMAIL;
+  })();
 
   const openPicker = (type) => {
     if (!hasUnlimitedSwitches && switchCounts[type] >= MAX_LANG_SWITCHES) {
@@ -470,6 +550,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           }}
         >
           <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
+            <span style={{ marginRight: 8 }}>🗣️</span>
             {prefix.native}：{getLangName(nativeLang, nativeLang)}
           </span>
           <span style={{ marginLeft: 'auto', marginRight: 15 }}>
@@ -490,6 +571,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           }}
         >
           <span style={{ marginLeft: 19, fontSize: 18, color: '#000' }}>
+            <span style={{ marginRight: 8 }}>📚</span>
             {prefix.target}：{getLangName(targetLang, nativeLang)}
           </span>
           <span style={{ marginLeft: 'auto', marginRight: 15 }}>
@@ -573,23 +655,97 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </button>
         )}
 
-        {/* Logout / Sign-in button — yellow pill. Position follows last button above. */}
-        {onLogout && (
-          <div className="absolute flex justify-center" style={{ top: showPasswordRow ? 544 : 459, left: 0, right: 0 }}>
+        {/* Guest mode: small centered "Sign up" yellow button + "Already have
+            an account? Log in" link below. Both open the LoginPromptModal —
+            Sign up pre-selects the Email signup form, Log in pre-selects the
+            Email login form. The 35px gap above the Sign up button matches
+            the pill-to-pill spacing (rows 85px apart, pills 50px tall). */}
+        {!user && (
+          <>
+            <div className="absolute flex justify-center" style={{ top: 453, left: 0, right: 0 }}>
+              <button
+                onClick={() => {
+                  setLoginPromptEmailMode('signup');
+                  setLoginPromptFlowType('bind');
+                  setShowLoginPrompt(true);
+                }}
+                className="active:scale-95 transition-transform"
+                style={{
+                  minWidth: 138, height: 48,
+                  padding: '0 22px',
+                  backgroundColor: '#FFDF4E',
+                  border: '2px solid #000',
+                  borderRadius: 100,
+                  fontSize: 20, color: '#000',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t.signupBtn || 'Sign up'}
+              </button>
+            </div>
+
+            <p
+              className="absolute text-center"
+              style={{
+                top: 517, left: 0, right: 0,
+                fontSize: 15, color: '#000', lineHeight: 1.4,
+              }}
+            >
+              {t.hasAccountAlready || 'Already have an account? '}
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginPromptEmailMode('login');
+                  setLoginPromptFlowType('login');
+                  setShowLoginPrompt(true);
+                }}
+                className="underline active:opacity-70"
+                style={{
+                  background: 'transparent', border: 0, padding: 0, margin: 0,
+                  color: '#000', fontSize: 15, cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {t.loginBtn || 'Log in'}
+              </button>
+            </p>
+          </>
+        )}
+
+        {/* Dev-only escape hatch — bottom-left, 10px from page bottom.
+            Visible only to the dev user (current session OR last-known email
+            persisted at sign-in). Calls onLogout, which in guest mode drops
+            back to the welcome page and for a logged-in dev user signs out. */}
+        {isDevUser && onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="absolute active:opacity-70"
+            style={{
+              left: '50%', transform: 'translateX(-50%)', bottom: 10,
+              fontSize: 12, color: '#000', opacity: 0.5,
+              background: 'transparent', border: 0, padding: '4px 6px',
+              textDecoration: 'underline', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontFamily: 'inherit',
+            }}
+          >
+            Dev Mode
+          </button>
+        )}
+
+        {/* Yellow logout pill — logged-in users only. */}
+        {user && onLogout && (
+          <div className="absolute flex justify-center" style={{ top: 544, left: 0, right: 0 }}>
             <button
               onClick={() => {
-                if (!user) {
-                  // Guest mode: jump straight to login, no data to preserve.
-                  onLogout();
-                  return;
-                }
                 if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
                   onLogout();
                 }
               }}
               className="active:scale-95 transition-transform"
               style={{
-                width: user ? 128 : 148, height: 48,
+                width: 128, height: 48,
                 backgroundColor: '#FFDF4E',
                 border: '2px solid #000',
                 borderRadius: 100,
@@ -598,9 +754,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 whiteSpace: 'nowrap',
               }}
             >
-              {user
-                ? (t.logout || '退出')
-                : (nativeLang === 'en' ? 'Exit Test Mode' : nativeLang === 'ja' ? 'テストモードを終了' : '退出测试模式')}
+              {t.logout || '退出'}
             </button>
           </div>
         )}
@@ -919,6 +1073,29 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </div>
           </div>
         </div>
+      )}
+
+      {/* Save-progress login modal (guest only) */}
+      {showLoginPrompt && (
+        <LoginPromptModal
+          nativeLang={nativeLang}
+          initialError={loginPromptError}
+          initialEmailMode={loginPromptEmailMode}
+          flowType={loginPromptFlowType}
+          onClose={() => {
+            setShowLoginPrompt(false);
+            setLoginPromptError('');
+            onBindModalErrorConsumed?.();
+          }}
+          onLoggedIn={() => {
+            // Email flow finished. Drop the modal; the global supabase
+            // onAuthStateChange listener in App.jsx will pick up the session
+            // and trigger the localStorage→cloud merge.
+            setShowLoginPrompt(false);
+            setLoginPromptError('');
+            onBindModalErrorConsumed?.();
+          }}
+        />
       )}
 
       {/* Toast (login-required, send-success, etc.) */}

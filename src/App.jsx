@@ -5,6 +5,7 @@ import SettingsPage from './components/SettingsPage';
 import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
+import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
@@ -92,7 +93,21 @@ export default function App() {
   // Language setup shows once per user — both authed users and guests skip it
   // on subsequent logins if they've already picked native/target.
   const [needsLangSetup, setNeedsLangSetup] = useState(false);
-  const [page, setPage] = useState('learn');
+  // When we return from a Google/Discord OAuth bind initiated in Settings,
+  // `bind_oauth_pending` is set in localStorage. Land back on Settings so the
+  // user sees either the successful state or — if the bind was rejected
+  // because the account already has cloud progress — the in-modal error
+  // surfaced by SettingsPage. Otherwise default to 'learn'.
+  const [bindOAuthPending, setBindOAuthPending] = useState(() => {
+    try { return localStorage.getItem('bind_oauth_pending') === '1'; }
+    catch { return false; }
+  });
+  const [page, setPage] = useState(() => {
+    try {
+      if (localStorage.getItem('bind_oauth_pending') === '1') return 'settings';
+    } catch {}
+    return 'learn';
+  });
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
   const [nativeLang, setNativeLang] = useState(() => {
@@ -109,6 +124,13 @@ export default function App() {
   const [vpH, setVpH] = useState(() => window.innerHeight);
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
+  // Shown when the user tried to bind from guest mode onto an account that
+  // already has cloud progress. Toast message; null = hidden.
+  const [bindToast, setBindToast] = useState(null);
+  // Counterpart for OAuth bind rejection: pushed into SettingsPage so the
+  // LoginPromptModal reopens with the error inline instead of routing through
+  // a global toast on the Learn page.
+  const [bindModalError, setBindModalError] = useState('');
   // Whether the PWA is already installed — hides the "add to home screen" hint
   // inside the check-in popup. Initial sync check covers all browsers when
   // running in standalone mode; the async getInstalledRelatedApps probe below
@@ -174,6 +196,73 @@ export default function App() {
     };
   }, []);
 
+  // Sync entry point — wraps syncOnLogin so the OAuth bind path can detect
+  // "this account already has progress" and refuse to merge. Soft signOut
+  // (keeps guest mode + local data intact) on rejection.
+  //
+  // EmailLoginPage runs the same check *inline* and signals via
+  // `bind_inline_active` that it owns the rejection UI for this auth event —
+  // we bail out here so the user doesn't get a global toast on top of (or
+  // moments after) the in-form red error. Without this guard, both handlers
+  // fire concurrently: the form shows its error, then the global toast pops
+  // and the modal closes, dumping the user back to Settings.
+  const runSyncOrReject = async (uid) => {
+    try {
+      if (localStorage.getItem('bind_inline_active') === '1') return;
+    } catch {}
+    // Read the bind context flags up-front. syncOnLogin no longer clears
+    // `bind_flow_active` on rejection — it stays set so any delayed parallel
+    // call (INITIAL_SESSION waiting on supabase's internal lock can arrive
+    // after the first syncOnLogin's inFlight resolves) also rejects instead
+    // of treating itself as a normal login and merging the rejected
+    // account's cloud data into the guest's localStorage.
+    const wasBindFlow = (() => {
+      try { return localStorage.getItem('bind_flow_active') === '1'; }
+      catch { return false; }
+    })();
+    const wasOAuthPending = (() => {
+      try { return localStorage.getItem('bind_oauth_pending') === '1'; }
+      catch { return false; }
+    })();
+    try {
+      const result = await syncOnLogin(uid);
+      if (result?.rejected) {
+        const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
+          || 'This account already has progress. Please try a different one.';
+        await supabase.auth.signOut();
+        // Now that we've fully handled the rejection (signed out, no more
+        // syncOnLogin calls can fire for this uid), clear the bind flag so a
+        // future legitimate sign-in by this guest — e.g. they exit guest mode
+        // and sign into a different account from Welcome — isn't mistakenly
+        // treated as a bind attempt and rejected against THAT account's cloud
+        // progress.
+        try { localStorage.removeItem('bind_flow_active'); } catch {}
+        // Always route the rejection into the Settings popup. We used to
+        // dump it as a top-of-screen toast on whatever page the user was on,
+        // but that surface was confusing — the user couldn't tell which auth
+        // attempt the toast referred to, and the daily check-in often fired
+        // on top of it. EmailLoginPage already short-circuits via
+        // `bind_inline_active` so it owns its own in-form error; the only
+        // remaining caller here is the OAuth bind flow from Settings.
+        setBindModalError(msg);
+        setPage('settings');
+        posthog?.capture('bind_account_rejected', { reason: result.reason });
+      } else if (wasBindFlow && uid) {
+        // Successful bind. The guest already picked native/target while in test
+        // mode (those live in localStorage under app_native/app_target, which
+        // are global, not per-user), so we don't need to re-prompt them with
+        // the LangSetup wizard. Mark this account as onboarded.
+        try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
+      }
+    } finally {
+      // Only clear after routing — see comment above. Also flip the React
+      // state copy so the check-in useEffect re-runs and can fire on
+      // successful bind (after we stop suppressing it).
+      try { localStorage.removeItem('bind_oauth_pending'); } catch {}
+      if (wasOAuthPending) setBindOAuthPending(false);
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -182,6 +271,8 @@ export default function App() {
         posthog?.identify(data.session.user.id, {
           email: data.session.user.email,
         });
+        // Pull cloud progress, merge with local, push the union back up.
+        runSyncOrReject(data.session.user.id);
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
@@ -189,10 +280,44 @@ export default function App() {
       bumpLoginDay(s?.user?.id);
       if (s?.user) {
         posthog?.identify(s.user.id, { email: s.user.email });
+        // Persist the email so a dev-only escape hatch on Settings can still
+        // identify the dev user after they drop into guest mode (where
+        // supabase session is null and user.email is unavailable).
+        if (s.user.email) {
+          try { localStorage.setItem('app_last_email', s.user.email); } catch {}
+        }
+        runSyncOrReject(s.user.id);
       }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Auto-dismiss the bind-rejected toast after a few seconds.
+  useEffect(() => {
+    if (!bindToast) return;
+    const id = setTimeout(() => setBindToast(null), 4200);
+    return () => clearTimeout(id);
+  }, [bindToast]);
+
+  // Background push: while signed in, ship the local snapshot to the cloud
+  // when the tab is hidden or closed, plus once a minute as a heartbeat.
+  // syncOnLogin handles initial merge; this just keeps the cloud copy fresh.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    const flush = () => { pushLocalToCloud(uid); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    const id = setInterval(flush, 60_000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+      clearInterval(id);
+    };
+  }, [session?.user?.id]);
 
   // Sync <html lang> with the user's native language so the browser uses the
   // correct font shaping, line-breaking, and screen-reader voice — and (because
@@ -213,8 +338,42 @@ export default function App() {
   }, [nativeLang, targetLang, posthog, session]);
 
   // Decide whether to show language setup whenever auth state changes.
+  //
+  // During a bind attempt (guest → account), skip this entirely. Two reasons:
+  // (1) If the bind is rejected, we'd flash the LangSetup screen for a beat
+  //     between SIGNED_IN and the subsequent signOut — unmounting Settings
+  //     and the in-form rejection error along with it, leaving the user
+  //     dumped on the Learn page with no idea what happened.
+  // (2) If the bind succeeds, the guest already chose their langs in test
+  //     mode (they're in localStorage), so re-prompting is annoying. We
+  //     auto-mark `lang_onboarded_<uid>` after a successful bind in
+  //     runSyncOrReject / finishAuth so this useEffect lands on `false` on
+  //     the next render.
   useEffect(() => {
     if (!isLoggedIn) {
+      setNeedsLangSetup(false);
+      return;
+    }
+    // Suppress LangSetup during an in-flight OAuth bind. `bind_flow_active`
+    // is cleared synchronously inside syncOnLogin *before* it awaits the
+    // network — so by the time React processes `setSession` and re-runs this
+    // effect, that flag can already be gone, and we'd briefly flash the
+    // LangSetup screen on top of the Settings page. Read the React state
+    // `bindOAuthPending` (initialized from `bind_oauth_pending` on mount,
+    // cleared in runSyncOrReject's finally) which survives the whole bind
+    // attempt, plus `bindModalError` which stays set after rejection so we
+    // continue suppressing on subsequent re-renders.
+    if (bindOAuthPending || bindModalError) {
+      setNeedsLangSetup(false);
+      return;
+    }
+    const inBindFlow = (() => {
+      try {
+        return localStorage.getItem('bind_inline_active') === '1'
+          || localStorage.getItem('bind_flow_active') === '1';
+      } catch { return false; }
+    })();
+    if (inBindFlow) {
       setNeedsLangSetup(false);
       return;
     }
@@ -224,7 +383,7 @@ export default function App() {
     } else {
       setNeedsLangSetup(false);
     }
-  }, [isLoggedIn, session, isGuest]);
+  }, [isLoggedIn, session, isGuest, bindOAuthPending, bindModalError]);
 
   // Daily check-in popup: show once per local-calendar day after the user is
   // past login + language setup. bumpLoginDay has already added today's date.
@@ -233,11 +392,17 @@ export default function App() {
   useEffect(() => {
     if (!isLoggedIn || needsLangSetup) return;
     if (pwaInstalled === null) return;
+    // Skip the check-in while a guest→account bind is still resolving (just
+    // returned from OAuth) or its rejection error is queued to surface in the
+    // Settings modal. Without this guard the user gets a check-in popup on
+    // the Learn page *before* we route them to Settings to see the error.
+    if (bindOAuthPending) return;
+    if (bindModalError) return;
     const uid = session?.user?.id;
     if (shouldShowCheckin(uid)) {
       setCheckinDay(getLoginDayCount(uid));
     }
-  }, [isLoggedIn, needsLangSetup, session, pwaInstalled]);
+  }, [isLoggedIn, needsLangSetup, session, pwaInstalled, bindModalError, bindOAuthPending]);
 
   const handleCheckin = () => {
     // Unlock audio *inside* the click gesture — iOS Safari requires this for
@@ -400,6 +565,9 @@ export default function App() {
               onLogout={handleLogout}
               onInstallClick={openInstall}
               pwaInstalled={pwaInstalled}
+              bindModalError={bindModalError}
+              onBindModalErrorConsumed={() => setBindModalError('')}
+              bindOAuthPending={bindOAuthPending}
             />
           </div>
         </div>
@@ -536,6 +704,18 @@ export default function App() {
         {/* Install-to-home-screen modal — rendered at app level so the check-in
             popup link and the Settings button share one modal. */}
         {installModalNode}
+
+        {/* Bind-rejected toast (account already has cloud progress). Surfaces
+            above every page so it's visible whether the user lands back on
+            Settings, Welcome, or anywhere else after the soft signOut. */}
+        {bindToast && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-[70] max-w-[340px] px-[18px] py-[12px] rounded-[14px] bg-black/85 text-white text-[13px] text-center leading-snug shadow-lg pointer-events-none"
+            style={{ top: 80 }}
+          >
+            {bindToast}
+          </div>
+        )}
       </div>
       <Analytics />
     </div>

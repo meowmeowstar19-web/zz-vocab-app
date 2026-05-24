@@ -2,17 +2,26 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
+import { syncOnLogin } from '../utils/progressSync';
 
-export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
+// `bindFlow` (passed in from LoginPromptModal) flips this page from "normal
+// first-time login" to "guest is binding onto a real account". In bind mode,
+// after auth succeeds we run syncOnLogin *inline* — if the target account
+// already has cloud progress, we sign out, keep the user on this form, and
+// surface an in-form error so they can change the email and retry. Without
+// this, App.jsx's global onAuthStateChange listener would catch the rejection
+// after the modal has already closed, leaving the user on the Settings page
+// with only a brief toast (the "where did my form go?" UX bug).
+export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bindFlow = false, initialMode = 'login' }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
-  const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'verify'
+  const [mode, setMode] = useState(initialMode === 'signup' ? 'signup' : 'login'); // 'login' | 'signup' | 'verify'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
-  const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | ''
+  const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | 'bind_taken' | ''
   const [oauthProvider, setOauthProvider] = useState(''); // 'google' | 'discord' | ''
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,6 +64,44 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
     }
   };
 
+  // Runs the progress merge after a successful auth. In bind mode, if the
+  // target account already has cloud data, syncOnLogin returns rejected — we
+  // sign out, reset to guest, show the inline error, and tell the caller NOT
+  // to advance past the form. The `bind_inline_active` flag short-circuits
+  // App.jsx's onAuthStateChange handler so it doesn't run the same rejection
+  // logic on top of ours (which would produce a top-of-screen toast and erase
+  // this form before the user can read the error).
+  //
+  // For non-bind logins (the WelcomePage flow), we just let App.jsx do its
+  // thing — no extra work needed here.
+  const finishAuth = async (uid) => {
+    if (!bindFlow || !uid) return true;
+    try {
+      const result = await syncOnLogin(uid);
+      if (result?.rejected) {
+        // Soft sign-out: drop the supabase session but stay in guest mode
+        // (App.jsx's `app_logged_in` flag isn't touched, so the user lands
+        // back on this form with their guest progress intact in localStorage).
+        // syncOnLogin no longer clears `bind_flow_active` on rejection, so the
+        // flag is still set — the user's retry against a different email
+        // remains a bind attempt with no extra work here.
+        await supabase.auth.signOut();
+        setError(t.bindAccountTakenToast || 'This account is already in use. Please link a new one.');
+        setErrorKind('bind_taken');
+        setPassword('');
+        return false;
+      }
+      // Successful bind — auto-mark this account as language-onboarded so
+      // App.jsx doesn't flash the LangSetup wizard between SIGNED_IN and the
+      // modal close (the guest already chose their langs in test mode and
+      // those carry over verbatim via the global app_native/app_target keys).
+      try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
+      return true;
+    } finally {
+      try { localStorage.removeItem('bind_inline_active'); } catch {}
+    }
+  };
+
   const handleOAuth = async (provider) => {
     resetMessages();
     const { error } = await supabase.auth.signInWithOAuth({
@@ -72,8 +119,11 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
       return;
     }
     setLoading(true);
+    if (bindFlow) {
+      try { localStorage.setItem('bind_inline_active', '1'); } catch {}
+    }
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: trimmed,
         type: 'email',
@@ -87,11 +137,17 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
       }
       posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
       posthog?.identify(email, { email, native_lang: nativeLang });
-      onLogin();
+      // A freshly-verified account has no cloud progress, so finishAuth will
+      // never reject here — but route through it anyway for consistency and
+      // to guarantee the merge happens before the modal closes.
+      if (await finishAuth(data?.user?.id || data?.session?.user?.id)) onLogin();
     } catch (err) {
       setError(err.message || t.operationFailed);
     } finally {
       setLoading(false);
+      if (bindFlow) {
+        try { localStorage.removeItem('bind_inline_active'); } catch {}
+      }
     }
   };
 
@@ -129,6 +185,14 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
     }
 
     setLoading(true);
+    // Set the inline-handling flag BEFORE calling supabase auth, so that the
+    // SIGNED_IN event (which fires synchronously inside signInWithPassword on
+    // the same microtask) finds the flag set and the global handler in
+    // App.jsx short-circuits. If we set it after auth resolves, there's a
+    // narrow window where App.jsx wins the race and runs runSyncOrReject too.
+    if (bindFlow) {
+      try { localStorage.setItem('bind_inline_active', '1'); } catch {}
+    }
     try {
       if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
@@ -148,7 +212,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
         if (data.session) {
           posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
           posthog?.identify(data.session.user.id, { email, native_lang: nativeLang });
-          onLogin();
+          if (await finishAuth(data.session.user.id)) onLogin();
         } else {
           setMode('verify');
           setCode('');
@@ -175,12 +239,18 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
         if (loginData?.user) {
           posthog?.identify(loginData.user.id, { email, native_lang: nativeLang });
         }
-        onLogin();
+        if (await finishAuth(loginData?.user?.id)) onLogin();
       }
     } catch (err) {
       setError(err.message || t.operationFailed);
     } finally {
       setLoading(false);
+      // Defensive: finishAuth clears this in its own finally, but if the auth
+      // call itself threw before we got there, clear it here so the next
+      // attempt isn't poisoned.
+      if (bindFlow) {
+        try { localStorage.removeItem('bind_inline_active'); } catch {}
+      }
     }
   };
 
@@ -265,9 +335,12 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en' }) {
           </>
         )}
 
-        {/* Error message */}
+        {/* Error message. `whitespace-pre-line` so that the bind-rejection
+            string (which has an embedded \n separating the headline from the
+            "or exit guest mode to restore..." guidance) renders as two
+            lines instead of running together. */}
         {error && (
-          <p className="text-red-500 text-[13px] mt-3 text-center leading-tight">{error}</p>
+          <p className="text-red-500 text-[13px] mt-3 text-center leading-tight whitespace-pre-line">{error}</p>
         )}
         {info && (
           <p className="text-green-700 text-[13px] mt-3 text-center">{info}</p>

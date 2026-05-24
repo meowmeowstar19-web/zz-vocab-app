@@ -130,7 +130,18 @@ const LAST_CHECKIN_KEY = (uid) => `last_checkin_${uid || 'guest'}`;
 
 export function shouldShowCheckin(uid) {
   try {
-    return localStorage.getItem(LAST_CHECKIN_KEY(uid)) !== todayLocalIso();
+    const today = todayLocalIso();
+    if (localStorage.getItem(LAST_CHECKIN_KEY(uid)) === today) return false;
+    // Guest-→-account bind carry-over: if the guest already saw today's
+    // check-in before binding to a fresh account, don't re-prompt under the
+    // new uid. Without this carry-over, every successful bind would surface
+    // a duplicate check-in popup right after the user lands on Settings.
+    // Migrate the value forward so future checks hit the direct path above.
+    if (uid && localStorage.getItem('last_checkin_guest') === today) {
+      try { localStorage.setItem(LAST_CHECKIN_KEY(uid), today); } catch {}
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }

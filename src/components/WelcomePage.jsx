@@ -177,7 +177,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
           onClick={handleTestMode}
           className="text-[16px] text-black text-center underline whitespace-nowrap hover:opacity-70 active:opacity-50"
         >
-          Test Mode
+          {t.guestModeLink || 'Guest Mode'}
         </button>
       </div>
 
