@@ -84,9 +84,11 @@ function usePhonetic(wordEn, targetLang) {
   return phonetic;
 }
 
-export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', refreshKey = 0 }) {
+export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0 }) {
   const posthog = usePostHog();
-  const langKey = targetLang; // progress keyed by target language only
+  // Progress is scoped per-user and per-target so account switches don't
+  // bleed mastered/learned flags between users on the same device.
+  const langKey = `${userScope}_${targetLang}`;
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
 
   const FILTERS = useMemo(() => [

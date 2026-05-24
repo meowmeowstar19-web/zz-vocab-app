@@ -2,16 +2,23 @@ import { useState, useEffect } from 'react';
 import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
-import WelcomePage from './components/WelcomePage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { migrateOldProgress, migrateProgressToTargetOnly, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
+import WelcomePage from './components/WelcomePage';
+import LoginPromptModal from './components/LoginPromptModal';
+import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount, getGateWordIds, addGateWord } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
+import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
 import { usePostHog } from '@posthog/react';
+
+// Free quota before the guest daily login gate trips. Set to 4 so the gate
+// fires when the user is about to view their 5th distinct word of the day.
+const GATE_DAILY_LIMIT = 4;
+const IS_WECHAT = isWeChatBrowser();
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
@@ -46,6 +53,8 @@ function TabIcon({ type, active }) {
 // Run migrations once on module load
 migrateOldProgress();
 migrateProgressToTargetOnly();
+migrateProgressToUserScope();
+migrateClearStaleGateWords();
 
 // Reset learning category to "all" if the user has been away for more than this.
 // Picked 6h: long enough that the same study session keeps its category, short
@@ -88,22 +97,71 @@ function defaultTargetFor(native) {
 export default function App() {
   const posthog = usePostHog();
   const [session, setSession] = useState(null);
-  const [isGuest, setIsGuest] = useState(() => localStorage.getItem('app_logged_in') === 'true');
+  // Device-based "already onboarded" check: once the user has picked their
+  // native+target language (which writes app_native) AND hasn't explicitly
+  // logged out, they enter the app as a guest on every subsequent visit
+  // without seeing the Welcome page. handleLogout sets `app_logged_out=1`
+  // to break the auto-promotion until the user re-enters (either through
+  // WelcomePage's Guest Mode link or a successful sign-in).
+  //
+  // Migration: existing users who have `app_native` set from before this
+  // flag existed should still auto-promote — only an explicit logout sets
+  // `app_logged_out`. So absence of the flag is treated as "still a guest".
+  const [isGuest, setIsGuest] = useState(() => {
+    const hasLang = !!localStorage.getItem('app_native');
+    const explicitlyLoggedOut = localStorage.getItem('app_logged_out') === '1';
+    if (hasLang && !explicitlyLoggedOut && localStorage.getItem('app_logged_in') !== 'true') {
+      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
+    }
+    if (explicitlyLoggedOut) return false;
+    return hasLang || localStorage.getItem('app_logged_in') === 'true';
+  });
   const isLoggedIn = !!session || isGuest;
-  // Language setup shows once per user — both authed users and guests skip it
-  // on subsequent logins if they've already picked native/target.
-  const [needsLangSetup, setNeedsLangSetup] = useState(false);
-  // When we return from a Google/Discord OAuth bind initiated in Settings,
-  // `bind_oauth_pending` is set in localStorage. Land back on Settings so the
-  // user sees either the successful state or — if the bind was rejected
-  // because the account already has cloud progress — the in-modal error
-  // surfaced by SettingsPage. Otherwise default to 'learn'.
-  const [bindOAuthPending, setBindOAuthPending] = useState(() => {
+  // First-time visitors with no language picked land on LanguageSetupPage.
+  // Existing users (app_native set) skip it.
+  const [needsLangSetup, setNeedsLangSetup] = useState(() => !localStorage.getItem('app_native'));
+  // 5-word/day gate: when a guest has touched GATE_DAILY_LIMIT distinct words
+  // today and tries to view another one, we show a forced LoginPromptModal.
+  // WeChat in-app browser users are exempt (OAuth doesn't reliably work
+  // there). Logged-in users are also exempt.
+  //
+  // Initial state: if we're coming back from an OAuth round-trip that was
+  // initiated from the gate (gate_oauth_pending = 1), the gate modal should
+  // re-open on Learn in pending state so the rejection — if any — can land
+  // back inside it rather than getting routed to Settings.
+  const [showLoginGate, setShowLoginGate] = useState(() => {
+    try { return localStorage.getItem('gate_oauth_pending') === '1'; }
+    catch { return false; }
+  });
+  // Rejection error to surface inside the gate modal when a gate-initiated
+  // OAuth bind hits the "account already in use" path. Settings-initiated
+  // binds use `bindModalError` and route to Settings; gate-initiated binds
+  // stay on Learn and use this state instead.
+  const [gateModalError, setGateModalError] = useState('');
+  // When we return from a Google/Discord OAuth bind, one of two flags is set
+  // depending on which surface launched it:
+  //   - `bind_oauth_pending` (Settings "Sign up / Log in" pill) → land on
+  //     Settings so its LoginPromptModal can show the success or rejection.
+  //   - `gate_oauth_pending` (5-word/day gate on Learn) → land on Learn so
+  //     the gate modal stays open and can host the rejection inline.
+  // Tracked separately so each surface only sees its own pending state.
+  const [settingsBindPending, setSettingsBindPending] = useState(() => {
     try { return localStorage.getItem('bind_oauth_pending') === '1'; }
     catch { return false; }
   });
+  const [gateBindPending, setGateBindPending] = useState(() => {
+    try { return localStorage.getItem('gate_oauth_pending') === '1'; }
+    catch { return false; }
+  });
+  // Either-or convenience flag for guards that apply to both surfaces
+  // (needsLangSetup suppression, check-in suppression).
+  const bindOAuthPending = settingsBindPending || gateBindPending;
   const [page, setPage] = useState(() => {
     try {
+      // gate_oauth_pending lands back on Learn (the gate was triggered while
+      // studying). bind_oauth_pending lands on Settings (Sign up / Log in
+      // initiated from Settings). gate takes precedence if somehow both set.
+      if (localStorage.getItem('gate_oauth_pending') === '1') return 'learn';
       if (localStorage.getItem('bind_oauth_pending') === '1') return 'settings';
     } catch {}
     return 'learn';
@@ -220,12 +278,39 @@ export default function App() {
       try { return localStorage.getItem('bind_flow_active') === '1'; }
       catch { return false; }
     })();
-    const wasOAuthPending = (() => {
+    // Capture which surface launched the OAuth BEFORE we await syncOnLogin.
+    // Without snapshotting here, a parallel runSyncOrReject call (the
+    // getSession + onAuthStateChange listeners both fire on OAuth return,
+    // both share the same `inFlight` syncOnLogin promise, and both await
+    // the rejection result) would race against the first caller's `finally`
+    // block — which clears these flags — and end up reading them as `false`,
+    // mis-routing the rejection to Settings even when the gate launched it.
+    const wasGateOAuth = (() => {
+      try { return localStorage.getItem('gate_oauth_pending') === '1'; }
+      catch { return false; }
+    })();
+    const wasSettingsOAuth = (() => {
       try { return localStorage.getItem('bind_oauth_pending') === '1'; }
       catch { return false; }
     })();
+    const wasOAuthPending = wasGateOAuth || wasSettingsOAuth;
     try {
       const result = await syncOnLogin(uid);
+      // Pick up any language preferences restored from the cloud snapshot so
+      // re-login on a fresh device (or after switching accounts) lands on the
+      // user's previously-saved langs instead of whatever the prior local
+      // session had set. When the account has no saved preferences,
+      // writeLocalSnapshot cleared the local keys — flip needsLangSetup so
+      // the picker shows immediately for them.
+      if (!result?.rejected) {
+        try {
+          const n = localStorage.getItem('app_native');
+          const tg = localStorage.getItem('app_target');
+          if (n) setNativeLang(n);
+          if (tg) setTargetLang(tg);
+          if (!n) setNeedsLangSetup(true);
+        } catch {}
+      }
       if (result?.rejected) {
         const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
           || 'This account already has progress. Please try a different one.';
@@ -237,15 +322,18 @@ export default function App() {
         // treated as a bind attempt and rejected against THAT account's cloud
         // progress.
         try { localStorage.removeItem('bind_flow_active'); } catch {}
-        // Always route the rejection into the Settings popup. We used to
-        // dump it as a top-of-screen toast on whatever page the user was on,
-        // but that surface was confusing — the user couldn't tell which auth
-        // attempt the toast referred to, and the daily check-in often fired
-        // on top of it. EmailLoginPage already short-circuits via
-        // `bind_inline_active` so it owns its own in-form error; the only
-        // remaining caller here is the OAuth bind flow from Settings.
-        setBindModalError(msg);
-        setPage('settings');
+        // Route the rejection back to whichever surface launched the bind,
+        // using the snapshot captured at function entry (see comment above).
+        // Gate-initiated binds (user was studying when the 5-word gate fired)
+        // stay on Learn — the gate modal reopens with the rejection inline.
+        // Settings-initiated binds route to Settings as before.
+        if (wasGateOAuth) {
+          setGateModalError(msg);
+          setShowLoginGate(true);
+        } else {
+          setBindModalError(msg);
+          setPage('settings');
+        }
         posthog?.capture('bind_account_rejected', { reason: result.reason });
       } else if (wasBindFlow && uid) {
         // Successful bind. The guest already picked native/target while in test
@@ -258,8 +346,14 @@ export default function App() {
       // Only clear after routing — see comment above. Also flip the React
       // state copy so the check-in useEffect re-runs and can fire on
       // successful bind (after we stop suppressing it).
-      try { localStorage.removeItem('bind_oauth_pending'); } catch {}
-      if (wasOAuthPending) setBindOAuthPending(false);
+      try {
+        localStorage.removeItem('bind_oauth_pending');
+        localStorage.removeItem('gate_oauth_pending');
+      } catch {}
+      if (wasOAuthPending) {
+        setSettingsBindPending(false);
+        setGateBindPending(false);
+      }
     }
   };
 
@@ -273,12 +367,37 @@ export default function App() {
         });
         // Pull cloud progress, merge with local, push the union back up.
         runSyncOrReject(data.session.user.id);
+      } else {
+        // OAuth round-trip resulted in no session (user cancelled on the
+        // provider, true OAuth failure, or the redirect raced ahead of
+        // supabase parsing the hash). Clear any pending flags so the modal
+        // can leave its "verifying…" state instead of hanging forever, and
+        // the user sees the auth picker again on whichever surface launched
+        // the attempt.
+        let wasOauthRoundTrip = false;
+        try {
+          wasOauthRoundTrip = localStorage.getItem('bind_oauth_pending') === '1'
+            || localStorage.getItem('gate_oauth_pending') === '1';
+        } catch {}
+        if (wasOauthRoundTrip) {
+          try {
+            localStorage.removeItem('bind_oauth_pending');
+            localStorage.removeItem('gate_oauth_pending');
+            localStorage.removeItem('bind_flow_active');
+            localStorage.removeItem('bind_oauth_email_mode');
+          } catch {}
+          setSettingsBindPending(false);
+          setGateBindPending(false);
+        }
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       bumpLoginDay(s?.user?.id);
       if (s?.user) {
+        // Successful sign-in clears the explicit-logout flag so the user is
+        // no longer trapped on WelcomePage after a session-state refresh.
+        try { localStorage.removeItem('app_logged_out'); } catch {}
         posthog?.identify(s.user.id, { email: s.user.email });
         // Persist the email so a dev-only escape hatch on Settings can still
         // identify the dev user after they drop into guest mode (where
@@ -291,6 +410,18 @@ export default function App() {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Close the 5-word forced-login gate as soon as we have a session AND the
+  // post-OAuth verification has finished. Skipping while gateBindPending is
+  // still true is what keeps the modal in its "verifying…" state during the
+  // brief window between session-arrival and runSyncOrReject's rejection —
+  // without it the modal would flash closed and then reopen in error state.
+  // gateModalError also blocks closure so the rejection message stays put.
+  useEffect(() => {
+    if (session && showLoginGate && !gateModalError && !gateBindPending) {
+      setShowLoginGate(false);
+    }
+  }, [session, showLoginGate, gateModalError, gateBindPending]);
 
   // Auto-dismiss the bind-rejected toast after a few seconds.
   useEffect(() => {
@@ -318,6 +449,17 @@ export default function App() {
       clearInterval(id);
     };
   }, [session?.user?.id]);
+
+  // Push immediately when language preferences change so the cloud reflects
+  // the user's latest pick — without waiting for the visibilitychange /
+  // heartbeat flush. Ensures re-login on another device (or after sign-out)
+  // restores the same lang combo. Skipped during sync to avoid clobbering a
+  // freshly-pulled cloud value with the in-flight local state.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    pushLocalToCloud(uid);
+  }, [session?.user?.id, nativeLang, targetLang]);
 
   // Sync <html lang> with the user's native language so the browser uses the
   // correct font shaping, line-breaking, and screen-reader voice — and (because
@@ -350,19 +492,15 @@ export default function App() {
   //     runSyncOrReject / finishAuth so this useEffect lands on `false` on
   //     the next render.
   useEffect(() => {
-    if (!isLoggedIn) {
-      setNeedsLangSetup(false);
-      return;
-    }
-    // Suppress LangSetup during an in-flight OAuth bind. `bind_flow_active`
-    // is cleared synchronously inside syncOnLogin *before* it awaits the
-    // network — so by the time React processes `setSession` and re-runs this
-    // effect, that flag can already be gone, and we'd briefly flash the
-    // LangSetup screen on top of the Settings page. Read the React state
-    // `bindOAuthPending` (initialized from `bind_oauth_pending` on mount,
-    // cleared in runSyncOrReject's finally) which survives the whole bind
-    // attempt, plus `bindModalError` which stays set after rejection so we
-    // continue suppressing on subsequent re-renders.
+    // `app_native` is the ONLY source of truth for whether the language
+    // picker should show. It's set once when the user first uses the device
+    // (either through LanguageSetupPage or a previous session) and never
+    // cleared by logout/login/account-switch. So the picker fires only when
+    // the device has truly never picked a language.
+    //
+    // Suppression during an in-flight OAuth bind round-trip still applies —
+    // we don't want a brief picker flash on top of Settings while the bind
+    // is verifying.
     if (bindOAuthPending || bindModalError) {
       setNeedsLangSetup(false);
       return;
@@ -377,12 +515,7 @@ export default function App() {
       setNeedsLangSetup(false);
       return;
     }
-    if (session?.user?.id) {
-      const onboarded = localStorage.getItem('lang_onboarded_' + session.user.id) === 'true';
-      setNeedsLangSetup(!onboarded);
-    } else {
-      setNeedsLangSetup(false);
-    }
+    setNeedsLangSetup(!localStorage.getItem('app_native'));
   }, [isLoggedIn, session, isGuest, bindOAuthPending, bindModalError]);
 
   // Daily check-in popup: show once per local-calendar day after the user is
@@ -452,33 +585,85 @@ export default function App() {
   };
 
   const handleLogin = () => {
-    localStorage.setItem('app_logged_in', 'true');
-    localStorage.setItem('app_last_active', String(Date.now()));
-    // Login always lands on "all" category — especially important for new accounts.
-    localStorage.setItem('app_learning_category', 'all');
-    setLearningCategory('all');
+    // Called after the WelcomePage flow (guest-mode link) — drops the user
+    // back into the app. Clears the `app_logged_out` marker so the device
+    // resumes auto-promoting to guest on subsequent visits.
+    try { localStorage.setItem('app_logged_in', 'true'); } catch {}
+    try { localStorage.removeItem('app_logged_out'); } catch {}
+    try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
     setIsGuest(true);
     setPage('learn');
     setReviewMode(false);
   };
 
-  const handleTestMode = () => {
-    // Test mode = a fresh account every time. Wipe all local state (progress,
-    // review states, avatar, login-day count, language preferences, etc.) so
-    // the user lands on a clean slate, then reload so React state mirrors the
-    // cleared storage.
-    try { localStorage.clear(); } catch {}
-    localStorage.setItem('app_logged_in', 'true');
-    localStorage.setItem('app_last_active', String(Date.now()));
-    window.location.reload();
-  };
-
   const handleLogout = async () => {
-    localStorage.removeItem('app_logged_in');
-    setIsGuest(false);
-    setPage('learn');
+    // Explicit logout: clear both supabase session AND guest mode, then
+    // route the user to WelcomePage as a real login screen (per requirement
+    // "用户主动点击log out，应该回到 login界面"). Set `app_logged_out=1` so
+    // the auto-promotion in the isGuest initializer doesn't flip the user
+    // back into guest mode on reload. Their language pick and local
+    // progress stay in place so a future sign-in or guest re-entry doesn't
+    // re-prompt the language picker.
+    //
+    // Do NOT switch to the Learn tab here — that would briefly make
+    // LearningPage visible while the signOut promise resolves and fire its
+    // auto-speak effect. Tearing down to WelcomePage via !isLoggedIn covers
+    // the visual transition. handleLogin restores page='learn' on re-entry.
     setReviewMode(false);
     if (session) await supabase.auth.signOut();
+    try { localStorage.removeItem('app_logged_in'); } catch {}
+    try { localStorage.setItem('app_logged_out', '1'); } catch {}
+    setIsGuest(false);
+  };
+
+  // Called by LearningPage every time it presents a new word (learn or
+  // review). For guests outside WeChat, this is the choke point that fires
+  // the login modal once they've touched GATE_DAILY_LIMIT distinct words
+  // today. Once the user dismisses the gate, we set a per-day flag so they
+  // can keep studying for the rest of the day without re-prompting (the gate
+  // re-engages tomorrow when the day rolls over).
+  const handleWordViewed = (wordId) => {
+    if (!wordId) return;
+    // Logged-in users + WeChat in-app browser users bypass entirely. Do NOT
+    // touch `gate_words_${date}` for them — that counter is exclusive to the
+    // guest gate. Letting logged-in usage write to it meant the guest's
+    // first word after logout could see a count of 4+ from the prior
+    // signed-in session and trip the gate immediately.
+    if (session || IS_WECHAT) return;
+    const today = getGateWordIds();
+    if (today.includes(wordId)) return; // already counted
+    if (today.length >= GATE_DAILY_LIMIT) {
+      // Past the daily limit — re-show the gate on every new word view.
+      // The X button only closes the modal so the user can read the current
+      // card; advancing (Got it / answering a choice) re-triggers it. The
+      // only way to keep studying is to sign in.
+      setShowLoginGate(true);
+      return;
+    }
+    addGateWord(wordId);
+  };
+
+  // Called by LearningPage BEFORE it processes an answer click / skip /
+  // Got-it tap. Returns false if a guest is past today's word limit — in
+  // which case the gate modal pops and the answer is discarded. Returns
+  // true otherwise so the page proceeds normally. Wired so the user never
+  // sees their answer register + the next word advance behind the gate.
+  const requestNextWord = () => {
+    if (session || IS_WECHAT) return true;
+    if (getGateWordIds().length >= GATE_DAILY_LIMIT) {
+      setShowLoginGate(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleGateDismiss = () => {
+    // Just close the modal. The next requestNextWord / handleWordViewed
+    // call past the daily limit will re-open it — there's no per-day
+    // suppression anymore. Also clear any rejection error so a re-open
+    // from a different attempt starts fresh.
+    setShowLoginGate(false);
+    setGateModalError('');
   };
 
   const handleLangSetupComplete = ({ native, target }) => {
@@ -490,6 +675,15 @@ export default function App() {
       localStorage.setItem('lang_onboarded_' + session.user.id, 'true');
     }
     setNeedsLangSetup(false);
+    // First-time visitors with no language picked land here as their initial
+    // screen. Promote them to a guest session so they drop straight into the
+    // learning UI on the next render (no Welcome page in between).
+    if (!isGuest) {
+      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
+      try { localStorage.removeItem('app_logged_out'); } catch {}
+      try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
+      setIsGuest(true);
+    }
   };
 
   const handleLanguageChange = ({ native, target }) => {
@@ -506,23 +700,35 @@ export default function App() {
   // Which tab to highlight
   const activeTab = reviewMode ? 'wordlist' : page;
 
-  // Show login page if not logged in
-  if (!isLoggedIn) {
-    return (
-      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
-          <WelcomePage onLogin={handleLogin} onTestMode={handleTestMode} nativeLang={nativeLang} />
-        </div>
-      </div>
-    );
-  }
+  // Per-user storage scope. Each account on the device — including the
+  // anonymous guest — gets its own slot in localStorage so progress, review
+  // state, and review-word data don't bleed between accounts. Changes when
+  // session arrives/clears, which triggers a re-read in the consuming pages.
+  const userScope = session?.user?.id ? `u_${session.user.id}` : 'guest';
 
-  // Show language setup for first-time accounts (or every time in test mode)
+  // Show language setup for first-time visitors AND for logged-in accounts
+  // that haven't picked a language yet. Brand-new visitors land here as
+  // their entry screen; completing it promotes them to guest mode and they
+  // drop straight into Learn (no Welcome page).
   if (needsLangSetup) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} />
+        </div>
+      </div>
+    );
+  }
+
+  // After-logout login screen. Reached when the user explicitly signed out
+  // (clearing both supabase session and `app_logged_in`). app_native is
+  // still set, so the language picker doesn't re-fire. WelcomePage provides
+  // the Google / Discord / Email / Guest-mode picker.
+  if (!isLoggedIn) {
+    return (
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+          <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
         </div>
       </div>
     );
@@ -540,13 +746,16 @@ export default function App() {
               onExitReview={handleExitReview}
               nativeLang={nativeLang}
               targetLang={targetLang}
+              userScope={userScope}
               selectedCategory={learningCategory}
               selectedLevel={learningLevel}
               onCategoryChange={handleCategoryChange}
               contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
               onLevelChange={handleLevelChange}
-              isVisible={(page === 'learn' || reviewMode) && checkinDay == null}
+              isVisible={(page === 'learn' || reviewMode) && checkinDay == null && !showLoginGate}
               onCategoryModalChange={setCategoryModalOpen}
+              onWordViewed={handleWordViewed}
+              requestNextWord={requestNextWord}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
@@ -554,6 +763,7 @@ export default function App() {
               onStartReview={handleStartReview}
               nativeLang={nativeLang}
               targetLang={targetLang}
+              userScope={userScope}
               refreshKey={wordListRefreshKey}
             />
           </div>
@@ -567,7 +777,7 @@ export default function App() {
               pwaInstalled={pwaInstalled}
               bindModalError={bindModalError}
               onBindModalErrorConsumed={() => setBindModalError('')}
-              bindOAuthPending={bindOAuthPending}
+              bindOAuthPending={settingsBindPending}
             />
           </div>
         </div>
@@ -704,6 +914,36 @@ export default function App() {
         {/* Install-to-home-screen modal — rendered at app level so the check-in
             popup link and the Settings button share one modal. */}
         {installModalNode}
+
+        {/* 5-word/day login gate — fires for guests outside WeChat who try
+            to view their 6th distinct word in a calendar day. Dismissable
+            via the X button so the user isn't trapped; dismissing sets a
+            sessionStorage flag that suppresses the gate for the rest of
+            this tab session. A page refresh re-engages the gate (the daily
+            count lives in localStorage, which survives refresh).
+
+            Gated on `page === 'learn'`: SettingsPage owns its own
+            LoginPromptModal for the Settings Sign-up flow. Without this
+            guard, a stale `gate_oauth_pending` flag could leave
+            `showLoginGate=true` while the user is also using the Settings
+            modal — both LoginPromptModals would render at once, producing
+            stacked popups on Settings. */}
+        {showLoginGate && (page === 'learn' || reviewMode) && (
+          <LoginPromptModal
+            nativeLang={nativeLang}
+            initialEmailMode="signup"
+            flowType="bind"
+            oauthLandingPage="learn"
+            // Show "checking your account…" while a gate-initiated OAuth
+            // round-trip is still resolving. Flips off once App resolves
+            // it as either success (modal closes via session-update effect)
+            // or rejection (`gateModalError` is set and shown inline).
+            pending={gateBindPending && !gateModalError}
+            initialError={gateModalError}
+            onClose={handleGateDismiss}
+            onLoggedIn={() => { setShowLoginGate(false); setGateModalError(''); }}
+          />
+        )}
 
         {/* Bind-rejected toast (account already has cloud progress). Surfaces
             above every page so it's visible whether the user lands back on

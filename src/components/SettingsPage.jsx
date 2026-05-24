@@ -134,20 +134,50 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // below opens the modal. Successful binds leave the modal closed and the
   // user lands on Settings with their newly linked account already populated.
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [loginPromptError, setLoginPromptError] = useState('');
   // Pre-selects the Email form's mode if/when the user picks Email inside
   // the modal. "Sign up" opens it as signup, "Log in" opens it as login.
-  const [loginPromptEmailMode, setLoginPromptEmailMode] = useState('login');
+  // On mount, restore the mode from localStorage if we're coming back from
+  // an OAuth round-trip (which fully reloaded the app), so a rejected Sign up
+  // bind reopens the error modal with the correct "Sign up" title.
+  const [loginPromptEmailMode, setLoginPromptEmailMode] = useState(() => {
+    try {
+      const persisted = localStorage.getItem('bind_oauth_email_mode');
+      if (persisted === 'signup' || persisted === 'login') return persisted;
+    } catch {}
+    return 'login';
+  });
   // 'bind' attaches the new auth to the current guest (and merges local
   // progress into the account). 'login' is a plain sign-in — guest local data
   // is dropped and the account's cloud snapshot takes over.
   const [loginPromptFlowType, setLoginPromptFlowType] = useState('bind');
+  // bindModalError is consumed directly as the modal's initialError. No
+  // intermediate copy in local state — the previous design routed it through
+  // a separate `loginPromptError` slot, which added a render hop where
+  // neither pending nor error was true and the auth picker flashed briefly.
+  // Now the modal transitions straight from pending → error in one render.
   useEffect(() => {
-    if (bindModalError) {
-      setLoginPromptError(bindModalError);
-      setShowLoginPrompt(true);
-    }
+    if (bindModalError) setShowLoginPrompt(true);
   }, [bindModalError]);
+
+  // Open the LoginPromptModal immediately on OAuth return, before
+  // syncOnLogin has finished, so the user sees a "checking your account…"
+  // state right away — and any rejection slots into the same modal without
+  // a visible delay. If the bind succeeds, the modal stays empty (no error
+  // arrives) and closes itself once bindOAuthPending flips back to false.
+  useEffect(() => {
+    if (bindOAuthPending) setShowLoginPrompt(true);
+  }, [bindOAuthPending]);
+  // Track the prev value of bindOAuthPending so we only close on the true→
+  // false transition (not on initial mount where it was always false).
+  const prevPendingRef = useRef(bindOAuthPending);
+  useEffect(() => {
+    const prev = prevPendingRef.current;
+    prevPendingRef.current = bindOAuthPending;
+    if (prev && !bindOAuthPending && !bindModalError) {
+      // Successful bind round-trip — close the pending modal.
+      setShowLoginPrompt(false);
+    }
+  }, [bindOAuthPending, bindModalError]);
 
   // Password binding state
   const [user, setUser] = useState(null);
@@ -1079,12 +1109,16 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {showLoginPrompt && (
         <LoginPromptModal
           nativeLang={nativeLang}
-          initialError={loginPromptError}
+          // Pass bindModalError straight through as initialError — same path
+          // the gate modal uses on Learn. The modal transitions in a single
+          // render from pending → error view, with no intermediate frame
+          // where the auth picker is briefly visible.
+          initialError={bindModalError}
           initialEmailMode={loginPromptEmailMode}
           flowType={loginPromptFlowType}
+          pending={bindOAuthPending && !bindModalError}
           onClose={() => {
             setShowLoginPrompt(false);
-            setLoginPromptError('');
             onBindModalErrorConsumed?.();
           }}
           onLoggedIn={() => {
@@ -1092,7 +1126,6 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             // onAuthStateChange listener in App.jsx will pick up the session
             // and trigger the localStorage→cloud merge.
             setShowLoginPrompt(false);
-            setLoginPromptError('');
             onBindModalErrorConsumed?.();
           }}
         />

@@ -115,15 +115,29 @@ const _sentenceCache = new Map();
 export default function LearningPage({
   isReview = false, onExitReview,
   nativeLang = 'zh', targetLang = 'en',
+  // Per-user storage scope ('guest' or `u_${uid}`) — composed into storageKey
+  // below so each account on the device has isolated progress / review-state
+  // slots in localStorage.
+  userScope = 'guest',
   selectedCategory = 'all', selectedLevel = 'beginner',
   onCategoryChange, onLevelChange,
   isVisible = true,
   contentHFromParent,
   onCategoryModalChange,
+  // Called whenever a new word is presented (learn or review). Used by App
+  // to track the 5-word/day guest login gate.
+  onWordViewed,
+  // Called BEFORE an answer/skip/Got-it click is processed. Returns false
+  // when a guest is past today's word limit — App pops the gate modal and
+  // we discard the click so the answer doesn't register and the current
+  // word stays on screen behind the modal.
+  requestNextWord,
 }) {
   const posthog = usePostHog();
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
-  const storageKey = targetLang; // progress keyed by target language only
+  // Progress is now keyed by user-scope + target language so account A's
+  // progress lives in a different localStorage slot than account B's.
+  const storageKey = `${userScope}_${targetLang}`;
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const isOralMode = selectedLevel === 'oral';
   const catLabels = isOralMode
@@ -515,7 +529,10 @@ export default function LearningPage({
       return;
     }
 
-    const key = `${langKey}_${selectedCategory}_${selectedLevel}_${sessionKey}`;
+    // storageKey is included so an account switch (different userScope, same
+    // langs) forces a full SRS session rebuild — otherwise the in-memory
+    // queue would keep showing the previous account's cards.
+    const key = `${storageKey}_${langKey}_${selectedCategory}_${selectedLevel}_${sessionKey}`;
     const isInitializing = sessionInitKey.current !== key;
     // Signal to category-done effect: don't fire while we're (re)building the session
     sessionLoadingRef.current = isInitializing;
@@ -579,7 +596,7 @@ export default function LearningPage({
     } else {
       setSrsCard(null);
     }
-  }, [effectiveIsReview, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
+  }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
@@ -730,6 +747,16 @@ export default function LearningPage({
     return () => { cancelled = true; };
   }, [currentWord?.id, langKey, displaySentence, sentenceLang, translationLang, needsTranslation]);
 
+  // Notify the parent that a new word is being presented so it can enforce
+  // the guest daily login gate. Fires only when the *word id* changes — we
+  // deliberately exclude `onWordViewed` from the deps so that re-renders in
+  // the parent (e.g. closing the gate modal) don't re-fire this effect with
+  // the same word and immediately re-trigger the gate.
+  useEffect(() => {
+    if (currentWord?.id) onWordViewed?.(currentWord.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWord?.id]);
+
   // Auto-speak on word change — always reset hasSpoken first, then speak only if tab is visible
   // reviewCard is included so the effect re-fires when the same word reappears (re-inserted after wrong answer)
   useLayoutEffect(() => {
@@ -740,13 +767,18 @@ export default function LearningPage({
     }
   }, [currentWord?.id, reviewCard]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When returning to the learn tab, speak the current word if not yet spoken
+  // Speak the current word in two cases that the layoutEffect above misses:
+  //   1) Tab restored to learn — isVisible flips false → true.
+  //   2) Fresh mount after login — isVisible was true at mount but the SRS
+  //      session settled on its first card AFTER the layoutEffect ran (it
+  //      saw currentWord=null and bailed out without speaking). Including
+  //      currentWord?.id in the deps catches the late-arriving first word.
   useEffect(() => {
     if (isVisible && currentWord && !hasSpoken.current) {
       hasSpoken.current = true;
       speakCurrent(displayWord);
     }
-  }, [isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isVisible, currentWord?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => { if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current); };
@@ -952,6 +984,9 @@ export default function LearningPage({
   // ── Click handlers ──
   const handleOptionClick = useCallback((option) => {
     if (isCorrect) return;
+    // Guest past today's limit: pop the gate, drop the click. The current
+    // word stays visible behind the modal — no answer registers, no advance.
+    if (requestNextWord && requestNextWord() === false) return;
     triggerAnim(option);
     const correctAnswer = getWordText(currentWord, nativeLang);
     if (option === correctAnswer) {
@@ -977,6 +1012,7 @@ export default function LearningPage({
 
   const handleImageClick = useCallback((optWord) => {
     if (isCorrect) return;
+    if (requestNextWord && requestNextWord() === false) return;
     triggerAnim(`img-${optWord.id}`);
     if (optWord.id === currentWord.id) {
       posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
@@ -998,6 +1034,7 @@ export default function LearningPage({
   // ── D mode handlers ──
   const handleDKnow = useCallback(() => {
     if (!currentWord) return;
+    if (requestNextWord && requestNextWord() === false) return;
     posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dKnow');
     playCorrectSound();
@@ -1007,6 +1044,7 @@ export default function LearningPage({
 
   const handleDDontKnow = useCallback(() => {
     if (!currentWord) return;
+    if (requestNextWord && requestNextWord() === false) return;
     posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dDontKnow');
     playWrongSound();
@@ -1023,6 +1061,7 @@ export default function LearningPage({
 
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
+    if (requestNextWord && requestNextWord() === false) return;
     posthog?.capture('word_skipped', { word: currentWord?.en, is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);

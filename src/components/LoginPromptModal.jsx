@@ -30,6 +30,19 @@ export default function LoginPromptModal({
   initialError = '',
   initialEmailMode = 'login',
   flowType = 'bind',
+  // forced=true is used by the 5-word/day gate: the user must sign in before
+  // they can keep learning. Hides the close button and ignores backdrop clicks.
+  forced = false,
+  // Where to land after a full-page OAuth round-trip. Default 'settings' keeps
+  // the existing Settings-initiated bind behavior. Pass 'learn' for the gate
+  // modal so the user comes back to the learning page they were on.
+  oauthLandingPage = 'settings',
+  // When true, render a "checking your account…" placeholder instead of the
+  // auth picker. Used immediately after an OAuth round-trip while syncOnLogin
+  // is still running — without this, the user sees nothing for ~1s and then
+  // a rejection popup appears out of nowhere. Backdrop click is also ignored
+  // in this state so the user can't dismiss mid-check.
+  pending = false,
 }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
@@ -40,7 +53,15 @@ export default function LoginPromptModal({
   const [toast, setToast] = useState('');
   const [doc, setDoc] = useState(null); // { title, html } | null
   const [docLoading, setDocLoading] = useState(false);
+  // Local error state seeded from the parent's `initialError`. When the prop
+  // changes (e.g. a pending OAuth roundtrip resolves into a rejection), the
+  // useEffect below pushes the new value into state. The 确认 button can
+  // clear bindError locally without parental coordination — the modal swaps
+  // back to the auth picker until a new error arrives.
   const [bindError, setBindError] = useState(initialError || '');
+  useEffect(() => {
+    setBindError(initialError || '');
+  }, [initialError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -64,10 +85,26 @@ export default function LoginPromptModal({
   };
 
   // OAuth bounces through the provider and reloads the app, so we need a
-  // separate flag that survives the round-trip to know "open this modal on
-  // Settings when we land back" (whether the bind succeeds or gets rejected).
+  // separate flag that survives the round-trip to know which page to land on
+  // after we come back. `bind_oauth_pending` lands on Settings (the original
+  // bind flow). `gate_oauth_pending` lands on Learn (the 5-word gate path,
+  // because the user was studying when the gate fired).
+  //
+  // Always clear the opposite flag first. Otherwise a stale flag from an
+  // earlier flow (e.g. a cancelled gate OAuth that didn't finish cleaning
+  // up) can co-exist with the new flag, and `runSyncOrReject` ends up
+  // routing the rejection into the WRONG modal AND the right modal opens
+  // too — two stacked popups on one rejection.
   const markOAuthPending = () => {
-    try { localStorage.setItem('bind_oauth_pending', '1'); } catch {}
+    try {
+      if (oauthLandingPage === 'learn') {
+        localStorage.removeItem('bind_oauth_pending');
+        localStorage.setItem('gate_oauth_pending', '1');
+      } else {
+        localStorage.removeItem('gate_oauth_pending');
+        localStorage.setItem('bind_oauth_pending', '1');
+      }
+    } catch {}
   };
 
   const signInWithProvider = async (provider) => {
@@ -81,6 +118,12 @@ export default function LoginPromptModal({
     if (flowType === 'bind') {
       markBindFlow();
       markOAuthPending();
+      // Remember which sub-flow (Sign up vs Log in) opened the modal so that
+      // after the OAuth round-trip — which fully reloads the app and remounts
+      // SettingsPage with default state — we can restore the same title on
+      // the rejection popup. Without this, a rejected Sign up bind comes back
+      // labelled "Sign in" because that's the SettingsPage default.
+      try { localStorage.setItem('bind_oauth_email_mode', initialEmailMode || 'login'); } catch {}
     }
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -91,6 +134,8 @@ export default function LoginPromptModal({
         try {
           localStorage.removeItem('bind_flow_active');
           localStorage.removeItem('bind_oauth_pending');
+          localStorage.removeItem('gate_oauth_pending');
+          localStorage.removeItem('bind_oauth_email_mode');
         } catch {}
       }
       setOauthError(error.message);
@@ -192,9 +237,15 @@ export default function LoginPromptModal({
   // (e.g. exit guest mode → sign in from Welcome), syncOnLogin would
   // mistakenly reject that legitimate login.
   const handleClose = () => {
+    // The forced gate modal is non-dismissable — the user has to sign in.
+    // The pending state is also non-dismissable so the user can't bail out
+    // mid-verification (the rejection result would then have nowhere to go).
+    if (forced || pending) return;
     try {
       localStorage.removeItem('bind_flow_active');
       localStorage.removeItem('bind_oauth_pending');
+      localStorage.removeItem('gate_oauth_pending');
+      localStorage.removeItem('bind_oauth_email_mode');
     } catch {}
     onClose?.();
   };
@@ -221,7 +272,9 @@ export default function LoginPromptModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close button (top-right) */}
+        {/* Close button (top-right) — omitted while the modal is forced or
+            still verifying the OAuth round-trip. */}
+        {!forced && !pending && (
         <button
           type="button"
           onClick={handleClose}
@@ -233,6 +286,7 @@ export default function LoginPromptModal({
             <path d="M2 2 L12 12 M12 2 L2 12" stroke="#333" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
+        )}
 
         {/* Title — reflects which entry point opened the modal: "Sign up" for
             the signup flow, "Sign in" for the login flow. Falls back to the
@@ -248,7 +302,40 @@ export default function LoginPromptModal({
               : t.saveProgressTitle}
         </p>
 
-        {bindError ? (
+        {/* Subtitle — always visible. Pending and error states keep this
+            line so the popup's identity (title + subtitle) doesn't flicker
+            as the modal transitions between states. */}
+        <p style={{
+          fontSize: 13, color: '#000', textAlign: 'center',
+          marginTop: 8, lineHeight: 1.4, opacity: 0.7,
+        }}>
+          {t.saveProgressSubtitle}
+        </p>
+
+        {pending ? (
+          <>
+            {/* "Checking your account…" placeholder shown immediately on
+                OAuth return so the rejection (if any) never feels delayed. */}
+            <div style={{ flex: 1, minHeight: 24 }} />
+            <div
+              style={{
+                width: 32, height: 32,
+                border: '3px solid rgba(0,0,0,0.15)',
+                borderTopColor: '#000',
+                borderRadius: '50%',
+                animation: 'spin 0.9s linear infinite',
+              }}
+            />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <p style={{
+              fontSize: 13, color: '#000', textAlign: 'center',
+              marginTop: 14, opacity: 0.7,
+            }}>
+              {t.bindVerifying || t.translating || '…'}
+            </p>
+            <div style={{ flex: 1, minHeight: 24 }} />
+          </>
+        ) : bindError ? (
           <>
             {/* Error view — shown after OAuth bind was rejected because the
                 target account already has cloud progress. Replaces the auth
@@ -280,14 +367,6 @@ export default function LoginPromptModal({
           </>
         ) : (
           <>
-            {/* Subtitle */}
-            <p style={{
-              fontSize: 13, color: '#000', textAlign: 'center',
-              marginTop: 8, lineHeight: 1.4, opacity: 0.7,
-            }}>
-              {t.saveProgressSubtitle}
-            </p>
-
             {/* Top spacer — pairs with the spacer below the social row so the
                 3 login buttons sit at the vertical middle of the popup. */}
             <div style={{ flex: 1, minHeight: 20 }} />
