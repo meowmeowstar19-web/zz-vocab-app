@@ -32,7 +32,12 @@ export function migrateProgressToTargetOnly() {
 // would immediately trip the gate (count >= 4 → blocked from word #1).
 // Wiping the per-day gate buckets once gives every device a clean slate.
 export function migrateClearStaleGateWords() {
-  if (localStorage.getItem('vocab_gate_words_v2_cleared')) return;
+  // v3 bump: an earlier boot-race let logged-in users (with React state
+  // briefly showing `session=null` before supabase resolved) bump the
+  // guest's gate_words counter. handleWordViewed now waits for `authReady`,
+  // but devices that ran the buggy code today still carry stale entries
+  // that pre-date the fix. One more wipe gives every device a clean slate.
+  if (localStorage.getItem('vocab_gate_words_v3_cleared')) return;
   try {
     const toRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -43,7 +48,7 @@ export function migrateClearStaleGateWords() {
     }
     for (const k of toRemove) localStorage.removeItem(k);
   } catch {}
-  localStorage.setItem('vocab_gate_words_v2_cleared', 'true');
+  localStorage.setItem('vocab_gate_words_v3_cleared', 'true');
 }
 
 // Migrate from device-global keys (`vocab_kids_progress_${target}`) into the

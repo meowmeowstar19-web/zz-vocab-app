@@ -97,6 +97,12 @@ function defaultTargetFor(native) {
 export default function App() {
   const posthog = usePostHog();
   const [session, setSession] = useState(null);
+  // True once supabase.auth.getSession() has resolved. Before this resolves,
+  // `session` is null even for real logged-in users — so handleWordViewed
+  // would treat them as guests and pollute `gate_words_${today}`. Logged-in
+  // pollution then surfaces as the gate firing on the 3rd word (or
+  // immediately on guest entry) for the SAME device after a sign-out.
+  const [authReady, setAuthReady] = useState(false);
   // Device-based "already onboarded" check: once the user has picked their
   // native+target language (which writes app_native) AND hasn't explicitly
   // logged out, they enter the app as a guest on every subsequent visit
@@ -237,6 +243,32 @@ export default function App() {
     };
   }, []);
 
+  // Global one-shot audio primer. iOS Safari keeps the audio context
+  // suspended until a user gesture resumes it; after an OAuth round-trip
+  // (or any other page reload that arrives mid-session) the gesture that
+  // launched the sign-in is gone, and the first word's auto-speak silently
+  // fails. Capture the very next pointerdown anywhere in the document,
+  // prime audio inside that gesture, and detach. handleCheckin /
+  // handleLogin / install-hint button already prime in their own gesture
+  // handlers — this is purely the fallback for everything else (OAuth
+  // return, email login submit, etc.).
+  useEffect(() => {
+    let primed = false;
+    const onGesture = () => {
+      if (primed) return;
+      primed = true;
+      primeAudio();
+      document.removeEventListener('pointerdown', onGesture, true);
+      document.removeEventListener('keydown', onGesture, true);
+    };
+    document.addEventListener('pointerdown', onGesture, true);
+    document.addEventListener('keydown', onGesture, true);
+    return () => {
+      document.removeEventListener('pointerdown', onGesture, true);
+      document.removeEventListener('keydown', onGesture, true);
+    };
+  }, []);
+
   useEffect(() => {
     const update = () => {
       setNavH(window.innerHeight < 833 ? 52 : 57);
@@ -360,6 +392,7 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      setAuthReady(true);
       bumpLoginDay(data.session?.user?.id);
       if (data.session?.user) {
         posthog?.identify(data.session.user.id, {
@@ -568,6 +601,11 @@ export default function App() {
   const showCheckinInstallHint = !pwaInstalled && installAvailable;
 
   const handleTabClick = (tab) => {
+    // Tab click is a user gesture — prime audio so subsequent auto-speaks
+    // play on iOS Safari (the global one-shot primer may have already run,
+    // but the cost of calling it again is negligible and it's a no-op once
+    // primed).
+    primeAudio();
     posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
     if (reviewMode) setReviewMode(false);
     setPage(tab);
@@ -591,6 +629,22 @@ export default function App() {
     try { localStorage.setItem('app_logged_in', 'true'); } catch {}
     try { localStorage.removeItem('app_logged_out'); } catch {}
     try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
+    // Clear any leftover gate / oauth-pending state so re-entering guest
+    // mode doesn't immediately pop the LoginPromptModal. `showLoginGate`
+    // can survive across re-entry (no remount happens between sign-out and
+    // re-entry — App stays mounted), and stale `*_oauth_pending` flags from
+    // an interrupted earlier flow would make the gate's useState initializer
+    // start true on the next reload.
+    try { localStorage.removeItem('gate_oauth_pending'); } catch {}
+    try { localStorage.removeItem('bind_oauth_pending'); } catch {}
+    setShowLoginGate(false);
+    setGateModalError('');
+    setSettingsBindPending(false);
+    setGateBindPending(false);
+    // Unlock audio inside this user gesture — without it, the auto-speak on
+    // the first word after login is silent on iOS Safari (the audio context
+    // stays suspended until any subsequent user gesture).
+    primeAudio();
     setIsGuest(true);
     setPage('learn');
     setReviewMode(false);
@@ -624,6 +678,16 @@ export default function App() {
   // re-engages tomorrow when the day rolls over).
   const handleWordViewed = (wordId) => {
     if (!wordId) return;
+    // Wait for supabase.auth.getSession() to resolve before counting. At
+    // boot, `session` is null even for real logged-in users (the device
+    // already has a supabase session that hasn't been hydrated into React
+    // state yet). Counting in that window would pollute `gate_words_${date}`
+    // with the logged-in user's word views; later when they switch to guest
+    // mode on the same day, the gate fires after only 1-2 words. This was
+    // the "gate fires on 3rd word" / "gate fires immediately on guest entry"
+    // bug that kept regressing — each fix patched a different symptom while
+    // this boot-race remained the underlying source of pollution.
+    if (!authReady) return;
     // Logged-in users + WeChat in-app browser users bypass entirely. Do NOT
     // touch `gate_words_${date}` for them — that counter is exclusive to the
     // guest gate. Letting logged-in usage write to it meant the guest's
@@ -649,6 +713,10 @@ export default function App() {
   // true otherwise so the page proceeds normally. Wired so the user never
   // sees their answer register + the next word advance behind the gate.
   const requestNextWord = () => {
+    // Same auth-resolved guard as handleWordViewed: until we know whether
+    // the user has a real session, treat the click as allowed and let the
+    // gate decide once authReady flips true.
+    if (!authReady) return true;
     if (session || IS_WECHAT) return true;
     if (getGateWordIds().length >= GATE_DAILY_LIMIT) {
       setShowLoginGate(true);
@@ -667,6 +735,10 @@ export default function App() {
   };
 
   const handleLangSetupComplete = ({ native, target }) => {
+    // Lang-setup completion is a user gesture (click on the Confirm button).
+    // Prime audio inside the gesture so the first word's auto-speak plays on
+    // iOS Safari when the user drops straight into Learn.
+    primeAudio();
     setNativeLang(native);
     setTargetLang(target);
     localStorage.setItem('app_native', native);

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { syncOnLogin } from '../utils/progressSync';
+import { primeAudio } from '../hooks/useAudio';
 
 // `bindFlow` (passed in from LoginPromptModal) flips this page from "normal
 // first-time login" to "guest is binding onto a real account". In bind mode,
@@ -167,6 +168,11 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Form submit is a user gesture — prime audio so the first word's
+    // auto-speak plays on iOS Safari after the user drops into Learn.
+    // Subsequent auth-state-change handlers run async, outside the gesture
+    // window, where priming no longer works.
+    primeAudio();
 
     if (mode === 'verify') {
       return handleVerifyCode();

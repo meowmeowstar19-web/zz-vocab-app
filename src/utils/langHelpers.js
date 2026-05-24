@@ -210,7 +210,7 @@ export const UI_TEXT = {
     saveProgressSubtitle: '保存你的学习进度',
     signupTitle: '注册',
     loginTitle: '登录',
-    bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦~',
+    bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦',
     // Daily check-in popup
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
