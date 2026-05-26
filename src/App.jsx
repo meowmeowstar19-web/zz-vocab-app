@@ -5,7 +5,7 @@ import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
-import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount, getGateWordIds, addGateWord } from './utils/storage';
+import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
@@ -15,14 +15,27 @@ import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
 import { usePostHog } from '@posthog/react';
 
-// Free quota before the guest daily login gate trips. Users want the gate
-// to fire WHEN they're studying the 5th word — meaning they get to fully
-// interact with words 1-4 (view + answer) and the gate appears on word 5's
-// answer click. With the gate using `count >= GATE_DAILY_LIMIT`, the click
-// gating naturally hits after `GATE_DAILY_LIMIT` words have been counted —
-// so this value is the number of distinct words the user successfully
-// answers before being prompted, not the cap minus one.
-const GATE_DAILY_LIMIT = 5;
+// Free quota before the guest login gate trips. Counted as distinct words
+// the guest has LEARNED (entries in their per-uid progress slot), not as
+// distinct words touched today. So the limit is "5 free learned words per
+// guest account, ever" — not "5 per calendar day". This matches the user's
+// promise: a guest gets to fully learn 5 words before being asked to bind.
+const GATE_FREE_LIMIT = 5;
+
+// Count distinct learned words in this scope's per-uid progress slot, across
+// all target langs. Cheap (3 localStorage reads). Source of truth for the
+// gate — same data the word list shows.
+function countLearnedWords(scope) {
+  if (!scope) return 0;
+  let count = 0;
+  for (const t of ['en', 'ja', 'zh']) {
+    try {
+      const p = JSON.parse(localStorage.getItem(`vocab_kids_progress_${scope}_${t}`) || '{}');
+      count += Object.keys(p).length;
+    } catch {}
+  }
+  return count;
+}
 const IS_WECHAT = isWeChatBrowser();
 
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
@@ -131,8 +144,9 @@ export default function App() {
   // First-time visitors with no language picked land on LanguageSetupPage.
   // Existing users (app_native set) skip it.
   const [needsLangSetup, setNeedsLangSetup] = useState(() => !localStorage.getItem('app_native'));
-  // 5-word/day gate: when a guest has touched GATE_DAILY_LIMIT distinct words
-  // today and tries to view another one, we show a forced LoginPromptModal.
+  // 5-free-word gate: when a guest has learned GATE_FREE_LIMIT distinct
+  // words (lifetime, per anon uid) and tries to advance, we show a forced
+  // LoginPromptModal.
   // WeChat in-app browser users are exempt (OAuth doesn't reliably work
   // there). Logged-in users are also exempt.
   //
@@ -767,58 +781,24 @@ export default function App() {
     if (session) await supabase.auth.signOut();
   };
 
-  // Called by LearningPage every time it presents a new word (learn or
-  // review). For guests outside WeChat, this is the choke point that fires
-  // the login modal once they've touched GATE_DAILY_LIMIT distinct words
-  // today. Once the user dismisses the gate, we set a per-day flag so they
-  // can keep studying for the rest of the day without re-prompting (the gate
-  // re-engages tomorrow when the day rolls over).
-  const handleWordViewed = (wordId) => {
-    if (!wordId) return;
-    // Wait for supabase.auth.getSession() to resolve before counting. At
-    // boot, `session` is null even for real logged-in users (the device
-    // already has a supabase session that hasn't been hydrated into React
-    // state yet). Counting in that window would pollute `gate_words_${date}`
-    // with the logged-in user's word views; later when they switch to guest
-    // mode on the same day, the gate fires after only 1-2 words. This was
-    // the "gate fires on 3rd word" / "gate fires immediately on guest entry"
-    // bug that kept regressing — each fix patched a different symptom while
-    // this boot-race remained the underlying source of pollution.
-    if (!authReady) return;
-    // Logged-in users + WeChat in-app browser users bypass entirely. Do NOT
-    // touch `gate_words_${date}` for them — that counter is exclusive to the
-    // guest gate. Letting logged-in usage write to it meant the guest's
-    // first word after logout could see a count of 4+ from the prior
-    // signed-in session and trip the gate immediately. Anonymous sessions
-    // (introduced in Step 1 of the refactor) ARE guests, so they must keep
-    // hitting the counter — the bypass is for non-anonymous sessions only.
-    if ((session && !session.user.is_anonymous) || IS_WECHAT) return;
-    const today = getGateWordIds();
-    if (today.includes(wordId)) return; // already counted
-    // Only RECORD the word here; the gate itself is fired from
-    // `requestNextWord` (click handler), never from this display-time
-    // callback. Without this rule, a guest re-entering after a previous
-    // session that already accumulated the day's limit would see the gate
-    // pop the instant the first word painted — before they could read it,
-    // hear it, or look at the image. The click-only trigger lets them
-    // study the current card; the gate appears the moment they try to
-    // advance past it.
-    addGateWord(wordId);
-  };
+  // Called by LearningPage every time it presents a new word. Pre-refactor
+  // this bumped a per-day `gate_words_${date}` bucket; that turned out to be
+  // the wrong semantics — users expect "5 free learned words" not "5 per
+  // calendar day". The gate now derives its count from the per-uid progress
+  // slot (the same data the word list reads), so there's nothing to record
+  // here. Kept as a prop for LearningPage's API stability; intentional no-op.
+  const handleWordViewed = () => {};
 
   // Called by LearningPage BEFORE it processes an answer click / skip /
-  // Got-it tap. Returns false if a guest is past today's word limit — in
-  // which case the gate modal pops and the answer is discarded. Returns
-  // true otherwise so the page proceeds normally. Wired so the user never
-  // sees their answer register + the next word advance behind the gate.
+  // Got-it tap. Returns false when the guest has reached the free quota —
+  // gate modal pops, the answer is discarded. Returns true otherwise.
+  // Wired so the user never sees their answer register + the next word
+  // advance behind the gate. Count comes from `countLearnedWords(userScope)`
+  // which reads the per-uid progress slot the user's word list already shows.
   const requestNextWord = () => {
-    // Same auth-resolved guard as handleWordViewed: until we know whether
-    // the user has a real session, treat the click as allowed and let the
-    // gate decide once authReady flips true. Anonymous sessions are guests
-    // (Step 1 of the refactor) — only non-anonymous sessions bypass.
     if (!authReady) return true;
     if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
-    if (getGateWordIds().length >= GATE_DAILY_LIMIT) {
+    if (countLearnedWords(userScope) >= GATE_FREE_LIMIT) {
       setShowLoginGate(true);
       return false;
     }
