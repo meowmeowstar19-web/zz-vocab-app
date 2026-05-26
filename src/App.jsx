@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useReducer } from 'react';
 import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
@@ -144,6 +144,84 @@ function consumeBindPendingSurface() {
   return surface;
 }
 
+// Step 4: single source of truth for the LoginPromptModal. Replaces the
+// six separate flags from Step 2/3 (showLoginGate, gateBindPending,
+// settingsBindPending, gateModalError, bindModalError, plus SettingsPage's
+// own showLoginPrompt). Having one state object — and ONE modal instance
+// rendered in App below — makes "stacked popups on Settings" structurally
+// impossible (mechanism 3 in the OAuth land-mine map) and keeps the four
+// observable modal fields in lockstep.
+//
+// Shape:
+//   open      — whether the modal is rendered
+//   surface   — which UI launched it: 'gate' (5-word gate on Learn) or
+//               'settings' (Sign up / Log in from the Settings tab). Drives
+//               oauthLandingPage for the OAuth round-trip + which page App
+//               routes to on a bind rejection.
+//   flowType  — 'bind' (attach to current guest) or 'login' (plain sign-in,
+//               discards guest data). Settings's "Log in" link uses 'login';
+//               everything else is 'bind'.
+//   emailMode — pre-selected mode for the Email sub-form: 'signup' or 'login'.
+//   pending   — modal shows "checking your account…" while a post-OAuth bind
+//               round-trip is being resolved (true between mount-time hydration
+//               from a *_oauth_pending flag and runSyncOrReject completing).
+//   error     — rejection message inline inside the modal; suppresses pending.
+function loginModalReducer(state, action) {
+  switch (action.type) {
+    case 'open':
+      // Opening from a fresh user gesture (gate fires, user clicks Sign up).
+      // Always clears any leftover pending/error from a prior round.
+      return {
+        open: true,
+        surface: action.surface,
+        flowType: action.flowType || 'bind',
+        emailMode: action.emailMode || 'signup',
+        pending: false,
+        error: '',
+      };
+    case 'reject':
+      // Bind rejected (account already has cloud progress, or linkIdentity's
+      // identity_already_exists). Force the modal back open on the launching
+      // surface with the inline error view. Keeps flowType / emailMode so the
+      // title still reads "Sign up" when the rejected flow started that way.
+      return {
+        ...state,
+        open: true,
+        surface: action.surface,
+        pending: false,
+        error: action.error,
+      };
+    case 'authFailed':
+      // Sync error from linkIdentity / signInAnonymously (no redirect, no
+      // auth state event will fire). Drop pending so the modal exits its
+      // spinner and the user can retry / close.
+      return { ...state, pending: false };
+    case 'close':
+      return { ...state, open: false, pending: false, error: '' };
+    default:
+      return state;
+  }
+}
+
+// Hydrate the modal from a *_oauth_pending flag at mount — the OAuth round-trip
+// fully reloads the app, so persistent flags are the only way to know we're
+// returning mid-bind and should reopen in pending state.
+function initialLoginModal() {
+  try {
+    const persistedEmailMode = (() => {
+      const p = localStorage.getItem('bind_oauth_email_mode');
+      return (p === 'signup' || p === 'login') ? p : 'signup';
+    })();
+    if (localStorage.getItem('gate_oauth_pending') === '1') {
+      return { open: true, surface: 'gate', flowType: 'bind', emailMode: 'signup', pending: true, error: '' };
+    }
+    if (localStorage.getItem('bind_oauth_pending') === '1') {
+      return { open: true, surface: 'settings', flowType: 'bind', emailMode: persistedEmailMode, pending: true, error: '' };
+    }
+  } catch {}
+  return { open: false, surface: 'settings', flowType: 'bind', emailMode: 'signup', pending: false, error: '' };
+}
+
 export default function App() {
   const posthog = usePostHog();
   const [session, setSession] = useState(null);
@@ -178,41 +256,24 @@ export default function App() {
   const [needsLangSetup, setNeedsLangSetup] = useState(() => !localStorage.getItem('app_native'));
   // 5-free-word gate: when a guest has learned GATE_FREE_LIMIT distinct
   // words (lifetime, per anon uid) and tries to advance, we show a forced
-  // LoginPromptModal.
-  // WeChat in-app browser users are exempt (OAuth doesn't reliably work
-  // there). Logged-in users are also exempt.
+  // LoginPromptModal. WeChat in-app browser users are exempt (OAuth doesn't
+  // reliably work there). Logged-in users are also exempt.
   //
-  // Initial state: if we're coming back from an OAuth round-trip that was
-  // initiated from the gate (gate_oauth_pending = 1), the gate modal should
-  // re-open on Learn in pending state so the rejection — if any — can land
-  // back inside it rather than getting routed to Settings.
-  const [showLoginGate, setShowLoginGate] = useState(() => {
-    try { return localStorage.getItem('gate_oauth_pending') === '1'; }
-    catch { return false; }
-  });
-  // Rejection error to surface inside the gate modal when a gate-initiated
-  // OAuth bind hits the "account already in use" path. Settings-initiated
-  // binds use `bindModalError` and route to Settings; gate-initiated binds
-  // stay on Learn and use this state instead.
-  const [gateModalError, setGateModalError] = useState('');
-  // When we return from a Google/Discord OAuth bind, one of two flags is set
-  // depending on which surface launched it:
-  //   - `bind_oauth_pending` (Settings "Sign up / Log in" pill) → land on
-  //     Settings so its LoginPromptModal can show the success or rejection.
-  //   - `gate_oauth_pending` (5-word/day gate on Learn) → land on Learn so
-  //     the gate modal stays open and can host the rejection inline.
-  // Tracked separately so each surface only sees its own pending state.
-  const [settingsBindPending, setSettingsBindPending] = useState(() => {
-    try { return localStorage.getItem('bind_oauth_pending') === '1'; }
-    catch { return false; }
-  });
-  const [gateBindPending, setGateBindPending] = useState(() => {
-    try { return localStorage.getItem('gate_oauth_pending') === '1'; }
-    catch { return false; }
-  });
-  // Either-or convenience flag for guards that apply to both surfaces
-  // (needsLangSetup suppression, check-in suppression).
-  const bindOAuthPending = settingsBindPending || gateBindPending;
+  // Modal state lives in this single reducer (Step 4). See loginModalReducer
+  // for the shape + transitions. Initial state hydrates from
+  // *_oauth_pending localStorage so an in-flight OAuth round-trip resumes
+  // in pending state on the post-redirect mount.
+  const [loginModal, dispatchLoginModal] = useReducer(loginModalReducer, undefined, initialLoginModal);
+  // Convenience flag for guards that apply whenever a bind round-trip is
+  // resolving (needsLangSetup suppression, check-in suppression, SettingsPage
+  // applyUser skip).
+  const bindOAuthPending = loginModal.pending;
+  // True while the initial cloud→local merge (`syncOnLogin`) is running for
+  // a real, non-anon session. The check-in popup is gated on this so it
+  // doesn't paint "第1天" using the local-only count that bumpLoginDay just
+  // wrote — the popup waits until syncOnLogin has merged in the historical
+  // cloud days, then renders the correct total.
+  const [syncInFlight, setSyncInFlight] = useState(false);
   const [page, setPage] = useState(() => {
     try {
       // gate_oauth_pending lands back on Learn (the gate was triggered while
@@ -242,10 +303,6 @@ export default function App() {
   // Shown when the user tried to bind from guest mode onto an account that
   // already has cloud progress. Toast message; null = hidden.
   const [bindToast, setBindToast] = useState(null);
-  // Counterpart for OAuth bind rejection: pushed into SettingsPage so the
-  // LoginPromptModal reopens with the error inline instead of routing through
-  // a global toast on the Learn page.
-  const [bindModalError, setBindModalError] = useState('');
   // Whether the PWA is already installed — hides the "add to home screen" hint
   // inside the check-in popup. Initial sync check covers all browsers when
   // running in standalone mode; the async getInstalledRelatedApps probe below
@@ -351,6 +408,7 @@ export default function App() {
     try {
       if (localStorage.getItem('bind_inline_active') === '1') return;
     } catch {}
+    let rejected = false;
     // Read the bind context flags up-front. syncOnLogin no longer clears
     // `bind_flow_active` on rejection — it stays set so any delayed parallel
     // call (INITIAL_SESSION waiting on supabase's internal lock can arrive
@@ -377,6 +435,10 @@ export default function App() {
       catch { return false; }
     })();
     const wasOAuthPending = wasGateOAuth || wasSettingsOAuth;
+    // Flip BEFORE awaiting so the check-in useEffect — which is about to
+    // re-run on the same tick because `session` just changed — sees the
+    // sync-in-flight state and defers the popup until merge completes.
+    setSyncInFlight(true);
     try {
       const result = await syncOnLogin(uid);
       // Pick up any language preferences restored from the cloud snapshot so
@@ -395,8 +457,7 @@ export default function App() {
         } catch {}
       }
       if (result?.rejected) {
-        const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
-          || 'This account already has progress. Please try a different one.';
+        rejected = true;
         await supabase.auth.signOut();
         // Now that we've fully handled the rejection (signed out, no more
         // syncOnLogin calls can fire for this uid), clear the bind flag so a
@@ -410,14 +471,7 @@ export default function App() {
         // Gate-initiated binds (user was studying when the 5-word gate fired)
         // stay on Learn — the gate modal reopens with the rejection inline.
         // Settings-initiated binds route to Settings as before.
-        if (wasGateOAuth) {
-          setGateModalError(msg);
-          setShowLoginGate(true);
-        } else {
-          setBindModalError(msg);
-          setPage('settings');
-        }
-        posthog?.capture('bind_account_rejected', { reason: result.reason });
+        routeBindRejection(wasGateOAuth ? 'gate' : 'settings', { reason: result.reason });
       } else if (wasBindFlow && uid) {
         // Successful bind. The guest already picked native/target while in test
         // mode (those live in localStorage under app_native/app_target, which
@@ -432,36 +486,37 @@ export default function App() {
         posthog?.capture('bind_account_success');
       }
     } finally {
-      // Only clear after routing — see comment above. Also flip the React
-      // state copy so the check-in useEffect re-runs and can fire on
-      // successful bind (after we stop suppressing it).
+      // Only clear after routing — see comment above. The reducer is the
+      // single source of truth for pending state; the rejection branch
+      // already dispatched 'reject' (which flips pending → false and surfaces
+      // the inline error). The success branch needs to close the pending
+      // modal here so a clean bind exits the spinner.
       try {
         localStorage.removeItem('bind_oauth_pending');
         localStorage.removeItem('gate_oauth_pending');
       } catch {}
-      if (wasOAuthPending) {
-        setSettingsBindPending(false);
-        setGateBindPending(false);
+      // On rejection the body already dispatched 'reject' (which opens the
+      // inline error view); do NOT clobber that with 'close' here.
+      if (!rejected && wasOAuthPending) {
+        dispatchLoginModal({ type: 'close' });
       }
+      // Release the check-in gate — at this point local login_days has been
+      // merged with the cloud snapshot, so getLoginDayCount reports the full
+      // historical total.
+      setSyncInFlight(false);
     }
   };
 
   // Sends a bind rejection back to the surface that launched it: the gate
   // modal reopens with its inline error view, the Settings modal does the
-  // same via bindModalError. Used by both the linkIdentity OAuth-error path
-  // (URL hash) and runSyncOrReject's cloud-progress conflict path.
+  // same — both routed through the single LoginPromptModal instance. Used by
+  // both the linkIdentity OAuth-error path (URL hash) and runSyncOrReject's
+  // cloud-progress conflict path.
   const routeBindRejection = (surface, reason) => {
     const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
       || 'This account already has progress. Please try a different one.';
-    setSettingsBindPending(false);
-    setGateBindPending(false);
-    if (surface === 'gate') {
-      setGateModalError(msg);
-      setShowLoginGate(true);
-    } else {
-      setBindModalError(msg);
-      setPage('settings');
-    }
+    dispatchLoginModal({ type: 'reject', surface, error: msg });
+    if (surface === 'settings') setPage('settings');
     posthog?.capture('bind_rejected', { surface, ...(reason || {}) });
   };
 
@@ -504,13 +559,10 @@ export default function App() {
           // it, so the modal exits its "verifying…" spinner instead of
           // hanging forever on every subsequent visit to this origin.
           if (!oauthError && consumeBindPendingSurface()) {
-            setSettingsBindPending(false);
-            setGateBindPending(false);
-            // showLoginGate's initializer also reads gate_oauth_pending, so
-            // the gate modal would otherwise paint with the auth picker on
-            // every fresh load. Close it — the user can re-trigger the gate
-            // naturally if they hit the 5-word limit again.
-            setShowLoginGate(false);
+            // initialLoginModal hydrated to {open:true, pending:true} from
+            // the same flag; close it so the modal exits its "verifying…"
+            // spinner instead of hanging forever on every subsequent visit.
+            dispatchLoginModal({ type: 'close' });
           }
         }
         // Pull cloud progress, merge with local, push the union back up.
@@ -540,8 +592,7 @@ export default function App() {
             localStorage.removeItem('bind_flow_active');
             localStorage.removeItem('bind_oauth_email_mode');
           } catch {}
-          setSettingsBindPending(false);
-          setGateBindPending(false);
+          dispatchLoginModal({ type: 'close' });
         }
       }
     });
@@ -625,17 +676,24 @@ export default function App() {
 
   // Close the 5-word forced-login gate as soon as we have a REAL (non-anon)
   // session AND the post-OAuth verification has finished. Skipping while
-  // gateBindPending is still true is what keeps the modal in its
-  // "verifying…" state during the brief window between session-arrival and
+  // loginModal.pending is true is what keeps the modal in its "verifying…"
+  // state during the brief window between session-arrival and
   // runSyncOrReject's rejection — without it the modal would flash closed
-  // and then reopen in error state. gateModalError also blocks closure so
+  // and then reopen in error state. loginModal.error also blocks closure so
   // the rejection message stays put. Step 1 of the refactor: anonymous
   // sessions are guests, so they must NOT auto-close the gate.
   useEffect(() => {
-    if (session && !session.user.is_anonymous && showLoginGate && !gateModalError && !gateBindPending) {
-      setShowLoginGate(false);
+    if (
+      session
+      && !session.user.is_anonymous
+      && loginModal.open
+      && loginModal.surface === 'gate'
+      && !loginModal.error
+      && !loginModal.pending
+    ) {
+      dispatchLoginModal({ type: 'close' });
     }
-  }, [session, showLoginGate, gateModalError, gateBindPending]);
+  }, [session, loginModal.open, loginModal.surface, loginModal.error, loginModal.pending]);
 
   // Auto-dismiss the bind-rejected toast after a few seconds.
   useEffect(() => {
@@ -720,7 +778,7 @@ export default function App() {
     // Suppression during an in-flight OAuth bind round-trip still applies —
     // we don't want a brief picker flash on top of Settings while the bind
     // is verifying.
-    if (bindOAuthPending || bindModalError) {
+    if (bindOAuthPending || loginModal.error) {
       setNeedsLangSetup(false);
       return;
     }
@@ -735,7 +793,7 @@ export default function App() {
       return;
     }
     setNeedsLangSetup(!localStorage.getItem('app_native'));
-  }, [isLoggedIn, session, isGuest, bindOAuthPending, bindModalError]);
+  }, [isLoggedIn, session, isGuest, bindOAuthPending, loginModal.error]);
 
   // Daily check-in popup: show once per local-calendar day after the user is
   // past login + language setup. bumpLoginDay has already added today's date.
@@ -749,12 +807,21 @@ export default function App() {
     // Settings modal. Without this guard the user gets a check-in popup on
     // the Learn page *before* we route them to Settings to see the error.
     if (bindOAuthPending) return;
-    if (bindModalError) return;
-    const uid = session?.user?.id;
+    if (loginModal.error) return;
+    // Guests + anonymous Supabase sessions don't see the check-in popup —
+    // the cumulative-day count is only meaningful for real (cloud-synced)
+    // accounts. Guests learn straight away; the popup appears only after
+    // they bind into a real account.
+    if (!session || session.user.is_anonymous) return;
+    // Wait for the initial cloud sync to finish — otherwise getLoginDayCount
+    // reads only `[today]` (what bumpLoginDay just wrote) and paints "第1天"
+    // even for accounts with a long history on other devices.
+    if (syncInFlight) return;
+    const uid = session.user.id;
     if (shouldShowCheckin(uid)) {
       setCheckinDay(getLoginDayCount(uid));
     }
-  }, [isLoggedIn, needsLangSetup, session, pwaInstalled, bindModalError, bindOAuthPending]);
+  }, [isLoggedIn, needsLangSetup, session, pwaInstalled, loginModal.error, bindOAuthPending, syncInFlight]);
 
   const handleCheckin = () => {
     // Unlock audio *inside* the click gesture — iOS Safari requires this for
@@ -816,17 +883,14 @@ export default function App() {
     try { localStorage.removeItem('app_logged_out'); } catch {}
     try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
     // Clear any leftover gate / oauth-pending state so re-entering guest
-    // mode doesn't immediately pop the LoginPromptModal. `showLoginGate`
-    // can survive across re-entry (no remount happens between sign-out and
+    // mode doesn't immediately pop the LoginPromptModal. The modal can
+    // survive across re-entry (no remount happens between sign-out and
     // re-entry — App stays mounted), and stale `*_oauth_pending` flags from
-    // an interrupted earlier flow would make the gate's useState initializer
-    // start true on the next reload.
+    // an interrupted earlier flow would make initialLoginModal start it
+    // open + pending on the next reload.
     try { localStorage.removeItem('gate_oauth_pending'); } catch {}
     try { localStorage.removeItem('bind_oauth_pending'); } catch {}
-    setShowLoginGate(false);
-    setGateModalError('');
-    setSettingsBindPending(false);
-    setGateBindPending(false);
+    dispatchLoginModal({ type: 'close' });
     // Unlock audio inside this user gesture — without it, the auto-speak on
     // the first word after login is silent on iOS Safari (the audio context
     // stays suspended until any subsequent user gesture).
@@ -886,19 +950,17 @@ export default function App() {
     if (!authReady) return true;
     if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
     if (countLearnedWords(userScope) >= GATE_FREE_LIMIT) {
-      setShowLoginGate(true);
+      dispatchLoginModal({ type: 'open', surface: 'gate', flowType: 'bind', emailMode: 'signup' });
       return false;
     }
     return true;
   };
 
   const handleGateDismiss = () => {
-    // Just close the modal. The next requestNextWord / handleWordViewed
-    // call past the daily limit will re-open it — there's no per-day
-    // suppression anymore. Also clear any rejection error so a re-open
-    // from a different attempt starts fresh.
-    setShowLoginGate(false);
-    setGateModalError('');
+    // Just close the modal. The next requestNextWord call past the limit
+    // will re-open it — there's no per-day suppression anymore. Reducer's
+    // 'close' also clears any rejection error so a re-open starts fresh.
+    dispatchLoginModal({ type: 'close' });
   };
 
   const handleLangSetupComplete = ({ native, target }) => {
@@ -991,7 +1053,7 @@ export default function App() {
               onCategoryChange={handleCategoryChange}
               contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
               onLevelChange={handleLevelChange}
-              isVisible={(page === 'learn' || reviewMode) && checkinDay == null && !showLoginGate}
+              isVisible={(page === 'learn' || reviewMode) && checkinDay == null && !(loginModal.open && loginModal.surface === 'gate')}
               onCategoryModalChange={setCategoryModalOpen}
               onWordViewed={handleWordViewed}
               requestNextWord={requestNextWord}
@@ -1014,12 +1076,14 @@ export default function App() {
               onLogout={handleLogout}
               onInstallClick={openInstall}
               pwaInstalled={pwaInstalled}
-              bindModalError={bindModalError}
-              onBindModalErrorConsumed={() => setBindModalError('')}
-              bindOAuthPending={settingsBindPending}
-              onAuthFailed={() => {
-                setSettingsBindPending(false);
-                try { localStorage.removeItem('bind_oauth_pending'); } catch {}
+              // Settings's Sign-up / Log-in entries route through App so the
+              // single LoginPromptModal instance (below) can render them. The
+              // bindOAuthPending prop still gates SettingsPage's applyUser
+              // fetch — needed to avoid flashing the wrong identity while a
+              // bind round-trip is resolving.
+              bindOAuthPending={loginModal.pending && loginModal.surface === 'settings'}
+              onOpenLoginPrompt={({ flowType, emailMode }) => {
+                dispatchLoginModal({ type: 'open', surface: 'settings', flowType, emailMode });
               }}
             />
           </div>
@@ -1158,40 +1222,43 @@ export default function App() {
             popup link and the Settings button share one modal. */}
         {installModalNode}
 
-        {/* 5-word/day login gate — fires for guests outside WeChat who try
-            to view their 6th distinct word in a calendar day. Dismissable
-            via the X button so the user isn't trapped; dismissing sets a
-            sessionStorage flag that suppresses the gate for the rest of
-            this tab session. A page refresh re-engages the gate (the daily
-            count lives in localStorage, which survives refresh).
+        {/* Single LoginPromptModal instance (Step 4). The reducer state owns
+            whether/which-surface to render; both the 5-word gate (Learn) and
+            the Settings Sign-up / Log-in entries route through here. One
+            instance = no stacked-popup class of bug, regardless of which
+            surface launched the round-trip.
 
-            Gated on `page === 'learn'`: SettingsPage owns its own
-            LoginPromptModal for the Settings Sign-up flow. Without this
-            guard, a stale `gate_oauth_pending` flag could leave
-            `showLoginGate=true` while the user is also using the Settings
-            modal — both LoginPromptModals would render at once, producing
-            stacked popups on Settings. */}
-        {showLoginGate && (page === 'learn' || reviewMode) && (
+            For the gate surface, oauthLandingPage='learn' so the post-OAuth
+            redirect comes back to Learn; for Settings it lands on Settings.
+            handleGateDismiss / handleLogin / runSyncOrReject all dispatch
+            'close' to take the modal down. */}
+        {loginModal.open && (
           <LoginPromptModal
             nativeLang={nativeLang}
-            initialEmailMode="signup"
-            flowType="bind"
-            oauthLandingPage="learn"
-            // Show "checking your account…" while a gate-initiated OAuth
-            // round-trip is still resolving. Flips off once App resolves
-            // it as either success (modal closes via session-update effect)
-            // or rejection (`gateModalError` is set and shown inline).
-            pending={gateBindPending && !gateModalError}
-            initialError={gateModalError}
-            onClose={handleGateDismiss}
-            onLoggedIn={() => { setShowLoginGate(false); setGateModalError(''); }}
+            initialEmailMode={loginModal.emailMode}
+            flowType={loginModal.flowType}
+            oauthLandingPage={loginModal.surface === 'gate' ? 'learn' : 'settings'}
+            // Show "checking your account…" while an OAuth round-trip is
+            // resolving. Flips off once runSyncOrReject finishes — success
+            // dispatches 'close', rejection dispatches 'reject' which clears
+            // pending and surfaces error inline.
+            pending={loginModal.pending && !loginModal.error}
+            initialError={loginModal.error}
+            onClose={() => {
+              // Gate surface uses handleGateDismiss semantics; Settings just
+              // closes. Both end up in the same 'close' dispatch.
+              dispatchLoginModal({ type: 'close' });
+            }}
+            onLoggedIn={() => dispatchLoginModal({ type: 'close' })}
             // linkIdentity errors synchronously when there's no session or
-            // when the identity is already attached elsewhere — reset the
-            // gate's pending React state so the modal exits its spinner
-            // state and the user can close it / retry.
+            // when the identity is already attached elsewhere — reset
+            // pending React state so the modal exits its spinner.
             onAuthFailed={() => {
-              setGateBindPending(false);
-              try { localStorage.removeItem('gate_oauth_pending'); } catch {}
+              dispatchLoginModal({ type: 'authFailed' });
+              try {
+                localStorage.removeItem('bind_oauth_pending');
+                localStorage.removeItem('gate_oauth_pending');
+              } catch {}
             }}
           />
         )}

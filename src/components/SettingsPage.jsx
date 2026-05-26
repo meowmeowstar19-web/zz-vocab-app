@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { usePostHog } from '@posthog/react';
-import LoginPromptModal from './LoginPromptModal';
 
 const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
@@ -55,7 +54,7 @@ function ChevronDown() {
   );
 }
 
-export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindModalError = '', onBindModalErrorConsumed, bindOAuthPending = false, onAuthFailed }) {
+export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindOAuthPending = false, onOpenLoginPrompt }) {
   const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
@@ -122,62 +121,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     }
   };
 
-  // Save-progress modal (shown to guest users in place of Exit Test Mode).
-  //
-  // No pre-emptive open here based on `bind_oauth_pending`. That flag only
-  // means "an OAuth bind is being resolved" — it does NOT predict the
-  // outcome. The earlier version assumed pending == rejection (and opened
-  // the modal in error state on mount), which wrongly showed the "account
-  // already exists" popup even for a successful bind to a brand-new account.
-  // Instead, App.jsx is the source of truth: only when runSyncOrReject
-  // decides rejection does it call `setBindModalError(msg)` and the effect
-  // below opens the modal. Successful binds leave the modal closed and the
-  // user lands on Settings with their newly linked account already populated.
-  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  // Pre-selects the Email form's mode if/when the user picks Email inside
-  // the modal. "Sign up" opens it as signup, "Log in" opens it as login.
-  // On mount, restore the mode from localStorage if we're coming back from
-  // an OAuth round-trip (which fully reloaded the app), so a rejected Sign up
-  // bind reopens the error modal with the correct "Sign up" title.
-  const [loginPromptEmailMode, setLoginPromptEmailMode] = useState(() => {
-    try {
-      const persisted = localStorage.getItem('bind_oauth_email_mode');
-      if (persisted === 'signup' || persisted === 'login') return persisted;
-    } catch {}
-    return 'login';
-  });
-  // 'bind' attaches the new auth to the current guest (and merges local
-  // progress into the account). 'login' is a plain sign-in — guest local data
-  // is dropped and the account's cloud snapshot takes over.
-  const [loginPromptFlowType, setLoginPromptFlowType] = useState('bind');
-  // bindModalError is consumed directly as the modal's initialError. No
-  // intermediate copy in local state — the previous design routed it through
-  // a separate `loginPromptError` slot, which added a render hop where
-  // neither pending nor error was true and the auth picker flashed briefly.
-  // Now the modal transitions straight from pending → error in one render.
-  useEffect(() => {
-    if (bindModalError) setShowLoginPrompt(true);
-  }, [bindModalError]);
-
-  // Open the LoginPromptModal immediately on OAuth return, before
-  // syncOnLogin has finished, so the user sees a "checking your account…"
-  // state right away — and any rejection slots into the same modal without
-  // a visible delay. If the bind succeeds, the modal stays empty (no error
-  // arrives) and closes itself once bindOAuthPending flips back to false.
-  useEffect(() => {
-    if (bindOAuthPending) setShowLoginPrompt(true);
-  }, [bindOAuthPending]);
-  // Track the prev value of bindOAuthPending so we only close on the true→
-  // false transition (not on initial mount where it was always false).
-  const prevPendingRef = useRef(bindOAuthPending);
-  useEffect(() => {
-    const prev = prevPendingRef.current;
-    prevPendingRef.current = bindOAuthPending;
-    if (prev && !bindOAuthPending && !bindModalError) {
-      // Successful bind round-trip — close the pending modal.
-      setShowLoginPrompt(false);
-    }
-  }, [bindOAuthPending, bindModalError]);
+  // Save-progress modal is now owned by App.jsx (single instance, Step 4).
+  // SettingsPage signals "user clicked Sign up / Log in" via the
+  // onOpenLoginPrompt callback. App reads its loginModal reducer to render
+  // the LoginPromptModal at App level — that removes the entire class of
+  // stacked-popup bugs and the pending/error state-pipeline that lived here.
 
   // Password binding state
   const [user, setUser] = useState(null);
@@ -700,11 +648,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           <>
             <div className="absolute flex justify-center" style={{ top: 453, left: 0, right: 0 }}>
               <button
-                onClick={() => {
-                  setLoginPromptEmailMode('signup');
-                  setLoginPromptFlowType('bind');
-                  setShowLoginPrompt(true);
-                }}
+                onClick={() => onOpenLoginPrompt?.({ flowType: 'bind', emailMode: 'signup' })}
                 className="active:scale-95 transition-transform"
                 style={{
                   minWidth: 138, height: 48,
@@ -730,11 +674,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               {t.hasAccountAlready || 'Already have an account? '}
               <button
                 type="button"
-                onClick={() => {
-                  setLoginPromptEmailMode('login');
-                  setLoginPromptFlowType('login');
-                  setShowLoginPrompt(true);
-                }}
+                onClick={() => onOpenLoginPrompt?.({ flowType: 'login', emailMode: 'login' })}
                 className="underline active:opacity-70"
                 style={{
                   background: 'transparent', border: 0, padding: 0, margin: 0,
@@ -1113,32 +1053,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         </div>
       )}
 
-      {/* Save-progress login modal (guest only) */}
-      {showLoginPrompt && (
-        <LoginPromptModal
-          nativeLang={nativeLang}
-          // Pass bindModalError straight through as initialError — same path
-          // the gate modal uses on Learn. The modal transitions in a single
-          // render from pending → error view, with no intermediate frame
-          // where the auth picker is briefly visible.
-          initialError={bindModalError}
-          initialEmailMode={loginPromptEmailMode}
-          flowType={loginPromptFlowType}
-          pending={bindOAuthPending && !bindModalError}
-          onClose={() => {
-            setShowLoginPrompt(false);
-            onBindModalErrorConsumed?.();
-          }}
-          onLoggedIn={() => {
-            // Email flow finished. Drop the modal; the global supabase
-            // onAuthStateChange listener in App.jsx will pick up the session
-            // and trigger the localStorage→cloud merge.
-            setShowLoginPrompt(false);
-            onBindModalErrorConsumed?.();
-          }}
-          onAuthFailed={onAuthFailed}
-        />
-      )}
+      {/* Save-progress LoginPromptModal lives at App level (Step 4). */}
 
       {/* Toast (login-required, send-success, etc.) */}
       {toast && (
