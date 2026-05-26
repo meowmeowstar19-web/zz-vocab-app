@@ -255,6 +255,5 @@ export const phoneticMap = {
   'sweet': '/swit/',
   'sour': '/saʊr/',
   'spicy': '/ˈspaɪsi/',
-  'wet': '/wɛt/',
   'full': '/fʊl/',
 };
