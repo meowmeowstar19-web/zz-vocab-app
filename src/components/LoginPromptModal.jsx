@@ -56,6 +56,11 @@ export default function LoginPromptModal({
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
   const [showEmail, setShowEmail] = useState(false);
+  // Local copy of the mode so the in-modal toggle ("Already have an account? /
+  // Don't have an account?") can flip between signup and login without
+  // closing this popup and opening a second one on top.
+  const [emailMode, setEmailMode] = useState(initialEmailMode);
+  useEffect(() => { setEmailMode(initialEmailMode); }, [initialEmailMode]);
   const [tosAccepted, setTosAccepted] = useState(true);
   const [privacyAccepted, setPrivacyAccepted] = useState(true);
   const [oauthError, setOauthError] = useState('');
@@ -132,7 +137,7 @@ export default function LoginPromptModal({
       // SettingsPage with default state — we can restore the same title on
       // the rejection popup. Without this, a rejected Sign up bind comes back
       // labelled "Sign in" because that's the SettingsPage default.
-      try { localStorage.setItem('bind_oauth_email_mode', initialEmailMode || 'login'); } catch {}
+      try { localStorage.setItem('bind_oauth_email_mode', emailMode || 'login'); } catch {}
     }
     // Bind from an anonymous session uses linkIdentity — the server adds the
     // OAuth provider to the CURRENT user (uid preserved) and atomically
@@ -230,7 +235,6 @@ export default function LoginPromptModal({
           onLogin={handleEmailLogin}
           nativeLang={nativeLang}
           bindFlow={flowType === 'bind'}
-          initialMode={initialEmailMode}
         />
       </div>
     );
@@ -331,28 +335,21 @@ export default function LoginPromptModal({
         </button>
         )}
 
-        {/* Title — reflects which entry point opened the modal: "Sign up" for
-            the signup flow, "Sign in" for the login flow. Falls back to the
-            old "Link Account" string only if initialEmailMode is unset. */}
+        {/* Title — reflects which entry point opened the modal: "Sign up for
+            a new account" for the signup flow, "Sign in to your existing
+            account" for the login flow. Falls back to the old "Link Account"
+            string only if emailMode is unset. The in-modal toggle below the
+            social buttons can flip this between signup and login without
+            closing/reopening the popup. */}
         <p style={{
           fontSize: 18, color: '#000', textAlign: 'center',
           fontWeight: 600, margin: 0,
         }}>
-          {initialEmailMode === 'signup'
+          {emailMode === 'signup'
             ? (t.signupTitle || t.signupBtn || 'Sign up')
-            : initialEmailMode === 'login'
+            : emailMode === 'login'
               ? (t.loginTitle || t.loginBtn || 'Sign in')
               : t.saveProgressTitle}
-        </p>
-
-        {/* Subtitle — always visible. Pending and error states keep this
-            line so the popup's identity (title + subtitle) doesn't flicker
-            as the modal transitions between states. */}
-        <p style={{
-          fontSize: 13, color: '#000', textAlign: 'center',
-          marginTop: 8, lineHeight: 1.4, opacity: 0.7,
-        }}>
-          {t.saveProgressSubtitle}
         </p>
 
         {pending ? (
@@ -447,6 +444,32 @@ export default function LoginPromptModal({
                 {oauthError}
               </p>
             )}
+
+            {/* In-modal mode toggle — swaps the modal between signup and
+                login by changing the title and the mode the email button
+                hands off to EmailLoginPage. No stacked popups. */}
+            <p
+              className="text-center"
+              style={{ marginTop: 16, fontSize: 13, color: '#000', lineHeight: 1.4 }}
+            >
+              {emailMode === 'signup'
+                ? (t.hasAccountAlready || 'Already have an account? ')
+                : (t.noAccountYet || "Don't have an account? ")}
+              <button
+                type="button"
+                onClick={() => setEmailMode(emailMode === 'signup' ? 'login' : 'signup')}
+                className="underline active:opacity-70"
+                style={{
+                  background: 'transparent', border: 0, padding: 0, margin: 0,
+                  color: '#000', fontSize: 13, cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {emailMode === 'signup'
+                  ? (t.loginBtn || 'Log in')
+                  : (t.signupBtn || 'Sign up')}
+              </button>
+            </p>
 
             {/* Bottom spacer — symmetric with the top spacer above the social
                 row. Together they vertically center the login buttons. */}
