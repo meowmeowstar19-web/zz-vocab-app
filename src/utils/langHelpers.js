@@ -211,6 +211,7 @@ export const UI_TEXT = {
     signupTitle: '注册',
     loginTitle: '登录',
     bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦',
+    bindSuccessToast: '恭喜成功创建新账号 :D',
     // Daily check-in popup
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
@@ -327,6 +328,7 @@ export const UI_TEXT = {
     signupTitle: 'Sign up',
     loginTitle: 'Sign in',
     bindAccountTakenToast: 'This account is already registered. Please link a brand-new account.',
+    bindSuccessToast: 'Account created! :D',
     // Daily check-in popup
     checkinTitle: 'Daily Check-in',
     checkinFmt: 'Day {n} of your streak\nヾ(◍°∇°◍)ﾉﾞ',
@@ -443,6 +445,7 @@ export const UI_TEXT = {
     signupTitle: '新規登録',
     loginTitle: 'ログイン',
     bindAccountTakenToast: 'このアカウントは既に登録されています。新しいアカウントで連携してください。',
+    bindSuccessToast: 'アカウント作成完了 :D',
     // Daily check-in popup
     checkinTitle: '毎日チェックイン',
     checkinFmt: '累計ログイン {n} 日目\nヾ(◍°∇°◍)ﾉﾞ',

@@ -22,7 +22,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
   const [confirmPassword, setConfirmPassword] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
-  const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | 'bind_taken' | ''
+  const [errorKind, setErrorKind] = useState(''); // 'not_registered' | 'wrong_password' | 'oauth_only' | 'auth_or_oauth' | 'unconfirmed' | 'email_taken' | 'bind_taken' | 'identity_taken' | ''
   const [oauthProvider, setOauthProvider] = useState(''); // 'google' | 'discord' | ''
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,10 +124,13 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
       try { localStorage.setItem('bind_inline_active', '1'); } catch {}
     }
     try {
+      // Bind mode: the anon user is converting via updateUser, so the OTP
+      // is an email-change. Plain signup verifies the freshly-created user
+      // with type='email'.
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: trimmed,
-        type: 'email',
+        type: bindFlow ? 'email_change' : 'email',
       });
       if (error) {
         if (/expired|invalid|incorrect/i.test(error.message)) {
@@ -156,7 +159,10 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     resetMessages();
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      const { error } = await supabase.auth.resend({
+        type: bindFlow ? 'email_change' : 'signup',
+        email,
+      });
       if (error) throw error;
       setInfo(t.codeResent);
     } catch (err) {
@@ -201,27 +207,72 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     }
     try {
       if (mode === 'signup') {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        // Supabase returns a user with empty identities[] when the email
-        // is already registered (silent dedup to prevent account enumeration).
-        if (data.user && data.user.identities && data.user.identities.length === 0) {
-          setError(t.emailAlreadyTaken);
-          setErrorKind('email_taken');
-          setMode('login');
-          return;
-        }
-        if (data.session) {
-          posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
-          posthog?.identify(data.session.user.id, { email, native_lang: nativeLang });
-          if (await finishAuth(data.session.user.id)) onLogin();
+        if (bindFlow) {
+          // Anon → permanent via updateUser. uid is preserved, so the local
+          // anon progress (stored under u_<anon-uid>) already lives in this
+          // account's scope — no migration needed. Server returns a sync
+          // error if the email is already attached to another user; surface
+          // it the same way the signUp path's silent-dedup case does.
+          //
+          // Precondition: an anon session must exist. App's background
+          // signInAnonymously() runs in a useEffect and can be in flight at
+          // submit time, so verify synchronously and create one if missing.
+          const { data: { session: existing } } = await supabase.auth.getSession();
+          if (!existing) {
+            const { error: anonErr } = await supabase.auth.signInAnonymously();
+            if (anonErr) throw anonErr;
+          }
+          const { data, error } = await supabase.auth.updateUser({ email, password });
+          if (error) {
+            if (/already (registered|been registered|in use|exists)|duplicate|taken/i.test(error.message)) {
+              // In bindFlow, an existing email is a terminal bind rejection.
+              // Don't switch to login mode — logging into an existing account
+              // is never a valid bind operation (the login path now rejects
+              // unconditionally too). Stay in signup mode so the user can
+              // change the email and retry.
+              setError(t.bindAccountTakenToast || 'This account is already in use. Please link a new one.');
+              setErrorKind('bind_taken');
+              setPassword('');
+              setConfirmPassword('');
+              return;
+            }
+            throw error;
+          }
+          // If email confirmations are enabled, updateUser keeps the user
+          // anonymous until they click the verification link / enter the
+          // OTP — drop into verify mode. Otherwise the user is already
+          // permanent and we can finish the auth.
+          if (data?.user && data.user.is_anonymous) {
+            setMode('verify');
+            setCode('');
+          } else {
+            posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
+            posthog?.identify(data?.user?.id || email, { email, native_lang: nativeLang });
+            if (await finishAuth(data?.user?.id)) onLogin();
+          }
         } else {
-          setMode('verify');
-          setCode('');
+          const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: window.location.origin },
+          });
+          if (error) throw error;
+          // Supabase returns a user with empty identities[] when the email
+          // is already registered (silent dedup to prevent account enumeration).
+          if (data.user && data.user.identities && data.user.identities.length === 0) {
+            setError(t.emailAlreadyTaken);
+            setErrorKind('email_taken');
+            setMode('login');
+            return;
+          }
+          if (data.session) {
+            posthog?.capture('user_signed_up', { method: 'email', native_lang: nativeLang });
+            posthog?.identify(data.session.user.id, { email, native_lang: nativeLang });
+            if (await finishAuth(data.session.user.id)) onLogin();
+          } else {
+            setMode('verify');
+            setCode('');
+          }
         }
       } else {
         const { data: loginData, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -240,6 +291,21 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
             return;
           }
           throw error;
+        }
+        // In bindFlow, a successful signInWithPassword means the email is
+        // already attached to an existing account — by definition NOT a
+        // valid bind target. Reject unconditionally; do not rely on
+        // cloudHasProgress, which can't tell a freshly-signed-up but
+        // unused account from a never-existed one (both have zero
+        // progress rows). This is the semantic difference between
+        // "create a new account from guest" (signup → updateUser) and
+        // "switch to an existing account" (login → not a bind).
+        if (bindFlow) {
+          await supabase.auth.signOut();
+          setError(t.bindAccountTakenToast || 'This account is already in use. Please link a new one.');
+          setErrorKind('bind_taken');
+          setPassword('');
+          return;
         }
         posthog?.capture('user_logged_in', { method: 'email', native_lang: nativeLang });
         if (loginData?.user) {

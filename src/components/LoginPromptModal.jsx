@@ -23,6 +23,13 @@ const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
 // reject the merge if the target account already has cloud progress. "login"
 // is a plain sign-in (welcome-page semantics): no bind markers, no inline
 // rejection, and guest local data is discarded by the cloud snapshot.
+// `onAuthFailed` is called when a bind-flow auth attempt errors synchronously
+// from this modal (no redirect happened, no auth state event will fire). The
+// parent uses it to reset its `*BindPending` React state — without this call,
+// state stays true and the modal stays stuck in its "verifying…" spinner
+// because pending React state isn't auto-derived from localStorage flag
+// removal. linkIdentity in particular returns sync errors (missing session,
+// already-attached identity) that signInWithOAuth never did.
 export default function LoginPromptModal({
   nativeLang = 'en',
   onClose,
@@ -43,6 +50,8 @@ export default function LoginPromptModal({
   // a rejection popup appears out of nowhere. Backdrop click is also ignored
   // in this state so the user can't dismiss mid-check.
   pending = false,
+  // See block comment above the component.
+  onAuthFailed,
 }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
@@ -125,10 +134,43 @@ export default function LoginPromptModal({
       // labelled "Sign in" because that's the SettingsPage default.
       try { localStorage.setItem('bind_oauth_email_mode', initialEmailMode || 'login'); } catch {}
     }
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.origin },
-    });
+    // Bind from an anonymous session uses linkIdentity — the server adds the
+    // OAuth provider to the CURRENT user (uid preserved) and atomically
+    // rejects if the identity is already attached to another user. Plain
+    // login uses signInWithOAuth (welcome-page semantics) which replaces
+    // whatever session is active with the existing account's session.
+    //
+    // linkIdentity REQUIRES an authed session (anon or otherwise) — it
+    // sends an Authorization: Bearer <jwt> header. If App's background
+    // signInAnonymously() hasn't landed yet, the call fails with "This
+    // endpoint requires a valid Bearer token". Create an anon session
+    // synchronously as a safety net before the bind. Cheap when one exists.
+    if (flowType === 'bind') {
+      const { data: { session: existing } } = await supabase.auth.getSession();
+      if (!existing) {
+        const { error: anonErr } = await supabase.auth.signInAnonymously();
+        if (anonErr) {
+          try {
+            localStorage.removeItem('bind_flow_active');
+            localStorage.removeItem('bind_oauth_pending');
+            localStorage.removeItem('gate_oauth_pending');
+            localStorage.removeItem('bind_oauth_email_mode');
+          } catch {}
+          setOauthError(anonErr.message);
+          onAuthFailed?.();
+          return;
+        }
+      }
+    }
+    const { error } = await (flowType === 'bind'
+      ? supabase.auth.linkIdentity({
+          provider,
+          options: { redirectTo: window.location.origin },
+        })
+      : supabase.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: window.location.origin },
+        }));
     if (error) {
       if (flowType === 'bind') {
         try {
@@ -137,6 +179,7 @@ export default function LoginPromptModal({
           localStorage.removeItem('gate_oauth_pending');
           localStorage.removeItem('bind_oauth_email_mode');
         } catch {}
+        onAuthFailed?.();
       }
       setOauthError(error.message);
     }

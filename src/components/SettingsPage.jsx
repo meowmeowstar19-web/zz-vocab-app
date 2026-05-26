@@ -55,7 +55,7 @@ function ChevronDown() {
   );
 }
 
-export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindModalError = '', onBindModalErrorConsumed, bindOAuthPending = false }) {
+export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindModalError = '', onBindModalErrorConsumed, bindOAuthPending = false, onAuthFailed }) {
   const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
@@ -316,7 +316,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     user?.identities?.some((i) => i.provider === 'email') ||
     user?.app_metadata?.providers?.includes('email')
   );
-  const showPasswordRow = !!user; // hide for guest mode
+  // Step 1's anonymous-session refactor gave guests a real supabase session,
+  // so `user` is now truthy for anon guests too. Treat anon as guest-equivalent
+  // for the "Sign up / Log in" pill vs "Set password" pill split.
+  const isRealUser = !!user && !user.is_anonymous;
+  const showPasswordRow = isRealUser;
 
   const openPwdModal = () => {
     setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); setPwdError(''); setPwdInfo('');
@@ -689,8 +693,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             an account? Log in" link below. Both open the LoginPromptModal —
             Sign up pre-selects the Email signup form, Log in pre-selects the
             Email login form. The 35px gap above the Sign up button matches
-            the pill-to-pill spacing (rows 85px apart, pills 50px tall). */}
-        {!user && (
+            the pill-to-pill spacing (rows 85px apart, pills 50px tall).
+            Anon users (Step 1) are treated as guests here — they need to
+            sign up / bind, not set a password on the anon account. */}
+        {!isRealUser && (
           <>
             <div className="absolute flex justify-center" style={{ top: 453, left: 0, right: 0 }}>
               <button
@@ -764,8 +770,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </button>
         )}
 
-        {/* Yellow logout pill — logged-in users only. */}
-        {user && onLogout && (
+        {/* Yellow logout pill — real (non-anon) users only. Anon guests
+            don't have an account to log out of; signing out their anon
+            session would just orphan their local progress. */}
+        {isRealUser && onLogout && (
           <div className="absolute flex justify-center" style={{ top: 544, left: 0, right: 0 }}>
             <button
               onClick={() => {
@@ -1128,6 +1136,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             setShowLoginPrompt(false);
             onBindModalErrorConsumed?.();
           }}
+          onAuthFailed={onAuthFailed}
         />
       )}
 

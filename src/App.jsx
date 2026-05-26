@@ -112,6 +112,38 @@ function defaultTargetFor(native) {
   return 'en';
 }
 
+// Read `?error=` / `#error=` params left in the URL by a failed OAuth
+// callback (linkIdentity rejection, provider denial, etc.). Strips them from
+// the address bar so a refresh doesn't re-trigger. Returns null if absent.
+function readOAuthErrorFromUrl() {
+  try {
+    const tail = (window.location.hash || window.location.search || '').slice(1);
+    if (!tail) return null;
+    const p = new URLSearchParams(tail);
+    const error = p.get('error');
+    const code = p.get('error_code');
+    if (!error && !code) return null;
+    try { history.replaceState(null, '', window.location.pathname); } catch {}
+    return { error, code, description: p.get('error_description') };
+  } catch { return null; }
+}
+
+// Atomically read which surface (gate / settings) launched the pending OAuth
+// bind round-trip and clear all bind-related localStorage. Returns the
+// surface name or null if no bind was in flight.
+function consumeBindPendingSurface() {
+  let surface = null;
+  try {
+    if (localStorage.getItem('gate_oauth_pending') === '1') surface = 'gate';
+    else if (localStorage.getItem('bind_oauth_pending') === '1') surface = 'settings';
+    if (surface) {
+      ['gate_oauth_pending', 'bind_oauth_pending', 'bind_flow_active', 'bind_oauth_email_mode']
+        .forEach((k) => localStorage.removeItem(k));
+    }
+  } catch {}
+  return surface;
+}
+
 export default function App() {
   const posthog = usePostHog();
   const [session, setSession] = useState(null);
@@ -392,6 +424,12 @@ export default function App() {
         // are global, not per-user), so we don't need to re-prompt them with
         // the LangSetup wizard. Mark this account as onboarded.
         try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
+        // Surface a brief congrats toast — covers all bind-success paths
+        // (linkIdentity OAuth return, updateUser email signup, email-code
+        // verify) since runSyncOrReject is the single funnel for them all.
+        setBindToast((UI_TEXT[nativeLang] || UI_TEXT.en).bindSuccessToast
+          || 'Account created!');
+        posthog?.capture('bind_account_success');
       }
     } finally {
       // Only clear after routing — see comment above. Also flip the React
@@ -408,11 +446,42 @@ export default function App() {
     }
   };
 
+  // Sends a bind rejection back to the surface that launched it: the gate
+  // modal reopens with its inline error view, the Settings modal does the
+  // same via bindModalError. Used by both the linkIdentity OAuth-error path
+  // (URL hash) and runSyncOrReject's cloud-progress conflict path.
+  const routeBindRejection = (surface, reason) => {
+    const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
+      || 'This account already has progress. Please try a different one.';
+    setSettingsBindPending(false);
+    setGateBindPending(false);
+    if (surface === 'gate') {
+      setGateModalError(msg);
+      setShowLoginGate(true);
+    } else {
+      setBindModalError(msg);
+      setPage('settings');
+    }
+    posthog?.capture('bind_rejected', { surface, ...(reason || {}) });
+  };
+
   useEffect(() => {
+    // linkIdentity rejections (e.g. "identity already attached to another
+    // user") come back as `#error=...&error_code=...&error_description=...`
+    // in the OAuth callback URL. supabase-js parses the same hash for tokens
+    // but doesn't surface errors to JS, so without this preflight the round-
+    // trip looks like a no-op and the modal hangs on "verifying…".
+    const oauthError = readOAuthErrorFromUrl();
+    if (oauthError) {
+      const surface = consumeBindPendingSurface();
+      if (surface) routeBindRejection(surface, oauthError);
+    }
+
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
       bumpLoginDay(data.session?.user?.id);
+
       if (data.session?.user) {
         posthog?.identify(data.session.user.id, {
           email: data.session.user.email,
@@ -425,6 +494,24 @@ export default function App() {
         if (data.session.user.is_anonymous) {
           migrateScopesToAnon(data.session.user.id);
           try { localStorage.setItem('app_anon_scope', `u_${data.session.user.id}`); } catch {}
+          // Stale-flag recovery: mount happened with a *_oauth_pending flag
+          // set AND we're still anonymous AND no URL error was present (the
+          // hash-error preflight above would have consumed the surface). The
+          // OAuth round-trip never returned to this origin — most commonly
+          // because Supabase's allow-list rejected `redirectTo` and fell back
+          // to the Site URL, so the bind completed on a different domain.
+          // Clear localStorage AND the React pending state initialized from
+          // it, so the modal exits its "verifying…" spinner instead of
+          // hanging forever on every subsequent visit to this origin.
+          if (!oauthError && consumeBindPendingSurface()) {
+            setSettingsBindPending(false);
+            setGateBindPending(false);
+            // showLoginGate's initializer also reads gate_oauth_pending, so
+            // the gate modal would otherwise paint with the auth picker on
+            // every fresh load. Close it — the user can re-trigger the gate
+            // naturally if they hit the 5-word limit again.
+            setShowLoginGate(false);
+          }
         }
         // Pull cloud progress, merge with local, push the union back up.
         // Skip for anonymous users — they stay local-only to avoid bloating
@@ -930,6 +1017,10 @@ export default function App() {
               bindModalError={bindModalError}
               onBindModalErrorConsumed={() => setBindModalError('')}
               bindOAuthPending={settingsBindPending}
+              onAuthFailed={() => {
+                setSettingsBindPending(false);
+                try { localStorage.removeItem('bind_oauth_pending'); } catch {}
+              }}
             />
           </div>
         </div>
@@ -1094,6 +1185,14 @@ export default function App() {
             initialError={gateModalError}
             onClose={handleGateDismiss}
             onLoggedIn={() => { setShowLoginGate(false); setGateModalError(''); }}
+            // linkIdentity errors synchronously when there's no session or
+            // when the identity is already attached elsewhere — reset the
+            // gate's pending React state so the modal exits its spinner
+            // state and the user can close it / retry.
+            onAuthFailed={() => {
+              setGateBindPending(false);
+              try { localStorage.removeItem('gate_oauth_pending'); } catch {}
+            }}
           />
         )}
 
@@ -1102,8 +1201,7 @@ export default function App() {
             Settings, Welcome, or anywhere else after the soft signOut. */}
         {bindToast && (
           <div
-            className="absolute left-1/2 -translate-x-1/2 z-[70] max-w-[340px] px-[18px] py-[12px] rounded-[14px] bg-black/85 text-white text-[13px] text-center leading-snug shadow-lg pointer-events-none"
-            style={{ top: 80 }}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[70] max-w-[340px] px-[18px] py-[12px] rounded-[14px] bg-black/85 text-white text-[13px] text-center leading-snug shadow-lg pointer-events-none"
           >
             {bindToast}
           </div>
