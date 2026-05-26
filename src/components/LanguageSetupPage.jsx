@@ -10,21 +10,15 @@ const LANG_ICONS = {
   zh: '/assets/figma/setting-lang-chinese.png',
 };
 
-// Multilingual prompts for step 1 — only the 3 languages we support.
-const NATIVE_PROMPTS = [
-  { code: 'en', text: 'Please select your native language' },
-  { code: 'ja', text: '母語を選んでください' },
-  { code: 'zh', text: '请选择你的母语' },
-];
-
+// Prompt + confirm label rendered in the detected native language. Native
+// selection itself is skipped (we trust navigator.language); user can change
+// native later in Settings.
 const TARGET_PROMPT = {
   en: 'Please select the language you want to learn',
   ja: '学習したい言語を選んでください',
   zh: '请选择你要学习的语言',
 };
 
-const NEXT_LABEL = { en: 'Next', ja: '次へ', zh: '下一步' };
-const BACK_LABEL = { en: 'Back', ja: '戻る', zh: '上一步' };
 const CONFIRM_LABEL = { en: 'Confirm', ja: '確認', zh: '确认' };
 
 function FlagCircle({ code, label, selected, onClick }) {
@@ -76,44 +70,20 @@ function FlagCircle({ code, label, selected, onClick }) {
   );
 }
 
-function YellowButton({ label, onClick, width = 130 }) {
-  return (
-    <button
-      onClick={onClick}
-      className="active:scale-95 transition-transform"
-      style={{
-        width, height: 39,
-        backgroundColor: '#FFDF4E',
-        border: '2px solid #000',
-        borderRadius: 100,
-        fontSize: 18, color: '#000',
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-export default function LanguageSetupPage({ onComplete }) {
+// Native lang is auto-detected by App from navigator.language and passed in.
+// The page only collects the target language now — the "Welcome :D" header
+// matches WelcomePage and the Figma node 575:301.
+export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
   const posthog = usePostHog();
-  const [step, setStep] = useState(1); // 1 = native, 2 = target
-  const [native, setNative] = useState('zh');
-  const [target, setTarget] = useState(null);
-
-  const handleNext = () => {
-    // Default target picks the first available non-native option
-    const fallback = LANG_CODES.find(c => c !== native) || 'en';
-    setTarget(t => (t && t !== native ? t : fallback));
-    setStep(2);
-  };
+  const native = LANG_CODES.includes(nativeLang) ? nativeLang : 'en';
+  const targetOptions = LANG_CODES.filter(c => c !== native);
+  const [target, setTarget] = useState(targetOptions[0] || 'en');
 
   const handleConfirm = () => {
     if (!target || target === native) return;
     posthog?.capture('language_setup_completed', { native_lang: native, target_lang: target });
     onComplete({ native, target });
   };
-
-  const targetOptions = LANG_CODES.filter(c => c !== native);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -124,141 +94,71 @@ export default function LanguageSetupPage({ onComplete }) {
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
 
-      {step === 1 ? (
-        // ── STEP 1: Native language ──
-        // Card sized & spaced to match SettingsPage picker (width 353, ICON_TOP after title, button bottom 34)
-        <div
-          className="absolute"
+      {/* Welcome :D — same position/treatment as WelcomePage so the brand
+          handoff is consistent. */}
+      <p className="absolute left-1/2 -translate-x-1/2 top-[170px] text-[24px] text-black text-center whitespace-nowrap font-bold">
+        Welcome :D
+      </p>
+
+      {/* Target language picker card */}
+      <div
+        className="absolute"
+        style={{
+          left: '50%', transform: 'translateX(-50%)',
+          top: 220,
+          width: 353, height: 310,
+          backgroundColor: '#fff',
+          border: '2px solid #000',
+          borderRadius: 20,
+        }}
+      >
+        {/* Prompt — in detected native language */}
+        <p style={{
+          position: 'absolute', top: 38, left: 16, right: 16,
+          textAlign: 'center', fontSize: 15, color: '#000', opacity: 0.55,
+          whiteSpace: 'nowrap',
+        }}>
+          {TARGET_PROMPT[native] || TARGET_PROMPT.en}
+        </p>
+
+        {/* Flag row — only non-native options. */}
+        <div style={{
+          position: 'absolute',
+          top: 90,
+          left: 0, right: 0,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          gap: 45,
+        }}>
+          {targetOptions.map(code => (
+            <FlagCircle
+              key={code}
+              code={code}
+              label={getLangName(code, native)}
+              selected={target === code}
+              onClick={() => setTarget(code)}
+            />
+          ))}
+        </div>
+
+        {/* Confirm button — bottom, matching SettingsPage sizing. */}
+        <button
+          onClick={handleConfirm}
+          className="absolute active:scale-95"
           style={{
             left: '50%', transform: 'translateX(-50%)',
-            top: 200,
-            width: 353, height: 350,
-            backgroundColor: '#fff',
+            bottom: 34,
+            width: 130, height: 39,
+            backgroundColor: '#FFDF4E',
             border: '2px solid #000',
-            borderRadius: 20,
+            borderRadius: 100,
+            fontSize: 18, color: '#000',
           }}
         >
-          {/* Multilingual prompts — tight line gap (8px), starts at top 30 like SettingsPage title (38) */}
-          <div style={{ paddingTop: 30, paddingLeft: 16, paddingRight: 16, textAlign: 'center' }}>
-            {NATIVE_PROMPTS.map((p, i) => (
-              <p
-                key={p.code}
-                style={{
-                  fontSize: 15,
-                  color: '#000',
-                  opacity: i === 0 ? 1 : 0.4,
-                  marginTop: i === 0 ? 0 : 8,
-                  whiteSpace: 'nowrap',
-                  lineHeight: 1.2,
-                }}
-              >
-                {p.text}
-              </p>
-            ))}
-          </div>
-
-          {/* Flag row — 30px gap below prompts, same as SettingsPage title→icons gap */}
-          <div style={{
-            position: 'absolute',
-            top: 130,
-            left: 0, right: 0,
-            display: 'flex',
-            justifyContent: 'space-evenly',
-            alignItems: 'flex-start',
-          }}>
-            {LANG_CODES.map(code => (
-              <FlagCircle
-                key={code}
-                code={code}
-                label={getLangName(code, native)}
-                selected={native === code}
-                onClick={() => setNative(code)}
-              />
-            ))}
-          </div>
-
-          {/* Next button — same sizing as SettingsPage Confirm */}
-          <button
-            onClick={handleNext}
-            className="absolute active:scale-95"
-            style={{
-              left: '50%', transform: 'translateX(-50%)',
-              bottom: 34,
-              width: 130, height: 39,
-              backgroundColor: '#FFDF4E',
-              border: '2px solid #000',
-              borderRadius: 100,
-              fontSize: 18, color: '#000',
-            }}
-          >
-            {NEXT_LABEL[native] || NEXT_LABEL.en}
-          </button>
-        </div>
-      ) : (
-        // ── STEP 2: Target language ──
-        // Same dimensions as SettingsPage picker (width 353, height 310)
-        <div
-          className="absolute"
-          style={{
-            left: '50%', transform: 'translateX(-50%)',
-            top: 220,
-            width: 353, height: 310,
-            backgroundColor: '#fff',
-            border: '2px solid #000',
-            borderRadius: 20,
-          }}
-        >
-          {/* Prompt — in chosen native language */}
-          <p style={{
-            position: 'absolute', top: 38, left: 16, right: 16,
-            textAlign: 'center', fontSize: 15, color: '#000', opacity: 0.55,
-            whiteSpace: 'nowrap',
-          }}>
-            {TARGET_PROMPT[native] || TARGET_PROMPT.en}
-          </p>
-
-          {/* Flag row — only non-native options, centered with tighter gap when only 2 options */}
-          <div style={{
-            position: 'absolute',
-            top: 90,
-            left: 0, right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'flex-start',
-            gap: 45,
-          }}>
-            {targetOptions.map(code => (
-              <FlagCircle
-                key={code}
-                code={code}
-                label={getLangName(code, native)}
-                selected={target === code}
-                onClick={() => setTarget(code)}
-              />
-            ))}
-          </div>
-
-          {/* Back + Confirm buttons — match SettingsPage button sizing, sit at bottom 34 */}
-          <div style={{
-            position: 'absolute',
-            bottom: 34, left: 0, right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 18,
-          }}>
-            <YellowButton
-              label={BACK_LABEL[native] || BACK_LABEL.en}
-              onClick={() => setStep(1)}
-              width={110}
-            />
-            <YellowButton
-              label={CONFIRM_LABEL[native] || CONFIRM_LABEL.en}
-              onClick={handleConfirm}
-              width={130}
-            />
-          </div>
-        </div>
-      )}
+          {CONFIRM_LABEL[native] || CONFIRM_LABEL.en}
+        </button>
+      </div>
     </div>
   );
 }

@@ -1015,7 +1015,7 @@ export default function App() {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
-          <LanguageSetupPage onComplete={handleLangSetupComplete} />
+          <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
         </div>
       </div>
     );
