@@ -101,7 +101,7 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
       />
 
       {/* App icon + welcome heading + picker card, vertically centered as a group. */}
-      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-4 px-4">
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-start gap-4 px-4 pt-[15%]">
         {/* App icon */}
         <img
           src="/assets/figma/app-icon.png"
@@ -170,6 +170,7 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         >
           {CONFIRM_LABEL[native] || CONFIRM_LABEL.en}
         </button>
+        </div>
       </div>
     </div>
   );
