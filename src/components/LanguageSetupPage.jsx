@@ -21,6 +21,12 @@ const TARGET_PROMPT = {
 
 const CONFIRM_LABEL = { en: 'Confirm', ja: '確認', zh: '确认' };
 
+const WELCOME_TITLE = {
+  en: 'Welcome to PlushieWord :D',
+  ja: 'PlushieWord へようこそ :D',
+  zh: '欢迎来到 PlushieWord :D',
+};
+
 function FlagCircle({ code, label, selected, onClick }) {
   return (
     <div
@@ -94,18 +100,24 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
 
-      {/* Welcome :D — same position/treatment as WelcomePage so the brand
-          handoff is consistent. */}
-      <p className="absolute left-1/2 -translate-x-1/2 top-[170px] text-[24px] text-black text-center whitespace-nowrap font-bold">
-        Welcome :D
-      </p>
+      {/* App icon + welcome heading + picker card, vertically centered as a group. */}
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-4 px-4">
+        {/* App icon */}
+        <img
+          src="/assets/figma/app-icon.png"
+          alt="PlushieWord"
+          style={{ width: 100, height: 100 }}
+        />
 
-      {/* Target language picker card */}
-      <div
-        className="absolute"
+        {/* Welcome to PlushieWord :D — localized to detected native lang. */}
+        <p className="text-[22px] text-black text-center whitespace-nowrap">
+          {WELCOME_TITLE[native] || WELCOME_TITLE.en}
+        </p>
+
+        {/* Target language picker card */}
+        <div
         style={{
-          left: '50%', transform: 'translateX(-50%)',
-          top: 220,
+          position: 'relative',
           width: 353, height: 310,
           backgroundColor: '#fff',
           border: '2px solid #000',
