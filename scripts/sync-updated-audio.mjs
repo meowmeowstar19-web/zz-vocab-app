@@ -28,8 +28,9 @@ const CANONICAL_BASE = join(ROOT, 'audio-未压缩-原版', 'PhraseList');
 const OUT_DIR = join(ROOT, 'public', 'assets', 'audio');
 const XLSX_PATH = join(ROOT, 'update_data_folder', 'PhraseList.xlsx');
 
-const LANG_MAP = { jp: 'ja', zh: 'zh' };
-const COL_MAP = { ja: '短语日语翻译', zh: '短语中文翻译' };
+// Source folder (jp/zh/en) → output folder (ja/zh/en) in public/assets/audio
+const LANG_MAP = { jp: 'ja', zh: 'zh', en: 'en' };
+const COL_MAP = { ja: '短语日语翻译', zh: '短语中文翻译', en: 'English' };
 
 const BITRATE = '48k';
 const SAMPLE = '22050';
@@ -87,10 +88,10 @@ function main() {
   log.info(`PhraseList.xlsx: ${rows.length} rows`);
 
   // Build expected-key sets from xlsx, for verification
-  const expected = { ja: new Map(), zh: new Map() }; // key → english (for reporting)
+  const expected = { ja: new Map(), zh: new Map(), en: new Map() }; // key → english (for reporting)
   for (const r of rows) {
     const en = String(r.English || '').trim();
-    for (const lang of ['ja', 'zh']) {
+    for (const lang of ['ja', 'zh', 'en']) {
       const text = String(r[COL_MAP[lang]] || '').trim();
       if (!text) continue;
       const k = audioKey(text, lang);
@@ -98,11 +99,11 @@ function main() {
       if (!expected[lang].has(k)) expected[lang].set(k, en);
     }
   }
-  log.info(`Expected keys: ja=${expected.ja.size}, zh=${expected.zh.size}`);
+  log.info(`Expected keys: ja=${expected.ja.size}, zh=${expected.zh.size}, en=${expected.en.size}`);
 
   let totalIn = 0, totalOut = 0, totalCount = 0;
-  const producedKeys = { ja: new Set(), zh: new Set() };
-  const unmatchedFiles = { ja: [], zh: [] }; // files whose text doesn't match any xlsx row
+  const producedKeys = { ja: new Set(), zh: new Set(), en: new Set() };
+  const unmatchedFiles = { ja: [], zh: [], en: [] };
 
   for (const [srcLang, outLang] of Object.entries(LANG_MAP)) {
     const srcDir = join(SRC_BASE, srcLang);
@@ -163,7 +164,8 @@ function main() {
 
   // ── Verification ───────────────────────────────────────────────────────────
   log.sect('Verification vs PhraseList.xlsx');
-  for (const lang of ['ja', 'zh']) {
+  for (const lang of ['ja', 'zh', 'en']) {
+    if (producedKeys[lang].size === 0) continue; // didn't process this lang this run
     const missing = [];
     for (const [key, en] of expected[lang]) {
       if (!producedKeys[lang].has(key)) missing.push({ key, en });
