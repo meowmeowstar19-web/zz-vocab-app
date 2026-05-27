@@ -662,6 +662,13 @@ export default function App() {
         // logout. Only a real sign-in should clear it.
         if (!s.user.is_anonymous) {
           try { localStorage.removeItem('app_logged_out'); } catch {}
+          // Sticky marker: once this device has ever held a real (non-anon)
+          // session, remember it forever. Drives the gate modal to open in
+          // "Sign in" mode with a "welcome back" subtitle on subsequent
+          // visits where the user is a guest again (system-logout or
+          // explicit logout). Never cleared — even a full sign-out should
+          // keep showing the welcome-back flow next time.
+          try { localStorage.setItem('app_had_account', '1'); } catch {}
         }
         posthog?.identify(s.user.id, { email: s.user.email });
         // Persist the email so a dev-only escape hatch on Settings can still
@@ -1072,6 +1079,17 @@ export default function App() {
   const requestNextWord = () => {
     if (!authReady) return true;
     if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
+    // Returning user (this device has previously held a real account session
+    // and is now back in guest mode — either after intentional logout or a
+    // refresh-token expiry). No free quota — the very first word triggers
+    // the gate, opened in "Sign in" mode. The welcome-back subtitle is
+    // derived inside LoginPromptModal from the same app_had_account flag.
+    let hadAccount = false;
+    try { hadAccount = localStorage.getItem('app_had_account') === '1'; } catch {}
+    if (hadAccount) {
+      dispatchLoginModal({ type: 'open', surface: 'gate', flowType: 'login', emailMode: 'login' });
+      return false;
+    }
     if (countLearnedWords(userScope) >= GATE_FREE_LIMIT) {
       dispatchLoginModal({ type: 'open', surface: 'gate', flowType: 'bind', emailMode: 'signup' });
       return false;

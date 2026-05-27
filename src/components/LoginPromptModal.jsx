@@ -55,6 +55,12 @@ export default function LoginPromptModal({
 }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
+  // Sticky "this device has previously held a real account" flag. Read once
+  // at render. Used together with the current emailMode below to decide
+  // whether to show the welcome-back subtitle under the title.
+  const hadAccount = (() => {
+    try { return localStorage.getItem('app_had_account') === '1'; } catch { return false; }
+  })();
   const [showEmail, setShowEmail] = useState(false);
   // Local copy of the mode so the in-modal toggle ("Already have an account? /
   // Don't have an account?") can flip between signup and login without
@@ -366,6 +372,22 @@ export default function LoginPromptModal({
               ? (t.loginTitle || t.loginBtn || 'Sign in')
               : t.saveProgressTitle}
         </p>
+
+        {/* Welcome-back subtitle. Rendered only when (a) the device has
+            previously held a real (non-anon) session AND (b) the user is
+            currently in "Sign in" mode. Toggling the in-modal "Don't have
+            an account? / Sign up" link flips emailMode → subtitle hides on
+            its own. Hidden during the pending spinner and the bind-error
+            view since both replace the auth picker below. */}
+        {!pending && !bindError && emailMode === 'login' && hadAccount && t.loginWelcomeBackSubtitle && (
+          <p style={{
+            fontSize: 13, color: '#000', textAlign: 'center',
+            opacity: 0.75, margin: '8px 0 0', lineHeight: 1.4,
+            padding: '0 8px',
+          }}>
+            {t.loginWelcomeBackSubtitle}
+          </p>
+        )}
 
         {pending ? (
           <>
