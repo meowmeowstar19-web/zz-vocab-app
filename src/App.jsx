@@ -10,7 +10,7 @@ import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio, playSlaySound } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
-import { supabase } from './lib/supabase';
+import { supabase, intentionalSignOut } from './lib/supabase';
 import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
 import { usePostHog } from '@posthog/react';
@@ -297,6 +297,13 @@ export default function App() {
   });
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
+  // True when Supabase emitted SIGNED_OUT without an app-initiated trigger
+  // (i.e. the token refresh failed — typically because another device
+  // rotated the refresh token past the reuse window). Drives a one-shot
+  // "session expired, please log in again" modal on top of WelcomePage so
+  // the user knows what happened and isn't left wondering why they're
+  // suddenly a guest. Cleared when the user acknowledges the popup.
+  const [sessionExpired, setSessionExpired] = useState(false);
   // Bumped after every syncOnLogin completion so LearningPage can re-read
   // its `progress` state from localStorage. Without this, the cloud→local
   // merge writes new entries but LearningPage's mount-time useState snapshot
@@ -477,7 +484,7 @@ export default function App() {
       }
       if (result?.rejected) {
         rejected = true;
-        await supabase.auth.signOut();
+        await intentionalSignOut();
         // Now that we've fully handled the rejection (signed out, no more
         // syncOnLogin calls can fire for this uid), clear the bind flag so a
         // future legitimate sign-in by this guest — e.g. they exit guest mode
@@ -621,6 +628,27 @@ export default function App() {
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      // Distinguish a Supabase-initiated SIGNED_OUT (token refresh failed —
+      // e.g. another device rotated the refresh token past the reuse window)
+      // from an app-initiated one. intentionalSignOut() sets the flag before
+      // signOut runs; if SIGNED_OUT fires WITHOUT the flag set, the session
+      // died unexpectedly and we should tell the user instead of silently
+      // dropping them into guest mode.
+      if (_event === 'SIGNED_OUT') {
+        let intentional = false;
+        try {
+          intentional = localStorage.getItem('intentional_signout') === '1';
+          localStorage.removeItem('intentional_signout');
+        } catch {}
+        // Only treat as expired if there was a non-anon session before this
+        // event — anon sessions getting cleared (e.g. during the email
+        // send-code flow) are routine and not user-visible expiries.
+        if (!intentional && session && !session.user?.is_anonymous) {
+          setSessionExpired(true);
+          try { localStorage.setItem('app_logged_out', '1'); } catch {}
+          setIsGuest(false);
+        }
+      }
       setSession(s);
       bumpLoginDay(s?.user?.id);
       if (s?.user) {
@@ -969,7 +997,7 @@ export default function App() {
     try { localStorage.removeItem('app_logged_in'); } catch {}
     try { localStorage.setItem('app_logged_out', '1'); } catch {}
     setIsGuest(false);
-    if (session) await supabase.auth.signOut();
+    if (session) await intentionalSignOut();
   };
 
   // Called by LearningPage every time it presents a new word — which means
@@ -1116,10 +1144,58 @@ export default function App() {
   // still set, so the language picker doesn't re-fire. WelcomePage provides
   // the Google / Discord / Email / Guest-mode picker.
   if (!isLoggedIn) {
+    const sessionExpiredText = UI_TEXT[nativeLang] || UI_TEXT.en;
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
+          {sessionExpired && (
+            <div
+              className="absolute inset-0 z-50 flex items-center justify-center"
+              style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+            >
+              <div
+                className="relative"
+                style={{
+                  width: 300,
+                  minHeight: 300,
+                  backgroundColor: '#fff',
+                  border: '2px solid #000',
+                  borderRadius: 20,
+                  padding: '34px 24px 28px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                }}
+              >
+                <p style={{
+                  fontSize: 18, color: '#000', textAlign: 'center',
+                  fontWeight: 600, margin: 0,
+                }}>
+                  {sessionExpiredText.sessionExpiredTitle || 'Session Expired'}
+                </p>
+                <div style={{ flex: 1, minHeight: 24 }} />
+                <p style={{
+                  fontSize: 14, color: '#000', textAlign: 'center',
+                  lineHeight: 1.6, margin: 0, padding: '0 4px',
+                }}>
+                  {sessionExpiredText.sessionExpiredBody || 'For your account security, please log in again.'}
+                </p>
+                <div style={{ flex: 1, minHeight: 24 }} />
+                <button
+                  onClick={() => setSessionExpired(false)}
+                  className="active:scale-95"
+                  style={{
+                    width: 130, height: 39,
+                    backgroundColor: '#FFDF4E',
+                    border: '2px solid #000',
+                    borderRadius: 100,
+                    fontSize: 18, color: '#000',
+                  }}
+                >
+                  {sessionExpiredText.sessionExpiredBtn || 'OK'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

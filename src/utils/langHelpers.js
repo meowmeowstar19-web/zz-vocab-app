@@ -221,6 +221,9 @@ export const UI_TEXT = {
     loginTitle: '登录已有账号',
     bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦',
     bindSuccessToast: '恭喜成功创建新账号 :D',
+    sessionExpiredTitle: '会话已过期',
+    sessionExpiredBody: '为了你的账号安全，请重新登录一下',
+    sessionExpiredBtn: '确认',
     // Daily check-in popup
     checkinTitle: '每日打卡',
     checkinFmt: '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ',
@@ -347,6 +350,9 @@ export const UI_TEXT = {
     loginTitle: 'Sign in to your existing account',
     bindAccountTakenToast: 'This account is already registered. Please link a brand-new account.',
     bindSuccessToast: 'Account created! :D',
+    sessionExpiredTitle: 'Session Expired',
+    sessionExpiredBody: 'For your account security, please log in again.',
+    sessionExpiredBtn: 'OK',
     // Daily check-in popup
     checkinTitle: 'Daily Check-in',
     checkinFmt: 'Day {n} of your streak\nヾ(◍°∇°◍)ﾉﾞ',
@@ -473,6 +479,9 @@ export const UI_TEXT = {
     loginTitle: '既存のアカウントにログイン',
     bindAccountTakenToast: 'このアカウントは既に登録されています。新しいアカウントで連携してください。',
     bindSuccessToast: 'アカウント作成完了 :D',
+    sessionExpiredTitle: 'セッションの有効期限切れ',
+    sessionExpiredBody: 'アカウントの安全のため、再度ログインしてください',
+    sessionExpiredBtn: 'OK',
     // Daily check-in popup
     checkinTitle: '毎日チェックイン',
     checkinFmt: '累計ログイン {n} 日目\nヾ(◍°∇°◍)ﾉﾞ',

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, intentionalSignOut } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { syncOnLogin } from '../utils/progressSync';
@@ -41,7 +41,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     try {
       const result = await syncOnLogin(uid);
       if (result?.rejected) {
-        await supabase.auth.signOut();
+        await intentionalSignOut();
         setError(t.bindAccountTakenToast || 'This account is already in use. Please link a new one.');
         setErrorKind('bind_taken');
         setStep('email');
@@ -84,7 +84,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
       if (cur && cur.user.is_anonymous) {
         try { localStorage.setItem('app_anon_data_to_migrate', `u_${cur.user.id}`); } catch {}
         try { localStorage.setItem('app_logged_out', '1'); } catch {}
-        await supabase.auth.signOut();
+        await intentionalSignOut();
       }
       const { error } = await supabase.auth.signInWithOtp({
         email: emailVal,
