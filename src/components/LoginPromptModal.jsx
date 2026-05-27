@@ -121,15 +121,24 @@ export default function LoginPromptModal({
     } catch {}
   };
 
+  // Derive the effective flow from the user's CURRENT intent (emailMode),
+  // not from the flowType prop set when the modal opened. The in-modal
+  // Sign up ↔ Log in toggle changes emailMode but cannot reach back up to
+  // change the parent's flowType — if we read flowType here, a user who
+  // opens "Sign up" then toggles to "Log in" inside the modal still hits
+  // the bind path and gets rejected as if signing up. Mapping by emailMode
+  // makes the toggle actually mean what it says.
+  const effectiveFlow = emailMode === 'signup' ? 'bind' : 'login';
+
   const signInWithProvider = async (provider) => {
     if (!guard()) return;
     setOauthError('');
     posthog?.capture('login_oauth_initiated', {
-      provider, native_lang: nativeLang, source: 'settings_save_progress', flow: flowType,
+      provider, native_lang: nativeLang, source: 'settings_save_progress', flow: effectiveFlow,
     });
     // Only the bind flow needs the OAuth-pending + bind-flow markers; a plain
     // login flow should fall through to the welcome-page auth semantics.
-    if (flowType === 'bind') {
+    if (effectiveFlow === 'bind') {
       markBindFlow();
       markOAuthPending();
       // Remember which sub-flow (Sign up vs Log in) opened the modal so that
@@ -150,7 +159,7 @@ export default function LoginPromptModal({
     // signInAnonymously() hasn't landed yet, the call fails with "This
     // endpoint requires a valid Bearer token". Create an anon session
     // synchronously as a safety net before the bind. Cheap when one exists.
-    if (flowType === 'bind') {
+    if (effectiveFlow === 'bind') {
       const { data: { session: existing } } = await supabase.auth.getSession();
       if (!existing) {
         const { error: anonErr } = await supabase.auth.signInAnonymously();
@@ -167,7 +176,7 @@ export default function LoginPromptModal({
         }
       }
     }
-    const { error } = await (flowType === 'bind'
+    const { error } = await (effectiveFlow === 'bind'
       ? supabase.auth.linkIdentity({
           provider,
           options: { redirectTo: window.location.origin },
@@ -177,7 +186,7 @@ export default function LoginPromptModal({
           options: { redirectTo: window.location.origin },
         }));
     if (error) {
-      if (flowType === 'bind') {
+      if (effectiveFlow === 'bind') {
         try {
           localStorage.removeItem('bind_flow_active');
           localStorage.removeItem('bind_oauth_pending');
@@ -193,9 +202,9 @@ export default function LoginPromptModal({
   const handleEmailClick = () => {
     if (!guard()) return;
     posthog?.capture('login_email_clicked', {
-      native_lang: nativeLang, source: 'settings_save_progress', flow: flowType,
+      native_lang: nativeLang, source: 'settings_save_progress', flow: effectiveFlow,
     });
-    if (flowType === 'bind') markBindFlow();
+    if (effectiveFlow === 'bind') markBindFlow();
     setShowEmail(true);
   };
 
@@ -234,7 +243,7 @@ export default function LoginPromptModal({
           onBack={() => setShowEmail(false)}
           onLogin={handleEmailLogin}
           nativeLang={nativeLang}
-          bindFlow={flowType === 'bind'}
+          bindFlow={effectiveFlow === 'bind'}
         />
       </div>
     );
