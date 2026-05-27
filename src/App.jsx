@@ -978,13 +978,26 @@ export default function App() {
     if (session) await supabase.auth.signOut();
   };
 
-  // Called by LearningPage every time it presents a new word. Pre-refactor
-  // this bumped a per-day `gate_words_${date}` bucket; that turned out to be
-  // the wrong semantics — users expect "5 free learned words" not "5 per
-  // calendar day". The gate now derives its count from the per-uid progress
-  // slot (the same data the word list reads), so there's nothing to record
-  // here. Kept as a prop for LearningPage's API stability; intentional no-op.
-  const handleWordViewed = () => {};
+  // Called by LearningPage every time it presents a new word — which means
+  // the PREVIOUS word was just marked learned (markWordLearned wrote to
+  // localStorage moments before this fires). Use that as a cue to flush
+  // local → cloud so a second device opened seconds later sees the new
+  // progress, rather than waiting up to 60s for the heartbeat. Debounced
+  // 3s to coalesce bursts when the user blasts through several cards.
+  // Anon users stay local-only (their cloud row only appears post-bind).
+  const wordPushTimer = useRef(null);
+  const handleWordViewed = () => {
+    const uid = session?.user?.id;
+    if (!uid || session.user.is_anonymous) return;
+    if (wordPushTimer.current) clearTimeout(wordPushTimer.current);
+    wordPushTimer.current = setTimeout(() => {
+      wordPushTimer.current = null;
+      pushLocalToCloud(uid);
+    }, 3000);
+  };
+  useEffect(() => () => {
+    if (wordPushTimer.current) clearTimeout(wordPushTimer.current);
+  }, []);
 
   // Called by LearningPage BEFORE it processes an answer click / skip /
   // Got-it tap. Returns false when the guest has reached the free quota —
