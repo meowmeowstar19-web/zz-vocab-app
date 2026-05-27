@@ -288,11 +288,30 @@ function clearScope(scope) {
   }
 }
 
-// Push the current localStorage snapshot up. Use for background sync —
-// debounced timer, visibilitychange, beforeunload. Always reads from the
-// signed-in user's own scope; never touches the guest slot.
+// Background sync: pull the cloud row, merge with local, write the union to
+// both. Used by the heartbeat / visibilitychange / pagehide flushers.
+// Always operates on the signed-in user's own scope; never touches guest.
+//
+// Why pull-merge-push instead of a plain push: a raw upsert overwrites the
+// cloud row, so device B pushing its (stale) local would wipe out the rows
+// device A had just written. With merge, the cloud always ends up as the
+// union — and as a bonus this device picks up the other device's changes
+// without waiting for a full reload + syncOnLogin.
+//
+// Preferences are the one field where local must win in this path: the user
+// explicitly picked their langs on THIS device and we don't want a stale
+// cloud value to revert their current pick mid-session. syncOnLogin still
+// lets cloud win on a fresh login (which is the right behavior for "open on
+// a new device and resume my account").
 export async function pushLocalToCloud(uid) {
   if (!uid) return;
-  const snap = readLocalSnapshot(uid, `u_${uid}`);
-  await pushToCloud(uid, snap);
+  const local = readLocalSnapshot(uid, `u_${uid}`);
+  const cloud = await pullFromCloud(uid);
+  const empty = { progress: {}, review_states: {}, login_days: [] };
+  const merged = mergeSnapshots(local, cloud || empty);
+  if (local.preferences && (local.preferences.nativeLang || local.preferences.targetLang)) {
+    merged.preferences = local.preferences;
+  }
+  writeLocalSnapshot(uid, merged, `u_${uid}`);
+  await pushToCloud(uid, merged);
 }

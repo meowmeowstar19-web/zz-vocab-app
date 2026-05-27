@@ -7,7 +7,7 @@ import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
-import { primeAudio, playSlaySound } from './hooks/useAudio';
+import { primeAudio, playSlaySound, clearDeferredSpeak } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
@@ -361,6 +361,25 @@ export default function App() {
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
+
+  // Bug 2 fix: `_deferredSpeak` in useAudio is the slot that holds a word
+  // audio queued by LearningPage's auto-speak when audio was still locked.
+  // `primeAudio()` (called from the global pointerdown primer below,
+  // handleCheckin, handleTabClick) replays whatever is in that slot — it
+  // does NOT know which page the user is currently on. So once a deferred
+  // word audio is set, ANY subsequent tap anywhere replays it, even after
+  // the user has navigated away from Learn. Clear the slot whenever the
+  // active section is no longer Learn (i.e. the user explicitly switched
+  // to Settings/WordList, OR the OAuth redirect landed on Settings).
+  //
+  // Gated on `page` rather than LearningPage's `isVisible` because
+  // `isVisible` also flips false while popups overlay Learn (checkin /
+  // login-gate). The post-login audio fix relies on the deferred slot
+  // surviving the checkin popup — so we MUST NOT clear on popup raise,
+  // only on actual page navigation.
+  useEffect(() => {
+    if (page !== 'learn' && !reviewMode) clearDeferredSpeak();
+  }, [page, reviewMode]);
 
   // Global one-shot audio primer. iOS Safari keeps the audio context
   // suspended until a user gesture resumes it; after an OAuth round-trip
@@ -724,19 +743,18 @@ export default function App() {
     return () => clearTimeout(id);
   }, [bindToast]);
 
-  // Background push: while signed in (NON-anon), ship the local snapshot to
-  // the cloud when the tab is hidden or closed, plus once a minute as a
-  // heartbeat. syncOnLogin handles initial merge; this just keeps the cloud
-  // copy fresh. Anon users stay local-only — no cloud row at all until they
-  // bind into a real account.
+  // Background sync: while signed in (NON-anon), pull-merge-push the local
+  // snapshot against the cloud row on every relevant lifecycle event.
+  //   - hidden / pagehide: persist before the tab might be closed
+  //   - visible: catch up on changes another device pushed while we were away
+  //   - 60s heartbeat: keep both ends fresh during a long session
+  // Anon users stay local-only — no cloud row until they bind into an account.
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
     if (session.user.is_anonymous) return;
     const flush = () => { pushLocalToCloud(uid); };
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') flush();
-    };
+    const onVisibility = () => { flush(); };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', flush);
     const id = setInterval(flush, 60_000);

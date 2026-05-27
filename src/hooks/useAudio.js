@@ -37,7 +37,23 @@ function getRecordedAudio() {
 // gesture — so iOS blocks it silently. We stash the attempt here and replay
 // it from primeAudio once the user does tap (typically via App's global
 // pointerdown primer). Cleared as soon as it fires.
+//
+// IMPORTANT: this slot is page-agnostic. `primeAudio()` is called from many
+// places (global pointerdown primer, handleCheckin, handleTabClick) and will
+// replay whatever is here regardless of which page the user is currently on.
+// App.jsx clears the slot via `clearDeferredSpeak()` whenever the active
+// section is no longer Learn — gated on `page` (not LearningPage's
+// `isVisible`) because the checkin popup also flips `isVisible` false but
+// the deferred slot needs to survive that so handleCheckin's primeAudio can
+// replay the first-word audio on popup dismiss.
 let _deferredSpeak = null;
+
+// Cancel any pending deferred word audio. Call from App.jsx when the active
+// section moves off Learn — without it, the next tap anywhere would replay
+// this slot via primeAudio (Bug 2 in the audio triage).
+export function clearDeferredSpeak() {
+  _deferredSpeak = null;
+}
 
 // Set true the first time primeAudio runs the silent-WAV unlock path. The
 // shared `_recordedAudio` element only needs that priming once per page
