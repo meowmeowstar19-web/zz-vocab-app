@@ -9,15 +9,19 @@ function getAudioCtx() {
   return audioCtx;
 }
 
-// Pre-recorded audio files. Vite resolves /public/assets/audio/{lang}/*.mp3 at build time.
+// Pre-recorded audio files. Files live in /public/ so they're served at the
+// root URL (`/assets/audio/...`). We only need to enumerate which files exist —
+// the URL is derived from the path. Using a non-eager glob avoids fetching a
+// JS module per file at startup, which previously exhausted the browser's
+// connection pool once the audio set grew past ~1500 files.
 // Filenames are produced by scripts/sync-audio.mjs using `audioKey(text, lang)`,
 // and looked up here with the same function so the two always match.
 const RECORDED_AUDIO = (() => {
-  const files = import.meta.glob('/public/assets/audio/*/*.mp3', { eager: true, query: '?url', import: 'default' });
+  const files = import.meta.glob('/public/assets/audio/*/*.mp3');
   const map = {};
   for (const path in files) {
     const m = path.match(/\/audio\/([^/]+)\/([^/]+)\.mp3$/);
-    if (m) map[`${m[1]}:${m[2]}`] = files[path];
+    if (m) map[`${m[1]}:${m[2]}`] = path.replace(/^\/public/, '');
   }
   return map;
 })();
@@ -37,23 +41,7 @@ function getRecordedAudio() {
 // gesture — so iOS blocks it silently. We stash the attempt here and replay
 // it from primeAudio once the user does tap (typically via App's global
 // pointerdown primer). Cleared as soon as it fires.
-//
-// IMPORTANT: this slot is page-agnostic. `primeAudio()` is called from many
-// places (global pointerdown primer, handleCheckin, handleTabClick) and will
-// replay whatever is here regardless of which page the user is currently on.
-// App.jsx clears the slot via `clearDeferredSpeak()` whenever the active
-// section is no longer Learn — gated on `page` (not LearningPage's
-// `isVisible`) because the checkin popup also flips `isVisible` false but
-// the deferred slot needs to survive that so handleCheckin's primeAudio can
-// replay the first-word audio on popup dismiss.
 let _deferredSpeak = null;
-
-// Cancel any pending deferred word audio. Call from App.jsx when the active
-// section moves off Learn — without it, the next tap anywhere would replay
-// this slot via primeAudio (Bug 2 in the audio triage).
-export function clearDeferredSpeak() {
-  _deferredSpeak = null;
-}
 
 // Set true the first time primeAudio runs the silent-WAV unlock path. The
 // shared `_recordedAudio` element only needs that priming once per page

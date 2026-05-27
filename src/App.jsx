@@ -7,7 +7,7 @@ import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
-import { primeAudio, playSlaySound, clearDeferredSpeak } from './hooks/useAudio';
+import { primeAudio, playSlaySound } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
@@ -361,25 +361,6 @@ export default function App() {
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
-
-  // Bug 2 fix: `_deferredSpeak` in useAudio is the slot that holds a word
-  // audio queued by LearningPage's auto-speak when audio was still locked.
-  // `primeAudio()` (called from the global pointerdown primer below,
-  // handleCheckin, handleTabClick) replays whatever is in that slot — it
-  // does NOT know which page the user is currently on. So once a deferred
-  // word audio is set, ANY subsequent tap anywhere replays it, even after
-  // the user has navigated away from Learn. Clear the slot whenever the
-  // active section is no longer Learn (i.e. the user explicitly switched
-  // to Settings/WordList, OR the OAuth redirect landed on Settings).
-  //
-  // Gated on `page` rather than LearningPage's `isVisible` because
-  // `isVisible` also flips false while popups overlay Learn (checkin /
-  // login-gate). The post-login audio fix relies on the deferred slot
-  // surviving the checkin popup — so we MUST NOT clear on popup raise,
-  // only on actual page navigation.
-  useEffect(() => {
-    if (page !== 'learn' && !reviewMode) clearDeferredSpeak();
-  }, [page, reviewMode]);
 
   // Global one-shot audio primer. iOS Safari keeps the audio context
   // suspended until a user gesture resumes it; after an OAuth round-trip
