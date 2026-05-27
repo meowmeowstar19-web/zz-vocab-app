@@ -766,23 +766,70 @@ export default function App() {
   }, [bindToast]);
 
   // Background sync: while signed in (NON-anon), pull-merge-push the local
-  // snapshot against the cloud row on every relevant lifecycle event.
-  //   - hidden / pagehide: persist before the tab might be closed
-  //   - visible: catch up on changes another device pushed while we were away
-  //   - 60s heartbeat: keep both ends fresh during a long session
-  // Anon users stay local-only — no cloud row until they bind into an account.
+  // snapshot against the cloud row on relevant lifecycle events. Anon users
+  // stay local-only — no cloud row until they bind into an account.
+  //
+  // Cost-optimized in two ways:
+  //   1) Local writes set `localDirty` via the 'app:progress-changed' event
+  //      (dispatched from storage.js saveProgress). Heartbeat and pagehide
+  //      skip the push when nothing has changed since the last successful
+  //      flush — idle tabs cost nothing.
+  //   2) Heartbeat interval is 5 minutes (was 60s). The original tight
+  //      interval was meant to keep two simultaneously-open devices in sync;
+  //      in practice the cross-device handoff almost always involves the
+  //      user backgrounding/closing the source tab, which fires
+  //      visibilitychange or pagehide and flushes immediately. The heartbeat
+  //      is now just a safety net for the rare "both tabs in foreground"
+  //      scenario, where a 5-minute lag is fine.
+  //
+  // We always bump progressRefreshKey / wordListRefreshKey after the flush
+  // resolves — pushLocalToCloud is pull-merge-push, so even when local was
+  // clean we may have pulled fresh data from the other device. Without the
+  // bump, LearningPage's top-right count stays frozen on whatever it loaded
+  // at mount until the user navigates pages.
+  const localDirty = useRef(false);
+  useEffect(() => {
+    const onChange = () => { localDirty.current = true; };
+    window.addEventListener('app:progress-changed', onChange);
+    return () => window.removeEventListener('app:progress-changed', onChange);
+  }, []);
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
     if (session.user.is_anonymous) return;
-    const flush = () => { pushLocalToCloud(uid); };
-    const onVisibility = () => { flush(); };
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', flush);
-    const id = setInterval(flush, 60_000);
+    const flushIfDirty = async () => {
+      if (!localDirty.current) return;
+      localDirty.current = false;
+      try {
+        await pushLocalToCloud(uid);
+        setProgressRefreshKey(k => k + 1);
+        setWordListRefreshKey(k => k + 1);
+      } catch {
+        // Restore dirty so the next flush will retry — losing a flush to a
+        // transient network error shouldn't strand the data locally forever.
+        localDirty.current = true;
+      }
+    };
+    const flushForVisibility = async () => {
+      // Always pull-merge-push on visibility transitions even when local is
+      // clean — returning to the tab is exactly when we want to pick up
+      // changes another device pushed. Cheap because visibility events are
+      // rare (vs heartbeat, which used to fire every 60s).
+      try {
+        await pushLocalToCloud(uid);
+        localDirty.current = false;
+        setProgressRefreshKey(k => k + 1);
+        setWordListRefreshKey(k => k + 1);
+      } catch {
+        // Keep dirty in case there was something pending we didn't flush.
+      }
+    };
+    document.addEventListener('visibilitychange', flushForVisibility);
+    window.addEventListener('pagehide', flushIfDirty);
+    const id = setInterval(flushIfDirty, 5 * 60_000);
     return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flushForVisibility);
+      window.removeEventListener('pagehide', flushIfDirty);
       clearInterval(id);
     };
   }, [session?.user?.id]);
@@ -1000,26 +1047,15 @@ export default function App() {
     if (session) await intentionalSignOut();
   };
 
-  // Called by LearningPage every time it presents a new word — which means
-  // the PREVIOUS word was just marked learned (markWordLearned wrote to
-  // localStorage moments before this fires). Use that as a cue to flush
-  // local → cloud so a second device opened seconds later sees the new
-  // progress, rather than waiting up to 60s for the heartbeat. Debounced
-  // 3s to coalesce bursts when the user blasts through several cards.
-  // Anon users stay local-only (their cloud row only appears post-bind).
-  const wordPushTimer = useRef(null);
-  const handleWordViewed = () => {
-    const uid = session?.user?.id;
-    if (!uid || session.user.is_anonymous) return;
-    if (wordPushTimer.current) clearTimeout(wordPushTimer.current);
-    wordPushTimer.current = setTimeout(() => {
-      wordPushTimer.current = null;
-      pushLocalToCloud(uid);
-    }, 3000);
-  };
-  useEffect(() => () => {
-    if (wordPushTimer.current) clearTimeout(wordPushTimer.current);
-  }, []);
+  // Called by LearningPage when a new word is presented. The per-word
+  // debounced cloud push that used to live here was retired — storage.js
+  // now dispatches 'app:progress-changed' on every saveProgress, which
+  // sets localDirty, and the (5-min) heartbeat / visibilitychange / pagehide
+  // flushers above pick it up. That eliminates the ~3 pushes/minute peak
+  // and cuts cloud egress by ~95% while keeping cross-device sync working
+  // (visibilitychange fires the moment the user switches devices).
+  // Kept as a prop for LearningPage's stable API; intentional no-op.
+  const handleWordViewed = () => {};
 
   // Called by LearningPage BEFORE it processes an answer click / skip /
   // Got-it tap. Returns false when the guest has reached the free quota —

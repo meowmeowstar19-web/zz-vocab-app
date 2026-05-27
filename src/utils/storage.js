@@ -155,6 +155,11 @@ export function getProgress(langKey = 'zh_en') {
 
 export function saveProgress(progress, langKey = 'zh_en') {
   localStorage.setItem(getKey(langKey), JSON.stringify(progress));
+  // Notify App.jsx that local progress changed — it sets a dirty flag so the
+  // background heartbeat only spends a cloud round-trip when there's actually
+  // new state to push. Without this, the tab pushes every interval forever
+  // even when the user has been idle the whole time.
+  try { window.dispatchEvent(new CustomEvent('app:progress-changed')); } catch {}
 }
 
 export function markWordLearned(wordId, langKey = 'zh_en') {
