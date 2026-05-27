@@ -7,7 +7,7 @@ import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
-import { primeAudio } from './hooks/useAudio';
+import { primeAudio, playSlaySound } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { supabase } from './lib/supabase';
@@ -231,6 +231,17 @@ export default function App() {
   // pollution then surfaces as the gate firing on the 3rd word (or
   // immediately on guest entry) for the SAME device after a sign-out.
   const [authReady, setAuthReady] = useState(false);
+  // True once the anon signInAnonymously attempt has SETTLED (success →
+  // session arrives via onAuthStateChange; failure → fall back to legacy
+  // 'guest' scope). We gate the main app render on this so LearningPage
+  // doesn't mount briefly with userScope='guest' and then re-mount with
+  // userScope=`u_<anon-id>` — the SRS session would rebuild with a fresh
+  // shuffle and the user would see one word flash before a different one
+  // settles in. anonAttemptFailed lets us also ungate if anon sign-in
+  // rejected (e.g. provider disabled at the Supabase project level), so the
+  // app continues with the 'guest' fallback instead of hanging on a blank
+  // screen forever.
+  const [anonAttemptFailed, setAnonAttemptFailed] = useState(false);
   // Device-based "already onboarded" check: once the user has picked their
   // native+target language (which writes app_native) AND hasn't explicitly
   // logged out, they enter the app as a guest on every subsequent visit
@@ -647,7 +658,15 @@ export default function App() {
   useEffect(() => {
     if (session) { anonInFlight.current = false; return; }
     if (!authReady) return;
-    if (!isGuest) return;
+    // Fire as soon as we know we're heading into the app — either the user
+    // is already a guest, or they're on LanguageSetupPage (first-time
+    // visitor with no app_native yet) and about to become one. Pre-warming
+    // anon sign-in during the picker step means the session is ready by the
+    // time they tap Confirm, so scopeFinalized is already true on the next
+    // render and the gate placeholder never shows. Explicit logged-out
+    // users (on WelcomePage) are still skipped via the app_logged_out
+    // guard below.
+    if (!isGuest && !needsLangSetup) return;
     // Defensive: don't auto-recreate an anon session if the user explicitly
     // logged out and React hasn't yet flipped isGuest to false. handleLogout
     // sets app_logged_out BEFORE signOut, so the onAuthStateChange
@@ -658,6 +677,7 @@ export default function App() {
     } catch {}
     if (anonInFlight.current) return;
     anonInFlight.current = true;
+    setAnonAttemptFailed(false);
     // Supabase returns errors as `res.error` rather than throwing — handle
     // both forms. We deliberately leave anonInFlight=true on failure so a
     // permanent config error (anonymous provider disabled) doesn't spin in
@@ -667,12 +687,14 @@ export default function App() {
       .then((res) => {
         if (res?.error) {
           console.warn('[anon] signInAnonymously rejected:', res.error.message);
+          setAnonAttemptFailed(true);
         }
       })
       .catch((e) => {
         console.warn('[anon] signInAnonymously threw:', e?.message || e);
+        setAnonAttemptFailed(true);
       });
-  }, [authReady, session, isGuest]);
+  }, [authReady, session, isGuest, needsLangSetup]);
 
   // Close the 5-word forced-login gate as soon as we have a REAL (non-anon)
   // session AND the post-OAuth verification has finished. Skipping while
@@ -826,7 +848,13 @@ export default function App() {
   const handleCheckin = () => {
     // Unlock audio *inside* the click gesture — iOS Safari requires this for
     // any later TTS / recorded playback (auto-speak on word change) to work.
+    // primeAudio also replays any deferred first-word speak (queued while
+    // audio was locked on the post-login mount), so dismissing the popup
+    // produces both the celebratory check-in tone AND the first word's
+    // pronunciation — neither plays without a gesture, so we anchor both
+    // here.
     primeAudio();
+    playSlaySound();
     markCheckinShown(session?.user?.id);
     setCheckinDay(null);
   };
@@ -1016,6 +1044,37 @@ export default function App() {
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
+        </div>
+      </div>
+    );
+  }
+
+  // Hold the in-app shell until the user scope is finalized. Two cases:
+  //   (a) authReady is still false — supabase.auth.getSession() hasn't
+  //       resolved yet, so we don't know if there's a real session waiting.
+  //       Mounting LearningPage now would pick userScope='guest' and then
+  //       flip to u_<uid> when getSession lands, rebuilding the SRS queue
+  //       with a fresh shuffle → the user sees one word flash before the
+  //       real first word.
+  //   (b) authReady=true, isGuest=true, no session yet, anon sign-in
+  //       hasn't settled. signInAnonymously is in flight — same flash.
+  //       anonAttemptFailed unblocks (a) if anon sign-in actually rejected,
+  //       so we fall through to the legacy 'guest' scope rather than
+  //       hanging on a blank screen forever.
+  const scopeFinalized = authReady && (!!session || !isGuest || anonAttemptFailed);
+  if (isLoggedIn && !scopeFinalized) {
+    // Background matches LearningPage's study_background.jpg exactly so the
+    // gate → LearningPage swap is visually invisible. An earlier version
+    // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
+    // against the beige polka-dot LearningPage background.
+    return (
+      <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
+          <img
+            src="/assets/figma/study_background.jpg"
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          />
         </div>
       </div>
     );

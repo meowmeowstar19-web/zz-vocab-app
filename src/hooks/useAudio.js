@@ -146,6 +146,17 @@ export function speakWordByLang(text, lang) {
     const now = Date.now();
     if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
     _lastSpeak = { text, time: now };
+    // Audio is still locked (no user gesture yet — e.g. fresh OAuth return
+    // mount before the user has tapped anything). Defer the recorded
+    // playback so primeAudio can replay it from the next gesture. Without
+    // this, playRecorded would call .play() now: on some browsers the
+    // returned promise resolves silently instead of rejecting, so the
+    // existing .catch-based fallback never sets _deferredSpeak and the
+    // first word stays silent forever.
+    if (audioStillLocked()) {
+      _deferredSpeak = () => playRecorded(url);
+      return;
+    }
     window.speechSynthesis.cancel();
     playRecorded(url);
     return;
