@@ -1062,7 +1062,13 @@ export default function App() {
   //       so we fall through to the legacy 'guest' scope rather than
   //       hanging on a blank screen forever.
   const scopeFinalized = authReady && (!!session || !isGuest || anonAttemptFailed);
-  if (isLoggedIn && !scopeFinalized) {
+  // Skip the placeholder while the LoginPromptModal is open. Email send-code
+  // inside the modal does a transient signOut to clear the anon session
+  // before signInWithOtp; that flips scopeFinalized false mid-flow and would
+  // unmount the entire tree (including the modal itself), leaving the user
+  // staring at the background image. The modal overlays the main app, so a
+  // brief 'guest' userScope underneath is invisible to the user.
+  if (isLoggedIn && !scopeFinalized && !loginModal.open) {
     // Background matches LearningPage's study_background.jpg exactly so the
     // gate → LearningPage swap is visually invisible. An earlier version
     // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
