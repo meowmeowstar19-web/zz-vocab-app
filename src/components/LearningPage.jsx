@@ -1461,7 +1461,7 @@ export default function LearningPage({
           src="/assets/figma/study_background.jpg"
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          style={{ zIndex: 0, objectPosition: '85% 50%', transform: 'scale(1.12)', transformOrigin: 'right center' }}
+          style={{ zIndex: 0 }}
         />
       )}
 
