@@ -13,9 +13,9 @@
     "compress:figma": "node scripts/compress-figma-assets.mjs",
     "predev": "node scripts/compress-figma-assets.mjs",
     "prebuild": "node scripts/compress-figma-assets.mjs",
-    "screenshots": "playwright test --config data-prep/monkey-test/playwright.config.js screenshots.spec.js",
-    "monkey": "playwright test --config data-prep/monkey-test/playwright.config.js monkey.spec.js",
-    "monkey:all": "playwright test --config data-prep/monkey-test/playwright.config.js"
+    "screenshots": "playwright test --config /Users/miaofang/Desktop/data_prep/moneky-test/playwright.config.js screenshots.spec.js",
+    "monkey": "playwright test --config /Users/miaofang/Desktop/data_prep/moneky-test/playwright.config.js monkey.spec.js",
+    "monkey:all": "playwright test --config /Users/miaofang/Desktop/data_prep/moneky-test/playwright.config.js"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",

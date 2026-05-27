@@ -40,6 +40,5 @@ Tab2_进阶地道_语义分类.csv
 # Claude Code session lock
 .claude/scheduled_tasks.lock
 
-# Playwright / monkey-test artifacts (each run writes to a timestamped subdir)
-data-prep/monkey-test/results/
+# Playwright cache (tests live outside the repo at ~/Desktop/data_prep/moneky-test/)
 playwright/.cache/
