@@ -21,7 +21,7 @@ OUT_DIR = ROOT / "public" / "icons"
 # Apple's macOS Big Sur+ icon template: tile fills ~80% of the 1024 canvas,
 # with ~10% transparent padding all around. Corner radius is ~22.5% of the tile.
 TILE_FILL = 0.82            # rounded tile as fraction of canvas
-CONTENT_FILL_IN_TILE = 0.80 # watermelon as fraction of the tile (not the canvas)
+CONTENT_FILL_IN_TILE = 1.00 # watermelon fills the tile edge-to-edge (matches icon-source)
 TILE_RADIUS_RATIO = 0.2237  # corner radius as fraction of tile side
 TILE_BG = (255, 255, 255, 255)
 
