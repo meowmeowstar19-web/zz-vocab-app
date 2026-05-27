@@ -12,7 +12,10 @@
     "sync:audio": "node scripts/sync-audio.mjs",
     "compress:figma": "node scripts/compress-figma-assets.mjs",
     "predev": "node scripts/compress-figma-assets.mjs",
-    "prebuild": "node scripts/compress-figma-assets.mjs"
+    "prebuild": "node scripts/compress-figma-assets.mjs",
+    "screenshots": "playwright test --config data-prep/monkey-test/playwright.config.js screenshots.spec.js",
+    "monkey": "playwright test --config data-prep/monkey-test/playwright.config.js monkey.spec.js",
+    "monkey:all": "playwright test --config data-prep/monkey-test/playwright.config.js"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",
@@ -23,8 +26,10 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
+    "gremlins.js": "^2.2.0",
     "postcss": "^8.4.35",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",

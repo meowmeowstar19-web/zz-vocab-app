@@ -448,7 +448,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       <div className="relative z-10 h-full overflow-y-auto scrollbar-hide flex flex-col">
 
       {/* Top: Profile */}
-      <div className="shrink-0" style={{ paddingLeft: 26, paddingTop: 25, paddingBottom: 16, paddingRight: 18 }}>
+      <div className="shrink-0" style={{ padding: isShortScreen ? '25px 18px 20px 26px' : '35px 18px 25px 26px' }}>
 
         {/* Profile section */}
         {(() => {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase, intentionalSignOut } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
+import { validateEmailShape } from '../utils/emailValidate';
 import { usePostHog } from '@posthog/react';
 import { syncOnLogin } from '../utils/progressSync';
 import { primeAudio } from '../hooks/useAudio';
@@ -58,8 +59,9 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
   const handleSendCode = async () => {
     resetMessages();
     const emailVal = email.trim();
-    if (!emailVal) {
-      setError(t.emailRequired || 'Please enter your email');
+    const check = validateEmailShape(emailVal, t);
+    if (!check.ok) {
+      setError(check.msg);
       return;
     }
     setLoading(true);
@@ -182,8 +184,21 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
   // (with `app_anon_data_to_migrate` carrying the prior anon's progress
   // into the new scope). Without this, the user would land back in
   // settings with a stale "logged out" flag suppressing guest mode.
+  //
+  // Also re-mint the anon session inline. App.jsx's anon-creation effect
+  // is gated on [authReady, session, isGuest, needsLangSetup] — none of
+  // which change when we clear app_logged_out, so the effect never re-runs.
+  // Without this explicit call, closing the modal after backing out of a
+  // sent-OTP flow leaves the app stuck on the scope-finalization placeholder
+  // (white background + tiny phone shell — looks like a white screen).
   const handleBack = () => {
     try { localStorage.removeItem('app_logged_out'); } catch {}
+    (async () => {
+      try {
+        const { data: { session: cur } } = await supabase.auth.getSession();
+        if (!cur) await supabase.auth.signInAnonymously();
+      } catch {}
+    })();
     onBack();
   };
 

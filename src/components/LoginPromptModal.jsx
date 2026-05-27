@@ -430,11 +430,11 @@ export default function LoginPromptModal({
             <div className="flex" style={{ gap: 26 }}>
               <button
                 onClick={() => signInWithProvider('google')}
-                className="rounded-full bg-white border-2 border-black shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+                className="rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
                 style={{ width: 48, height: 48 }}
                 aria-label="Google"
               >
-                <img src="/assets/figma/icon-google-g.png" alt="Google" style={{ width: 30, height: 30 }} />
+                <img src="/assets/figma/icon-google.png" alt="Google" className="w-full h-full object-cover" />
               </button>
               <button
                 onClick={() => signInWithProvider('discord')}

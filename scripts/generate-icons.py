@@ -1,102 +1,84 @@
 #!/usr/bin/env python3
 """Generate PWA / Apple touch icons from icon-source.png.
 
-The source is a product photo of the watermelon plushie on a white
-background. We tight-crop around the plushie, then center it on a
-cream canvas (matching the app theme) so the result looks like a
-proper app icon instead of a stretched photo.
+App-surface icons (apple-touch-icon, favicon.png, icon-192, icon-512)
+are composed as: white rounded tile (iOS 22.37% radius, transparent
+outside) + watermelon inset to 78% of the canvas. This matches the
+visual proportions of native macOS Dock icons (Chrome, WeChat etc.),
+where content sits inside the tile with ~20% padding.
+
+Browser-tab favicons (favicon-16/32) stay full-bleed square — at that
+size, rounded corners and insets just blur the recognisable shape.
 """
 
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "public" / "icons" / "icon-source.png"
 OUT_DIR = ROOT / "public" / "icons"
 
-BG = (255, 255, 255, 255)   # white — clean app icon
-CANVAS = 1024
-PLUSHIE_FILL = 0.78         # plushie bbox width as fraction of canvas
-VERTICAL_BIAS = -0.02       # negative = nudge up slightly so the legs sit lower
+# Apple's macOS Big Sur+ icon template: tile fills ~80% of the 1024 canvas,
+# with ~10% transparent padding all around. Corner radius is ~22.5% of the tile.
+TILE_FILL = 0.82            # rounded tile as fraction of canvas
+CONTENT_FILL_IN_TILE = 0.80 # watermelon as fraction of the tile (not the canvas)
+TILE_RADIUS_RATIO = 0.2237  # corner radius as fraction of tile side
+TILE_BG = (255, 255, 255, 255)
 
 
-def find_bbox(im: Image.Image, threshold: int = 240) -> tuple[int, int, int, int]:
-    """Find bbox of non-white pixels in an RGB(A) image."""
-    rgb = im.convert("RGB")
-    w, h = rgb.size
-    px = rgb.load()
-    left, top, right, bottom = w, h, 0, 0
-    for y in range(h):
-        for x in range(w):
-            r, g, b = px[x, y]
-            if r < threshold or g < threshold or b < threshold:
-                if x < left: left = x
-                if y < top: top = y
-                if x > right: right = x
-                if y > bottom: bottom = y
-    if right < left or bottom < top:
-        return (0, 0, w, h)
-    return (left, top, right + 1, bottom + 1)
+def build_tile_icon(src: Image.Image, size: int) -> Image.Image:
+    """Rounded white tile inside a transparent canvas, watermelon inset in the tile.
 
+    Matches Apple's icon template proportions so the result sits flush with
+    other macOS Dock icons instead of looking oversized.
+    """
+    tile_side = int(round(size * TILE_FILL))
+    inner = int(round(tile_side * CONTENT_FILL_IN_TILE))
+    watermelon = src.resize((inner, inner), Image.LANCZOS)
 
-def remap_white_to_alpha(im: Image.Image) -> Image.Image:
-    """Replace near-white pixels with transparency so the plushie
-    floats on whatever background we composite it onto.
+    tile = Image.new("RGBA", (tile_side, tile_side), TILE_BG)
+    tile_off = (tile_side - inner) // 2
+    tile.paste(watermelon, (tile_off, tile_off),
+               watermelon if watermelon.mode == "RGBA" else None)
 
-    Soft threshold: brightness >= 248 → fully transparent,
-    brightness <= 232 → fully opaque, linear in between to avoid
-    a hard edge around the plushie's soft fuzz."""
-    rgba = im.convert("RGBA").copy()
-    px = rgba.load()
-    w, h = rgba.size
-    HI, LO = 248, 232
-    span = HI - LO
-    for y in range(h):
-        for x in range(w):
-            r, g, b, _ = px[x, y]
-            m = min(r, g, b)  # min channel — robust to slight color cast
-            if m >= HI:
-                px[x, y] = (r, g, b, 0)
-            elif m > LO:
-                a = int(255 * (HI - m) / span)
-                px[x, y] = (r, g, b, a)
-    return rgba
+    radius = int(round(tile_side * TILE_RADIUS_RATIO))
+    mask = Image.new("L", (tile_side, tile_side), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, tile_side, tile_side), radius=radius, fill=255)
 
-
-def build_master() -> Image.Image:
-    src = Image.open(SRC).convert("RGBA")
-    bbox = find_bbox(src)
-    cropped = src.crop(bbox)
-    cropped = remap_white_to_alpha(cropped)
-    cw, ch = cropped.size
-
-    target_w = int(CANVAS * PLUSHIE_FILL)
-    scale = target_w / cw
-    new_w = target_w
-    new_h = int(ch * scale)
-    resized = cropped.resize((new_w, new_h), Image.LANCZOS)
-
-    canvas = Image.new("RGBA", (CANVAS, CANVAS), BG)
-    x = (CANVAS - new_w) // 2
-    y = (CANVAS - new_h) // 2 + int(CANVAS * VERTICAL_BIAS)
-    canvas.paste(resized, (x, y), resized)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas_off = (size - tile_side) // 2
+    canvas.paste(tile, (canvas_off, canvas_off), mask)
     return canvas
 
 
+def build_favicon_tab(src: Image.Image, size: int) -> Image.Image:
+    """Plain resized square on white for browser tab favicons."""
+    resized = src.resize((size, size), Image.LANCZOS)
+    flat = Image.new("RGB", (size, size), (255, 255, 255))
+    flat.paste(resized, (0, 0), resized if resized.mode == "RGBA" else None)
+    return flat
+
+
 def main() -> None:
-    master = build_master()
-    sizes = {
-        "icon-192.png": 192,
-        "icon-512.png": 512,
-        "apple-touch-icon.png": 180,
-        "favicon.png": 180,
-        "favicon-32.png": 32,
-        "favicon-16.png": 16,
+    src = Image.open(SRC).convert("RGBA")
+
+    # name -> (size, kind)  kind: "tile" = rounded+inset, "tab" = flat square
+    targets = {
+        "icon-192.png":         (192, "tile"),
+        "icon-512.png":         (512, "tile"),
+        "apple-touch-icon.png": (180, "tile"),
+        "favicon.png":          (180, "tile"),
+        "favicon-32.png":       (32,  "tab"),
+        "favicon-16.png":       (16,  "tab"),
     }
-    for name, size in sizes.items():
-        out = master.resize((size, size), Image.LANCZOS).convert("RGB")
+
+    for name, (size, kind) in targets.items():
+        if kind == "tile":
+            out = build_tile_icon(src, size)
+        else:
+            out = build_favicon_tab(src, size)
         out.save(OUT_DIR / name, "PNG", optimize=True)
-        print(f"  wrote {name} ({size}x{size})")
+        print(f"  wrote {name} ({size}x{size}, {kind})")
 
 
 if __name__ == "__main__":

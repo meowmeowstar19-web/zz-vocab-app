@@ -152,9 +152,9 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
         {/* Google */}
         <button
           onClick={() => signInWithProvider('google')}
-          className="w-[48px] h-[48px] rounded-full bg-white border-2 border-black shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform relative"
+          className="w-[48px] h-[48px] rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
         >
-          <img src="/assets/figma/icon-google-g.png" alt="Google" className="w-[30px] h-[30px]" />
+          <img src="/assets/figma/icon-google.png" alt="Google" className="w-full h-full object-cover" />
         </button>
 
         {/* Discord */}

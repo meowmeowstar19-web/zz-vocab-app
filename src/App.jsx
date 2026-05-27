@@ -382,16 +382,21 @@ export default function App() {
   // (or any other page reload that arrives mid-session) the gesture that
   // launched the sign-in is gone, and the first word's auto-speak silently
   // fails. Capture the very next pointerdown anywhere in the document,
-  // prime audio inside that gesture, and detach. handleCheckin /
-  // handleLogin / install-hint button already prime in their own gesture
-  // handlers — this is purely the fallback for everything else (OAuth
-  // return, email login submit, etc.).
+  // unlock audio inside that gesture, and detach.
+  //
+  // `replay: false` is the critical bit: this primer fires on *any* gesture
+  // anywhere — tab switches, taps on Settings, Install-hint click — so it
+  // must NOT replay the queued first-word speak. The deferred-speak slot is
+  // still drained (so a stale word can't sit and play later out of context),
+  // but the gesture is treated as an unlock-only event. The replay paths
+  // belong to specific intentional-entry callsites: handleCheckin,
+  // handleLogin, handleLangSetupComplete, EmailLoginPage's submit.
   useEffect(() => {
     let primed = false;
     const onGesture = () => {
       if (primed) return;
       primed = true;
-      primeAudio();
+      primeAudio({ replay: false });
       document.removeEventListener('pointerdown', onGesture, true);
       document.removeEventListener('keydown', onGesture, true);
     };
@@ -969,11 +974,12 @@ export default function App() {
   const showCheckinInstallHint = !pwaInstalled && installAvailable;
 
   const handleTabClick = (tab) => {
-    // Tab click is a user gesture — prime audio so subsequent auto-speaks
-    // play on iOS Safari (the global one-shot primer may have already run,
-    // but the cost of calling it again is negligible and it's a no-op once
-    // primed).
-    primeAudio();
+    // Tab click is a user gesture — unlock audio so subsequent auto-speaks
+    // play on iOS Safari. `replay: false` because the user is switching
+    // tabs, not entering learn: a queued first-word speak (set during an
+    // OAuth-return mount on learn) must NOT play onto WordList / Settings.
+    // The deferred slot is drained inside primeAudio so it can't fire later.
+    primeAudio({ replay: false });
     posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
     if (reviewMode) setReviewMode(false);
     setPage(tab);
@@ -1369,9 +1375,12 @@ export default function App() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Prime audio + record dismissal first, then open install modal.
+                      // Unlock audio + record dismissal first, then open install modal.
                       // installModalNode renders at z-60 so it overlays the check-in popup.
-                      primeAudio();
+                      // `replay: false` — user is going to the install hint, not into
+                      // learn, so the queued first-word speak must not play behind the
+                      // install modal.
+                      primeAudio({ replay: false });
                       markCheckinShown(session?.user?.id);
                       setCheckinDay(null);
                       openInstall();

@@ -36,11 +36,13 @@ function getRecordedAudio() {
   return _recordedAudio;
 }
 
-// Deferred-replay slot. On account-switch / OAuth-return / fresh load, the
-// auto-speak for the first word can fire BEFORE the user has produced any
-// gesture — so iOS blocks it silently. We stash the attempt here and replay
-// it from primeAudio once the user does tap (typically via App's global
-// pointerdown primer). Cleared as soon as it fires.
+// Deferred-replay slot. On account-switch / OAuth-return / fresh load the
+// auto-speak for the first word fires BEFORE any user gesture, so iOS
+// blocks it. We stash it here and let an intentional learn-entry gesture
+// (check-in OK, guest-mode entry, lang-setup confirm) replay it via
+// primeAudio(). Gestures NOT meant to enter learn — tab switches, global
+// fallback pointerdown, install-hint — pass `replay: false` so the queued
+// word doesn't bleed onto WordList / Settings / Install modals.
 let _deferredSpeak = null;
 
 // Set true the first time primeAudio runs the silent-WAV unlock path. The
@@ -75,10 +77,24 @@ function playRecorded(url) {
   }
 }
 
-// Call once from a user-gesture handler (e.g. the daily check-in button). On
-// iOS Safari this unlocks Web Audio, speechSynthesis, and the shared <audio>
-// element so subsequent auto-speaks on word change actually play.
-export function primeAudio() {
+// Call from a user-gesture handler to unlock Web Audio / speechSynthesis /
+// the shared <audio> element on iOS Safari. Default `replay: true` also
+// drains and plays any queued first-word speak (see _deferredSpeak above);
+// pass `replay: false` from gestures that aren't entering learn so the
+// queued word doesn't bleed onto other surfaces.
+//
+// The deferred slot is ALWAYS drained — even on replay:false — so a stale
+// word can't sit waiting to play later in the wrong context.
+//
+// The deferred-replay path and the silent-WAV path are mutually exclusive
+// on the shared <audio> element: running both would race (silent WAV's
+// async .then resolves after deferred-replay has swapped src and starts
+// pausing it).
+export function primeAudio({ replay = true } = {}) {
+  // primeAudio is only called from user-gesture handlers (global pointerdown
+  // primer, tab click, check-in, login, etc.), so getting here means audio
+  // is authorized regardless of what `ctx.state` reads on the next tick.
+  _audioUnlocked = true;
   try {
     const ctx = getAudioCtx();
     if (ctx.state === 'suspended') ctx.resume();
@@ -89,48 +105,54 @@ export function primeAudio() {
     window.speechSynthesis.speak(u);
     window.speechSynthesis.cancel();
   } catch {}
-  // Two mutually-exclusive paths share the persistent <audio> element:
-  //
-  //   1. If a `_deferredSpeak` is queued (the first-word auto-speak fired
-  //      while audio was still locked), running it now both replays the
-  //      missed word AND satisfies iOS's "first .play() must come from a
-  //      gesture" rule for the shared <audio> element. No silent WAV needed.
-  //
-  //   2. Otherwise, prime the <audio> element with a tiny silent WAV so a
-  //      future word play (e.g. after a Tab switch) doesn't need a fresh
-  //      gesture.
-  //
-  // Both paths use the SAME `_recordedAudio` element. Running them both
-  // would race: the silent WAV's `play()` Promise resolves on a microtask
-  // and its `.then` calls `a.pause(); a.currentTime = 0` — which lands
-  // AFTER the deferred-replay has already swapped src to the word mp3 and
-  // started playing, silencing the word audio. That's the "I tapped 打卡,
-  // popup sound played, but the word stayed silent" bug.
-  const replay = _deferredSpeak;
-  _deferredSpeak = null;
+  // Only drain the deferred slot when this gesture is *meant* to enter
+  // learn (handleCheckin / handleLogin / handleLangSetupComplete pass
+  // default replay:true). The capture-phase global primer and tab-switch /
+  // install-hint gestures pass replay:false and MUST leave the slot intact
+  // — otherwise the global primer fires first on the check-in tap and
+  // drains the queued first word before handleCheckin's onClick can replay
+  // it, and the popup dismiss ends in silence.
+  let queued = null;
   if (replay) {
-    try { replay(); } catch {}
+    queued = _deferredSpeak;
+    _deferredSpeak = null;
+  }
+  if (queued) {
+    try { queued(); } catch {}
     _primed = true;
   } else if (!_primed) {
     try {
       const a = getRecordedAudio();
-      // Tiny silent WAV; just enough to satisfy iOS's "first play from gesture" check.
+      // Tiny 0-duration silent WAV; just enough to satisfy iOS's "first play
+      // from gesture" check and unlock the <audio> element for later plays.
+      // Do NOT attach a `.then(() => a.pause())` here: the WAV is empty so it
+      // ends instantly on its own, and a deferred pause callback would fire
+      // asynchronously — potentially AFTER the next playRecorded swaps src to
+      // a real word and calls play(), pausing the word mid-playback. That
+      // was the "I tapped 打卡, popup sound played, but the word stayed
+      // silent" bug.
       a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
       const p = a.play();
-      if (p && typeof p.then === 'function') {
-        p.then(() => { try { a.pause(); a.currentTime = 0; } catch {} }).catch(() => {});
-      }
+      if (p && typeof p.catch === 'function') p.catch(() => {});
       _primed = true;
     } catch {}
   }
 }
 
 let _lastSpeak = { text: '', time: 0 };
+// Flipped to true the first time primeAudio runs inside a user gesture.
+// AudioContext.resume() is async — its promise resolves on a later tick, so
+// `audioCtx.state` can still read 'suspended' for a beat AFTER the gesture
+// has already authorized playback. Reading raw `state` causes a false
+// "locked" verdict in the check-in flow: handleCheckin unlocks audio →
+// setCheckinDay(null) → LearningPage's isVisible flips true → its effect
+// calls speakCurrent on the same tick → audioStillLocked() still sees
+// 'suspended' → speak gets deferred → no replay happens (the slot would
+// only fire on a *future* gesture) → user hears silence.
+let _audioUnlocked = false;
 
 function audioStillLocked() {
-  // Heuristic: if the AudioContext (created at module-load time) is
-  // suspended, we haven't received a user gesture yet — TTS will likely
-  // fail silently too. Don't *create* the context here; just inspect it.
+  if (_audioUnlocked) return false;
   return audioCtx ? audioCtx.state === 'suspended' : true;
 }
 
