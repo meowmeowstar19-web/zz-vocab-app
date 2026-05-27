@@ -474,6 +474,19 @@ export default function LearningPage({
     return shuffle(pool.filter(w => prog[w.id] && !prog[w.id].mastered));
   }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
 
+  // ── Has the user ever learned ANY word in the current scope? ──
+  // Used to differentiate "review complete" from "nothing to review yet": when
+  // wordPool is empty AND the user has 0 learned entries here, we show a
+  // friendlier go-learn-first prompt instead of the celebratory done state.
+  const hasAnyLearnedInScope = useMemo(() => {
+    if (!isReview) return true;
+    const prog = progress;
+    let pool = selectedCategory === 'all' ? activeWordsShuffled : activeWords.filter(w => w.category === selectedCategory);
+    pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
+    return pool.some(w => prog[w.id]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
+
   // ── SRS Session Initialization (learning mode only) ──
   const showNextCard = useCallback(() => {
     const total = totalShownRef.current;
@@ -1378,27 +1391,52 @@ export default function LearningPage({
           </div>
         )}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
-          <div className="text-6xl mb-3">🎉</div>
-          <div className="text-xl font-extrabold text-textMain mb-1">
-            {isReview ? t.reviewDone : t.allDone}
-          </div>
-          <div className="text-textSub text-sm text-center">
-            {isReview
-              ? t.reviewAll
-              : (selectedCategory === 'all' ? t.allWords : catLabels[selectedCategory]) + t.allLearned
+          {(() => {
+            const showEmptyReview = isReview && !hasAnyLearnedInScope;
+            if (showEmptyReview) {
+              // Match the WordListPage empty-state styling so review and list
+              // empty surfaces feel like the same thing.
+              const noLearnedText = isOralMode
+                ? (t.noLearnedPhrases || t.noLearned)
+                : t.noLearned;
+              return (
+                <>
+                  <div className="text-4xl mb-2">😭</div>
+                  <div className="text-sm font-bold text-textSub">{noLearnedText}</div>
+                  <div className="text-xs mt-1 text-textLight">{t.learnedTip}</div>
+                  <button onClick={onExitReview}
+                    className="mt-4 px-6 py-2.5 bg-[#2b2a26] text-white rounded-full text-sm font-bold shadow">
+                    {t.backToList}
+                  </button>
+                </>
+              );
             }
-          </div>
-          {isReview ? (
-            <button onClick={onExitReview}
-              className="mt-4 px-6 py-2.5 bg-[#2b2a26] text-white rounded-full text-sm font-bold shadow">
-              {t.backToList}
-            </button>
-          ) : (
-            <button onClick={() => { onCategoryChange?.('all'); onLevelChange?.('all'); resetSrsSession(); }}
-              className="mt-4 px-6 py-2.5 bg-[#2b2a26] text-white rounded-full text-sm font-bold shadow">
-              {t.restart}
-            </button>
-          )}
+            return (
+              <>
+                <div className="text-6xl mb-3">🎉</div>
+                <div className="text-xl font-extrabold text-textMain mb-1">
+                  {isReview ? t.reviewDone : t.allDone}
+                </div>
+                <div className="text-textSub text-sm text-center">
+                  {isReview
+                    ? t.reviewAll
+                    : (selectedCategory === 'all' ? t.allWords : catLabels[selectedCategory]) + t.allLearned
+                  }
+                </div>
+                {isReview ? (
+                  <button onClick={onExitReview}
+                    className="mt-4 px-6 py-2.5 bg-[#2b2a26] text-white rounded-full text-sm font-bold shadow">
+                    {t.backToList}
+                  </button>
+                ) : (
+                  <button onClick={() => { onCategoryChange?.('all'); onLevelChange?.('all'); resetSrsSession(); }}
+                    className="mt-4 px-6 py-2.5 bg-[#2b2a26] text-white rounded-full text-sm font-bold shadow">
+                    {t.restart}
+                  </button>
+                )}
+              </>
+            );
+          })()}
         </div>
         {renderCategoryModal()}
       </div>

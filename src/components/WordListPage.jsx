@@ -417,7 +417,10 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
               {filter === 'mastered' ? '⚔️' : '😭'}
             </div>
             <div className="text-sm font-bold">
-              {filter === 'mastered' ? t.noMastered : t.noLearned}
+              {filter === 'mastered'
+                ? (subTab === 'phrases' ? (t.noMasteredPhrases || t.noMastered) : t.noMastered)
+                : (subTab === 'phrases' ? (t.noLearnedPhrases || t.noLearned) : t.noLearned)
+              }
             </div>
             <div className="text-xs mt-1 text-textLight">
               {filter === 'mastered' ? t.masteredTip : t.learnedTip}

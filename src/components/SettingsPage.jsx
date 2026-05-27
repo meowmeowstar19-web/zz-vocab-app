@@ -72,6 +72,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackError, setFeedbackError] = useState('');
   const [feedbackSending, setFeedbackSending] = useState(false);
+  // Each item: { id, dataUrl, file }. `dataUrl` is the in-memory preview;
+  // we upload `file` to supabase storage on send.
+  const [feedbackImages, setFeedbackImages] = useState([]);
+  const feedbackFileInputRef = useRef(null);
+  const FEEDBACK_MAX_IMAGES = 10;
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -81,17 +86,82 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   }, [toast]);
 
   const openFeedbackModal = () => {
-    if (!user) {
+    // Step 1's anon refactor made guests a real `user`, so the old `!user`
+    // gate stopped firing — feedback rows started coming in with no email
+    // (anon users don't have one). Restore the original intent: feedback
+    // requires a real (non-anonymous) signed-in account.
+    if (!user || user.is_anonymous) {
       setToast(t.feedbackLoginRequired || '登录后才能发送意见反馈哦~');
       return;
     }
     setFeedbackText('');
     setFeedbackError('');
+    setFeedbackImages([]);
     setShowFeedbackModal(true);
   };
   const closeFeedbackModal = () => {
     setShowFeedbackModal(false);
+    setFeedbackImages([]);
   };
+
+  // Downscale + JPEG-encode an image File so a single feedback row stays bounded.
+  // Stored as base64 data URLs directly in the feedback row, so a smaller cap
+  // keeps the row safely under Postgres limits even with 10 images attached.
+  // Max edge 900px, quality 0.7 → ~50–150 KB per shot.
+  const compressImageFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') { reject(new Error('read')); return; }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const max = 900;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          resolve({ dataUrl });
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('decode'));
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleFeedbackImagePick = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const remaining = FEEDBACK_MAX_IMAGES - feedbackImages.length;
+    const accepted = files.slice(0, remaining);
+    if (files.length > remaining) {
+      setFeedbackError(t.feedbackImagesTooMany || '最多只能选 10 张图哦~');
+    } else if (feedbackError === (t.feedbackImagesTooMany || '最多只能选 10 张图哦~')) {
+      setFeedbackError('');
+    }
+    const out = [];
+    for (const f of accepted) {
+      if (!f.type.startsWith('image/')) continue;
+      try {
+        const { dataUrl } = await compressImageFile(f);
+        out.push({ id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, dataUrl });
+      } catch {/* ignore individual failures */}
+    }
+    if (out.length === 0) return;
+    setFeedbackImages((prev) => [...prev, ...out].slice(0, FEEDBACK_MAX_IMAGES));
+  };
+
+  const removeFeedbackImage = (id) => {
+    setFeedbackImages((prev) => prev.filter((img) => img.id !== id));
+  };
+
   const handleFeedbackSend = async () => {
     const msg = feedbackText.trim();
     if (!msg) {
@@ -102,6 +172,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     setFeedbackError('');
     setFeedbackSending(true);
     try {
+      // Images are stored as base64 data URLs in the `images` jsonb column on
+      // the feedback row — no storage bucket required. Compression in
+      // compressImageFile keeps the row bounded.
+      const images = feedbackImages.map((img) => img.dataUrl);
       const { error } = await supabase.from('feedback').insert({
         user_id: user.id,
         email: user.email || null,
@@ -109,16 +183,33 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         native_lang: nativeLang,
         target_lang: targetLang,
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        images: images.length ? images : null,
       });
       if (error) throw error;
-      posthog?.capture('feedback_submitted', { native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('feedback_submitted', {
+        native_lang: nativeLang, target_lang: targetLang,
+        image_count: images.length,
+      });
       setShowFeedbackModal(false);
+      setFeedbackImages([]);
       setToast(t.feedbackSent || '反馈已发送，谢谢你！');
     } catch (err) {
       setFeedbackError(err?.message || t.feedbackSendFailed || '发送失败，请稍后再试');
     } finally {
       setFeedbackSending(false);
     }
+  };
+
+  const SOCIAL_LINKS = [
+    { key: 'discord', icon: '/assets/figma/social-icon-discord.png', url: 'https://discord.gg/FbkNw2AYYB' },
+    { key: 'tiktok', icon: '/assets/figma/social-icon-tiktok.png', url: 'https://www.tiktok.com/@getplushieword?_r=1&_t=ZT-96dQssXqgHO' },
+    { key: 'youtube', icon: '/assets/figma/social-icon-youtube.png', url: 'https://youtube.com/@plushieword?si=UggxFGiMaDEYE-PB' },
+    { key: 'instagram', icon: '/assets/figma/social-icon-ig.png', url: 'https://www.instagram.com/getplushieword?igsh=MWVnY2ptMzNoeW9rZw%3D%3D&utm_source=qr' },
+  ];
+
+  const handleSocialClick = (key, url) => {
+    posthog?.capture('social_link_clicked', { network: key });
+    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { window.location.href = url; }
   };
 
   // Save-progress modal is now owned by App.jsx (single instance, Step 4).
@@ -519,6 +610,55 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </span>
         </button>
 
+        {/* Follow-us pill — 4 social icons inside a pill matching the other rows.
+            Each icon is a separate tap target opening the external profile in a
+            new tab. */}
+        <div
+          className="absolute flex items-center"
+          style={{
+            left: 18, top: 453,
+            width: 357, height: 50,
+            backgroundColor: 'rgba(255,255,255,0.4)',
+            border: '2px solid #000',
+            borderRadius: 100,
+          }}
+        >
+          <span style={{ marginLeft: 19, fontSize: 18, color: '#000', whiteSpace: 'nowrap' }}>
+            <span style={{ marginRight: 8 }}>❤️</span>
+            {t.followUsRow || '求关注'}
+          </span>
+          {/* Icons stretch across the remaining pill space with space-evenly so
+              each tap target is comfortably wide on a phone. */}
+          <div style={{
+            flex: 1,
+            marginLeft: 8,
+            marginRight: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-evenly',
+          }}>
+            {SOCIAL_LINKS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => handleSocialClick(s.key, s.url)}
+                aria-label={s.key}
+                className="active:scale-90"
+                style={{
+                  width: 34, height: 34,
+                  padding: 0,
+                  border: 0,
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <img src={s.icon} alt={s.key} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Guest mode: small centered "Sign up" yellow button + "Already have
             an account? Log in" link below. Both open the LoginPromptModal —
             Sign up pre-selects the Email signup form, Log in pre-selects the
@@ -528,7 +668,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             sign up / bind. */}
         {!isRealUser && (
           <>
-            <div className="absolute flex justify-center" style={{ top: 453, left: 0, right: 0 }}>
+            <div className="absolute flex justify-center" style={{ top: 538, left: 0, right: 0 }}>
               <button
                 onClick={() => onOpenLoginPrompt?.({ flowType: 'bind', emailMode: 'signup' })}
                 className="active:scale-95 transition-transform"
@@ -549,7 +689,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             <p
               className="absolute text-center"
               style={{
-                top: 517, left: 0, right: 0,
+                top: 602, left: 0, right: 0,
                 fontSize: 15, color: '#000', lineHeight: 1.4,
               }}
             >
@@ -596,7 +736,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             don't have an account to log out of; signing out their anon
             session would just orphan their local progress. */}
         {isRealUser && onLogout && (
-          <div className="absolute flex justify-center" style={{ top: 544, left: 0, right: 0 }}>
+          <div className="absolute flex justify-center" style={{ top: 538, left: 0, right: 0 }}>
             <button
               onClick={() => {
                 if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
@@ -843,6 +983,92 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 backgroundColor: '#fff',
               }}
             />
+
+            {/* Image attachments — 4-column grid that spans the textarea's full
+                width so first/last cells align with its left/right edges. The
+                remove button (×) sits OUTSIDE each thumb's overflow:hidden
+                clip so it can't get cropped. */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 16,
+              marginTop: 18,
+            }}>
+              {feedbackImages.map((img) => (
+                <div
+                  key={img.id}
+                  style={{
+                    position: 'relative',
+                    aspectRatio: '1 / 1',
+                  }}
+                >
+                  {/* Inner div clips the rounded image; X sits on the outer */}
+                  <div style={{
+                    width: '100%', height: '100%',
+                    border: '2px solid #000',
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    backgroundColor: '#fff',
+                  }}>
+                    <img
+                      src={img.dataUrl}
+                      alt=""
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFeedbackImage(img.id)}
+                    aria-label="Remove"
+                    className="active:scale-90"
+                    style={{
+                      position: 'absolute', top: -8, right: -8,
+                      width: 22, height: 22,
+                      borderRadius: '50%',
+                      border: '2px solid #000',
+                      backgroundColor: '#fff',
+                      color: '#000',
+                      fontSize: 14, lineHeight: 1,
+                      cursor: 'pointer',
+                      padding: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      zIndex: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {feedbackImages.length < FEEDBACK_MAX_IMAGES && (
+                <button
+                  type="button"
+                  onClick={() => feedbackFileInputRef.current?.click()}
+                  aria-label={t.feedbackAddImage || '添加图片'}
+                  className="active:scale-95"
+                  style={{
+                    aspectRatio: '1 / 1',
+                    border: '2px dashed #000',
+                    borderRadius: 12,
+                    backgroundColor: '#fff',
+                    color: '#000',
+                    fontSize: 28, lineHeight: 1,
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  +
+                </button>
+              )}
+              <input
+                ref={feedbackFileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFeedbackImagePick}
+                style={{ display: 'none' }}
+              />
+            </div>
 
             {feedbackError && (
               <p style={{
