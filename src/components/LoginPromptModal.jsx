@@ -179,11 +179,17 @@ export default function LoginPromptModal({
     const { error } = await (effectiveFlow === 'bind'
       ? supabase.auth.linkIdentity({
           provider,
-          options: { redirectTo: window.location.origin },
+          options: {
+            redirectTo: window.location.origin,
+            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
+          },
         })
       : supabase.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: window.location.origin },
+          options: {
+            redirectTo: window.location.origin,
+            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
+          },
         }));
     if (error) {
       if (effectiveFlow === 'bind') {

@@ -48,7 +48,10 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
     posthog?.capture('login_oauth_initiated', { provider, native_lang: nativeLang });
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
+      },
     });
     if (error) setOauthError(error.message);
   };
