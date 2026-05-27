@@ -207,9 +207,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     { key: 'instagram', icon: '/assets/figma/social-icon-ig.png', url: 'https://www.instagram.com/getplushieword?igsh=MWVnY2ptMzNoeW9rZw%3D%3D&utm_source=qr' },
   ];
 
-  const handleSocialClick = (key, url) => {
+  // Use a real <a target="_blank"> below — window.open() in iOS standalone
+  // PWAs hijacks the PWA view itself and leaves the user stranded on a blank
+  // in-app browser when they come back. Anchors with target="_blank" open in
+  // Safari without breaking the PWA shell.
+  const handleSocialClick = (key) => {
     posthog?.capture('social_link_clicked', { network: key });
-    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { window.location.href = url; }
   };
 
   // Save-progress modal is now owned by App.jsx (single instance, Step 4).
@@ -640,23 +643,24 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             justifyContent: 'space-evenly',
           }}>
             {SOCIAL_LINKS.map((s) => (
-              <button
+              <a
                 key={s.key}
-                type="button"
-                onClick={() => handleSocialClick(s.key, s.url)}
+                href={s.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => handleSocialClick(s.key)}
                 aria-label={s.key}
                 className="active:scale-90"
                 style={{
                   width: 34, height: 34,
                   padding: 0,
-                  border: 0,
                   background: 'transparent',
-                  cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  textDecoration: 'none',
                 }}
               >
                 <img src={s.icon} alt={s.key} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-              </button>
+              </a>
             ))}
           </div>
         </div>
