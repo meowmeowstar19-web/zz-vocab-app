@@ -132,6 +132,10 @@ export default function LearningPage({
   // we discard the click so the answer doesn't register and the current
   // word stays on screen behind the modal.
   requestNextWord,
+  // Bumped by App after syncOnLogin merges cloud data into localStorage.
+  // Triggers a re-read of `progress` so the top-right "已学" count reflects
+  // words learned on another device without needing a tab switch / remount.
+  refreshKey = 0,
 }) {
   const posthog = usePostHog();
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
@@ -437,10 +441,14 @@ export default function LearningPage({
   const isCompact = contentH < FULL_H;
   const navLeftDecorW = Math.round(responsive2(83, 56, 49));
 
-  // Reload progress when target language changes (storage key changed)
+  // Reload progress when target language changes (storage key changed) OR
+  // when App signals a sync-arrival via refreshKey. Without the refreshKey
+  // dep, the cross-device cloud merge updates localStorage but this
+  // component keeps showing the pre-merge `progress` snapshot — the
+  // top-right "已学" count stays stale until a tab switch / remount.
   useEffect(() => {
     setProgress(getProgress(storageKey));
-  }, [storageKey]);
+  }, [storageKey, refreshKey]);
 
   // Reset review index whenever either language changes
   useEffect(() => {

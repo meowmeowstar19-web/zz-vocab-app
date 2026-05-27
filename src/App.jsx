@@ -297,6 +297,14 @@ export default function App() {
   });
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
+  // Bumped after every syncOnLogin completion so LearningPage can re-read
+  // its `progress` state from localStorage. Without this, the cloud→local
+  // merge writes new entries but LearningPage's mount-time useState snapshot
+  // stays stale — the top-right "已学" count keeps showing the pre-sync
+  // number until the user navigates away and back. WordListPage already has
+  // its own refreshKey wired through tab clicks; this is the equivalent for
+  // the learn surface, fired on the data-arrival edge instead.
+  const [progressRefreshKey, setProgressRefreshKey] = useState(0);
   const [nativeLang, setNativeLang] = useState(() => {
     const saved = localStorage.getItem('app_native');
     return saved || detectBrowserNativeLang();
@@ -515,6 +523,11 @@ export default function App() {
       // merged with the cloud snapshot, so getLoginDayCount reports the full
       // historical total.
       setSyncInFlight(false);
+      // Tell LearningPage + WordListPage to re-read progress from localStorage.
+      // Cloud-side changes (another device pushed) have just been merged in,
+      // but in-memory React state on the pages predates the merge.
+      setProgressRefreshKey(k => k + 1);
+      setWordListRefreshKey(k => k + 1);
     }
   };
 
@@ -1134,6 +1147,7 @@ export default function App() {
               onCategoryModalChange={setCategoryModalOpen}
               onWordViewed={handleWordViewed}
               requestNextWord={requestNextWord}
+              refreshKey={progressRefreshKey}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>

@@ -2,7 +2,7 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v59';
+const CACHE_VERSION = 'v60';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 
@@ -80,9 +80,14 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then((cached) => {
         if (cached) return cached;
         return fetch(req).then((res) => {
-          if (res.ok) {
+          // status===200 only — 206 (Partial Content) from Range requests
+          // can't be cached via Cache API ("Partial response is unsupported"),
+          // which the browser fires for <audio> seeking. res.ok includes
+          // 206, so we narrow explicitly. .catch() swallows any other
+          // put-failures so the network response still resolves to the page.
+          if (res.status === 200) {
             const copy = res.clone();
-            caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
+            caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
           return res;
         });
@@ -95,9 +100,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(req).then((cached) => {
       const networkFetch = fetch(req).then((res) => {
-        if (res.ok) {
+        if (res.status === 200) {
           const copy = res.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
+          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
       }).catch(() => cached);
