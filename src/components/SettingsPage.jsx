@@ -433,7 +433,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const LABEL_MT = 12;   // gap between circle bottom and label (97px from container - 85px icon = 12px)
 
   return (
-    <div className="relative h-full overflow-hidden">
+    <div className="relative h-full overflow-hidden flex flex-col">
       {/* Background */}
       <img
         src="/assets/figma/setting-background.jpg"
@@ -442,8 +442,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         style={{ zIndex: 0 }}
       />
 
-      {/* Main content */}
-      <div className="relative z-10 h-full">
+      {/* Top: Profile — fixed (shrink-0) */}
+      <div className="relative z-10 shrink-0" style={{ paddingLeft: 26, paddingTop: 29, paddingBottom: 16, paddingRight: 18 }}>
 
         {/* Profile section */}
         {(() => {
@@ -457,7 +457,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           const memberLine = (t.memberDays || '累计登录第 {n} 天').replace('{n}', String(days));
           const avatarSize = 54; // 63 × 0.85 (shrunk 15%)
           return (
-            <div style={{ position: 'absolute', left: 26, top: 29, display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, maxWidth: 340 }}>
               <button
                 type="button"
                 onClick={handleAvatarClick}
@@ -513,14 +513,20 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </div>
           );
         })()}
+      </div>
+
+      {/* Middle: scrollable pills region. flex-1 + min-h-0 lets it shrink so
+          the bottom Sign-up / Log-in (or Logout) stays pinned and visible on
+          short viewports; pills inside scroll vertically when they overflow. */}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-hide" style={{ padding: '0 18px' }}>
+        <div className="flex flex-col items-center" style={{ gap: 35, paddingBottom: 16 }}>
 
         {/* Native language pill */}
         <button
           onClick={() => openPicker('native')}
-          className="absolute flex items-center active:scale-[0.98]"
+          className="flex items-center active:scale-[0.98]"
           style={{
-            left: 18, top: 113,
-            width: 357, height: 50,
+            width: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -538,10 +544,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         {/* Target language pill */}
         <button
           onClick={() => openPicker('target')}
-          className="absolute flex items-center active:scale-[0.98]"
+          className="flex items-center active:scale-[0.98]"
           style={{
-            left: 18, top: 198,
-            width: 357, height: 50,
+            width: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -563,10 +568,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         <button
           onClick={pwaInstalled ? undefined : onInstallClick}
           disabled={pwaInstalled}
-          className={'absolute flex items-center' + (pwaInstalled ? '' : ' active:scale-[0.98]')}
+          className={'flex items-center' + (pwaInstalled ? '' : ' active:scale-[0.98]')}
           style={{
-            left: 18, top: 283,
-            width: 357, height: 50,
+            width: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -590,10 +594,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         {/* Feedback pill — placed below "Add to home screen" */}
         <button
           onClick={openFeedbackModal}
-          className="absolute flex items-center active:scale-[0.98]"
+          className="flex items-center active:scale-[0.98]"
           style={{
-            left: 18, top: 368,
-            width: 357, height: 50,
+            width: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -614,10 +617,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             Each icon is a separate tap target opening the external profile in a
             new tab. */}
         <div
-          className="absolute flex items-center"
+          className="flex items-center"
           style={{
-            left: 18, top: 453,
-            width: 357, height: 50,
+            width: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -659,16 +661,20 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </div>
         </div>
 
+        </div>
+      </div>
+
+      {/* Bottom: Sign-up + Log-in link, OR Logout button. shrink-0 so it's
+          always visible even when the middle pills region must scroll. */}
+      <div className="relative z-10 shrink-0" style={{ paddingTop: 12, paddingBottom: 34 }}>
         {/* Guest mode: small centered "Sign up" yellow button + "Already have
             an account? Log in" link below. Both open the LoginPromptModal —
             Sign up pre-selects the Email signup form, Log in pre-selects the
-            Email login form. The 35px gap above the Sign up button matches
-            the pill-to-pill spacing (rows 85px apart, pills 50px tall).
-            Anon users (Step 1) are treated as guests here — they need to
-            sign up / bind. */}
+            Email login form. Anon users (Step 1) are treated as guests here —
+            they need to sign up / bind. */}
         {!isRealUser && (
           <>
-            <div className="absolute flex justify-center" style={{ top: 538, left: 0, right: 0 }}>
+            <div className="flex justify-center">
               <button
                 onClick={() => onOpenLoginPrompt?.({ flowType: 'bind', emailMode: 'signup' })}
                 className="active:scale-95 transition-transform"
@@ -687,9 +693,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </div>
 
             <p
-              className="absolute text-center"
+              className="text-center"
               style={{
-                top: 602, left: 0, right: 0,
+                marginTop: 14,
                 fontSize: 15, color: '#000', lineHeight: 1.4,
               }}
             >
@@ -710,33 +716,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           </>
         )}
 
-        {/* Dev-only escape hatch — bottom-left, 10px from page bottom.
-            Visible only to the dev user (current session OR last-known email
-            persisted at sign-in). Calls onLogout, which in guest mode drops
-            back to the welcome page and for a logged-in dev user signs out. */}
-        {isDevUser && onLogout && (
-          <button
-            type="button"
-            onClick={onLogout}
-            className="absolute active:opacity-70"
-            style={{
-              left: '50%', transform: 'translateX(-50%)', bottom: 10,
-              fontSize: 12, color: '#000', opacity: 0.5,
-              background: 'transparent', border: 0, padding: '4px 6px',
-              textDecoration: 'underline', cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              fontFamily: 'inherit',
-            }}
-          >
-            Dev Mode
-          </button>
-        )}
-
         {/* Yellow logout pill — real (non-anon) users only. Anon guests
             don't have an account to log out of; signing out their anon
             session would just orphan their local progress. */}
         {isRealUser && onLogout && (
-          <div className="absolute flex justify-center" style={{ top: 538, left: 0, right: 0 }}>
+          <div className="flex justify-center">
             <button
               onClick={() => {
                 if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
@@ -758,8 +742,29 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             </button>
           </div>
         )}
-
       </div>
+
+      {/* Dev-only escape hatch — bottom-center overlay, anchored to the page
+          bottom. Visible only to the dev user (current session OR last-known
+          email persisted at sign-in). Sits on top of the bottom footer so it
+          doesn't push real layout. */}
+      {isDevUser && onLogout && (
+        <button
+          type="button"
+          onClick={onLogout}
+          className="absolute z-20 active:opacity-70"
+          style={{
+            left: '50%', transform: 'translateX(-50%)', bottom: 4,
+            fontSize: 12, color: '#000', opacity: 0.5,
+            background: 'transparent', border: 0, padding: '4px 6px',
+            textDecoration: 'underline', cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            fontFamily: 'inherit',
+          }}
+        >
+          Dev Mode
+        </button>
+      )}
 
       {/* Language picker modal — content swaps to a confirmation prompt
           when the user is on a capped path and has selected a different language. */}
