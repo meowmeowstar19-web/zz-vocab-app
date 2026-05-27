@@ -65,6 +65,16 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
 
+  // Short-screen gap shift: matches the home page's responsive scaling
+  // threshold so the pills tighten up on small phones (iPhone SE / mini).
+  const [isShortScreen, setIsShortScreen] = useState(() => typeof window !== 'undefined' && window.innerHeight < 700);
+  useEffect(() => {
+    const update = () => setIsShortScreen(window.innerHeight < 700);
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  const pillGap = isShortScreen ? 25 : 35;
+
   const GUEST_LABEL = { zh: '游客', en: 'Guest', ja: 'ゲスト' };
 
   // Feedback state
@@ -350,19 +360,6 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   // Everyone else gets a per-side cap of MAX_LANG_SWITCHES (2 by default).
   const hasUnlimitedSwitches = !user || canSwitchLanguageFreely(user?.email);
 
-  // Dev-only escape hatch (renders as "Dev Mode" at bottom-left). Checks the
-  // current user's email, then falls back to the persisted `app_last_email`
-  // so the link still shows in guest mode after the dev user has signed in
-  // at least once.
-  const DEV_EMAIL = 'meowmeowstar19@gmail.com';
-  const isDevUser = (() => {
-    let e = user?.email || '';
-    if (!e) {
-      try { e = localStorage.getItem('app_last_email') || ''; } catch {}
-    }
-    return e.trim().toLowerCase() === DEV_EMAIL;
-  })();
-
   const openPicker = (type) => {
     if (!hasUnlimitedSwitches && switchCounts[type] >= MAX_LANG_SWITCHES) {
       setToast(t.languageSwitchLocked || '切换次数已用完，暂时不支持继续切换哦~');
@@ -436,8 +433,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const LABEL_MT = 12;   // gap between circle bottom and label (97px from container - 85px icon = 12px)
 
   return (
-    <div className="relative h-full overflow-hidden flex flex-col">
-      {/* Background */}
+    <div className="relative h-full overflow-hidden">
+      {/* Background — stays fixed in the outer (non-scrolling) layer so the
+          decorative artwork doesn't slide off as the content scrolls. */}
       <img
         src="/assets/figma/setting-background.jpg"
         alt=""
@@ -445,8 +443,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         style={{ zIndex: 0 }}
       />
 
-      {/* Top: Profile — fixed (shrink-0) */}
-      <div className="relative z-10 shrink-0" style={{ paddingLeft: 26, paddingTop: 29, paddingBottom: 16, paddingRight: 18 }}>
+      {/* Scroll layer — everything (profile, pills, signup) flows naturally
+          and scrolls together when the viewport is short. */}
+      <div className="relative z-10 h-full overflow-y-auto scrollbar-hide flex flex-col">
+
+      {/* Top: Profile */}
+      <div className="shrink-0" style={{ paddingLeft: 26, paddingTop: 25, paddingBottom: 16, paddingRight: 18 }}>
 
         {/* Profile section */}
         {(() => {
@@ -518,11 +520,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         })()}
       </div>
 
-      {/* Middle: scrollable pills region. flex-1 + min-h-0 lets it shrink so
-          the bottom Sign-up / Log-in (or Logout) stays pinned and visible on
-          short viewports; pills inside scroll vertically when they overflow. */}
-      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-hide" style={{ padding: '0 18px' }}>
-        <div className="flex flex-col items-center" style={{ gap: 35, paddingBottom: 16 }}>
+      {/* Middle: pills region. Flows inline with profile + signup so the
+          entire settings page scrolls together when the viewport is short. */}
+      <div className="shrink-0" style={{ padding: '0 18px' }}>
+        <div className="flex flex-col items-center" style={{ gap: pillGap }}>
 
         {/* Native language pill */}
         <button
@@ -668,9 +669,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         </div>
       </div>
 
-      {/* Bottom: Sign-up + Log-in link, OR Logout button. shrink-0 so it's
-          always visible even when the middle pills region must scroll. */}
-      <div className="relative z-10 shrink-0" style={{ paddingTop: 12, paddingBottom: 34 }}>
+      {/* Bottom: Sign-up + Log-in link, OR Logout button. Distance from the
+          last pill matches the pill-to-pill gap so the spacing rhythm is
+          consistent down the page. */}
+      <div className="shrink-0" style={{ paddingTop: pillGap, paddingBottom: 20 }}>
         {/* Guest mode: small centered "Sign up" yellow button + "Already have
             an account? Log in" link below. Both open the LoginPromptModal —
             Sign up pre-selects the Email signup form, Log in pre-selects the
@@ -748,27 +750,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         )}
       </div>
 
-      {/* Dev-only escape hatch — bottom-center overlay, anchored to the page
-          bottom. Visible only to the dev user (current session OR last-known
-          email persisted at sign-in). Sits on top of the bottom footer so it
-          doesn't push real layout. */}
-      {isDevUser && onLogout && (
-        <button
-          type="button"
-          onClick={onLogout}
-          className="absolute z-20 active:opacity-70"
-          style={{
-            left: '50%', transform: 'translateX(-50%)', bottom: 4,
-            fontSize: 12, color: '#000', opacity: 0.5,
-            background: 'transparent', border: 0, padding: '4px 6px',
-            textDecoration: 'underline', cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            fontFamily: 'inherit',
-          }}
-        >
-          Dev Mode
-        </button>
-      )}
+      </div>{/* /scroll layer */}
 
       {/* Language picker modal — content swaps to a confirmation prompt
           when the user is on a capped path and has selected a different language. */}
