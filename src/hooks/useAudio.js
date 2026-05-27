@@ -39,6 +39,17 @@ function getRecordedAudio() {
 // pointerdown primer). Cleared as soon as it fires.
 let _deferredSpeak = null;
 
+// Set true the first time primeAudio runs the silent-WAV unlock path. The
+// shared `_recordedAudio` element only needs that priming once per page
+// load; subsequent primeAudio calls must NOT re-run it because doing so
+// (`a.pause(); a.currentTime = 0; a.src = silentWav`) would interrupt
+// anything currently playing through that element. This matters when two
+// primeAudio calls fire from the same gesture — e.g. the global
+// pointerdown primer (capture phase) replays a deferred word mp3, then
+// handleCheckin's onClick fires primeAudio again and would otherwise stomp
+// on the mp3 that just started.
+let _primed = false;
+
 function playRecorded(url) {
   const a = getRecordedAudio();
   a.pause();
@@ -74,22 +85,39 @@ export function primeAudio() {
     window.speechSynthesis.speak(u);
     window.speechSynthesis.cancel();
   } catch {}
-  try {
-    const a = getRecordedAudio();
-    // Tiny silent WAV; just enough to satisfy iOS's "first play from gesture" check.
-    a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-    const p = a.play();
-    if (p && typeof p.then === 'function') {
-      p.then(() => { try { a.pause(); a.currentTime = 0; } catch {} }).catch(() => {});
-    }
-  } catch {}
-  // Replay any speak attempt that was blocked while audio was still locked.
-  // We're inside a gesture (or the audio context just resumed via one) so
-  // the retry plays normally.
+  // Two mutually-exclusive paths share the persistent <audio> element:
+  //
+  //   1. If a `_deferredSpeak` is queued (the first-word auto-speak fired
+  //      while audio was still locked), running it now both replays the
+  //      missed word AND satisfies iOS's "first .play() must come from a
+  //      gesture" rule for the shared <audio> element. No silent WAV needed.
+  //
+  //   2. Otherwise, prime the <audio> element with a tiny silent WAV so a
+  //      future word play (e.g. after a Tab switch) doesn't need a fresh
+  //      gesture.
+  //
+  // Both paths use the SAME `_recordedAudio` element. Running them both
+  // would race: the silent WAV's `play()` Promise resolves on a microtask
+  // and its `.then` calls `a.pause(); a.currentTime = 0` — which lands
+  // AFTER the deferred-replay has already swapped src to the word mp3 and
+  // started playing, silencing the word audio. That's the "I tapped 打卡,
+  // popup sound played, but the word stayed silent" bug.
   const replay = _deferredSpeak;
   _deferredSpeak = null;
   if (replay) {
     try { replay(); } catch {}
+    _primed = true;
+  } else if (!_primed) {
+    try {
+      const a = getRecordedAudio();
+      // Tiny silent WAV; just enough to satisfy iOS's "first play from gesture" check.
+      a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      const p = a.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => { try { a.pause(); a.currentTime = 0; } catch {} }).catch(() => {});
+      }
+      _primed = true;
+    } catch {}
   }
 }
 

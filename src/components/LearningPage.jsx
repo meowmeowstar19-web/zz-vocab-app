@@ -2020,11 +2020,12 @@ export default function LearningPage({
               </div>
 
               {/* ── Middle: Bordered content frame (outer fixed, inner scrollable) ── */}
-              {/* minHeight locks the frame so it stays the same regardless of card count */}
+              {/* minHeight: 0 so flex-1 can shrink on short viewports; otherwise the
+                  fixed-bottom confirm button gets clipped by the parent overflow-hidden. */}
               <div className="flex-1 relative" style={{
                 margin: '0 13px 15px',
                 border: '2px solid #000', borderRadius: 10,
-                minHeight: 600,
+                minHeight: 0,
                 overflow: 'hidden',
               }}>
                 {/* Scrollable card area inside the frame */}

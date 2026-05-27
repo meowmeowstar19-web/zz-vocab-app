@@ -23,6 +23,12 @@ update_data_folder/deleted_image/
 # Source audio files (we keep the compressed versions in public/assets/audio/)
 update_data_folder/audio/
 
+# Drop zone for new audio recordings; consumed by scripts/sync-updated-audio.mjs
+update_data_folder/updated_audio/
+
+# Canonical uncompressed audio archive (compressed copies live in public/assets/audio/)
+audio-未压缩-原版/
+
 # Local scratch / work-in-progress files (not used by the app)
 confirmed_images/
 Tab2_classified.csv
