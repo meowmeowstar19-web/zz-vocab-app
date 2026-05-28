@@ -2,9 +2,14 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v67';
+const CACHE_VERSION = 'v68';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
+// Bounded LRU cache for word/figma/install images (local or R2 CDN).
+const IMAGE_CACHE = `images-${CACHE_VERSION}`;
+const IMAGE_CACHE_LIMIT = 200;
+// R2 public bucket custom domain (Phase 5 sets VITE_CDN_BASE to this).
+const CDN_HOST = 'cdn.plushieword.com';
 
 // Pre-cache the bare minimum so the app shell opens offline.
 const PRECACHE_URLS = [
@@ -24,7 +29,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE).map((k) => caches.delete(k))
+      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE).map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
 });
@@ -36,6 +41,41 @@ function shouldBypass(url) {
     url.hostname.includes('supabase.in') ||
     url.pathname.startsWith('/api/')
   );
+}
+
+// Image assets routed through the bounded LRU cache: R2 CDN host, plus the
+// local mirrors under /images/, /assets/figma/, /assets/install/.
+function isImageAsset(url) {
+  return (
+    url.hostname === CDN_HOST ||
+    url.pathname.startsWith('/images/') ||
+    url.pathname.startsWith('/assets/figma/') ||
+    url.pathname.startsWith('/assets/install/')
+  );
+}
+
+// Cache-first with a true LRU cap. On a hit we re-put to move the entry to the
+// most-recently-used end (Cache API keys() preserves insertion order, and put
+// replaces by deleting the old entry first). On overflow we evict from the
+// front (least-recently-used). Allows status 200 and opaque (status 0) CDN
+// cross-origin responses.
+async function handleImage(req) {
+  const cache = await caches.open(IMAGE_CACHE);
+  const cached = await cache.match(req);
+  if (cached) {
+    cache.put(req, cached.clone()).catch(() => {});
+    return cached;
+  }
+  const res = await fetch(req);
+  if (res.status === 200 || res.status === 0) {
+    const copy = res.clone();
+    cache.put(req, copy).then(async () => {
+      const keys = await cache.keys();
+      const excess = keys.length - IMAGE_CACHE_LIMIT;
+      for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
+    }).catch(() => {});
+  }
+  return res;
 }
 
 // Cacheable static asset paths (large, rarely changing).
@@ -71,6 +111,12 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => caches.match(req).then((r) => r || caches.match('/')))
     );
+    return;
+  }
+
+  // Images (local or R2 CDN) → bounded LRU cache, cache-first.
+  if (isImageAsset(url)) {
+    event.respondWith(handleImage(req));
     return;
   }
 
