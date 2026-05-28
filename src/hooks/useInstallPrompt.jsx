@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePostHog } from '@posthog/react';
+import { getInstallAssetUrl } from '../utils/assetUrl';
 
 // Renders a tip string, turning every "chrome://apps" occurrence into a
 // highlighted pill that copies the URL to the clipboard on click.
@@ -166,9 +167,9 @@ export function useInstallPrompt(nativeLang, t) {
           <img
             src={(() => {
               const lang = ['en','zh','ja','es','fr','ko'].includes(nativeLang) ? nativeLang : 'en';
-              if (installModal === 'safari-desktop') return `/assets/install/safari-desktop-${lang}.png`;
-              if (isIOSNonSafari) return `/assets/install/chrome-mobile-${lang}.jpg`;
-              return `/assets/install/safari-mobile-${lang}.jpg`;
+              if (installModal === 'safari-desktop') return getInstallAssetUrl(`safari-desktop-${lang}.png`);
+              if (isIOSNonSafari) return getInstallAssetUrl(`chrome-mobile-${lang}.jpg`);
+              return getInstallAssetUrl(`safari-mobile-${lang}.jpg`);
             })()}
             alt=""
             onError={(e) => { e.currentTarget.style.display = 'none'; }}

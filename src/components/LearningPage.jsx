@@ -15,6 +15,7 @@ import {
   getReviewFormat, SESSION_GAPS, SESSION_FORMATS, D_KNOW_GAP,
 } from '../utils/srs';
 import { usePostHog } from '@posthog/react';
+import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 
 function shuffle(arr) {
   const a = [...arr];
@@ -1262,7 +1263,7 @@ export default function LearningPage({
     return (
       <div className="relative flex flex-col h-full">
         <img
-          src={isReview ? '/assets/figma/vocablist-study-background.jpg' : '/assets/figma/study_background.jpg'}
+          src={getFigmaAssetUrl(isReview ? 'vocablist-study-background.jpg' : 'study_background.jpg')}
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ zIndex: 0 }}
@@ -1271,11 +1272,11 @@ export default function LearningPage({
           <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
               <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
-                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             )}
           </div>
@@ -1304,7 +1305,7 @@ export default function LearningPage({
       <div className="relative flex flex-col h-full">
         {/* ── BACKGROUND ── */}
         <img
-          src={isReview ? '/assets/figma/vocablist-study-background.jpg' : '/assets/figma/study_background.jpg'}
+          src={getFigmaAssetUrl(isReview ? 'vocablist-study-background.jpg' : 'study_background.jpg')}
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ zIndex: 0 }}
@@ -1313,13 +1314,13 @@ export default function LearningPage({
         {/* ── DECORATIVE OVERLAYS (normal mode only) ── */}
         {!isReview && (
           <>
-            <img src="/assets/figma/nav-decor-top-1.png" alt=""
+            <img src={getFigmaAssetUrl('nav-decor-top-1.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
-            <img src="/assets/figma/nav-decor-top-2.png" alt=""
+            <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ right: 8, bottom: -4, width: 37, zIndex: 3 }} />
-            <img src="/assets/figma/nav-decor-3.png" alt=""
+            <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
           </>
@@ -1331,11 +1332,11 @@ export default function LearningPage({
           <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
               <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
-                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             )}
             <span className="text-[14px] text-[#999]">{counterText}</span>
@@ -1381,19 +1382,19 @@ export default function LearningPage({
       <div className="flex flex-col h-full relative">
         <div className="absolute inset-0 z-0">
           {isReview ? (
-            <img src="/assets/figma/vocablist-study-background.jpg" alt="" className="w-full h-full object-cover" />
+            <img src={getFigmaAssetUrl('vocablist-study-background.jpg')} alt="" className="w-full h-full object-cover" />
           ) : (
-            <img src="/assets/figma/study_background.jpg" alt="" className="w-full h-full object-cover" />
+            <img src={getFigmaAssetUrl('study_background.jpg')} alt="" className="w-full h-full object-cover" />
           )}
         </div>
         {isReview && (
           <div className="relative shrink-0 flex items-center px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             <div className="flex items-center" style={{ gap: 11 }}>
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
               <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           </div>
@@ -1459,14 +1460,14 @@ export default function LearningPage({
       {/* ── BACKGROUND ── */}
       {isReview ? (
         <img
-          src="/assets/figma/vocablist-study-background.jpg"
+          src={getFigmaAssetUrl('vocablist-study-background.jpg')}
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ zIndex: 0 }}
         />
       ) : (
         <img
-          src="/assets/figma/study_background.jpg"
+          src={getFigmaAssetUrl('study_background.jpg')}
           alt=""
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ zIndex: 0 }}
@@ -1476,13 +1477,13 @@ export default function LearningPage({
       {/* ── DECORATIVE OVERLAYS (normal mode only) ── */}
       {!isReview && (
         <>
-          <img src="/assets/figma/nav-decor-top-1.png" alt=""
+          <img src={getFigmaAssetUrl('nav-decor-top-1.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
-          <img src="/assets/figma/nav-decor-top-2.png" alt=""
+          <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ right: 8, bottom: -4, width: 37, zIndex: 3 }} />
-          <img src="/assets/figma/nav-decor-3.png" alt=""
+          <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
         </>
@@ -1500,10 +1501,10 @@ export default function LearningPage({
           {isReview ? (
             <div className="flex items-center" style={{ gap: 11 }}>
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
               <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
-                <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           ) : (
@@ -1511,7 +1512,7 @@ export default function LearningPage({
               onClick={handleOpenCategories}
               className="w-[28px] h-[28px] active:scale-90"
             >
-              <img src="/assets/figma/category-btn.png" alt="分类" className="w-full h-full object-contain" />
+              <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
             </button>
           )}
 
@@ -1527,13 +1528,13 @@ export default function LearningPage({
                 style={{ borderRadius: imgRadius }}
               >
                 <img
-                  src={`/images/${encodeURIComponent(currentWord.img)}`}
+                  src={getImageUrl(currentWord.img)}
                   alt={stripRuby(displayWord)}
                   className="w-full h-full object-cover"
                 />
               </div>
               <img
-                src={isReview ? '/assets/figma/frame-photo-no-decor.png' : '/assets/figma/pic_square_wrapper_clean.png'}
+                src={getFigmaAssetUrl(isReview ? 'frame-photo-no-decor.png' : 'pic_square_wrapper_clean.png')}
                 alt=""
                 className="absolute pointer-events-none select-none"
                 style={isReview ? {
@@ -1583,7 +1584,7 @@ export default function LearningPage({
             className="flex items-center gap-1.5 text-[#999] active:scale-95"
             style={{ marginTop: isTargetJa ? 4 : 5 }}
           >
-            <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+            <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
             {phonetic && (
               <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
                 {phonetic}
@@ -1670,7 +1671,7 @@ export default function LearningPage({
                   }}>
                     {/* Cat decor on top-left cell — same as C mode */}
                     {idx === 0 && !isReview && showCatDecor && (
-                      <img src="/assets/figma/word-decor.png" alt=""
+                      <img src={getFigmaAssetUrl('word-decor.png')} alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
@@ -1685,7 +1686,7 @@ export default function LearningPage({
                     />
                     {/* Decoration frame — same as C mode */}
                     <img
-                      src="/assets/figma/text-container.png"
+                      src={getFigmaAssetUrl('text-container.png')}
                       alt=""
                       className="absolute inset-0 w-full h-full pointer-events-none select-none object-fill"
                       style={{ zIndex: 1 }}
@@ -1726,7 +1727,7 @@ export default function LearningPage({
                       }}
                     >
                       <img
-                        src={`/images/${encodeURIComponent(optWord.img)}`}
+                        src={getImageUrl(optWord.img)}
                         alt=""
                         className="w-full h-full object-cover"
                         style={{ opacity: isThisWrong ? 0.35 : 1, transition: 'opacity 0.15s' }}
@@ -1734,7 +1735,7 @@ export default function LearningPage({
                     </div>
                     {/* pic-container decoration frame */}
                     <img
-                      src="/assets/figma/pic-container.png"
+                      src={getFigmaAssetUrl('pic-container.png')}
                       alt=""
                       className="absolute inset-0 w-full h-full pointer-events-none select-none object-fill"
                       style={{ zIndex: 1 }}
@@ -1765,13 +1766,13 @@ export default function LearningPage({
                   }}>
                     {/* Cat decor on top-left cell — hidden on short screens */}
                     {idx === 0 && !isReview && showCatDecor && (
-                      <img src="/assets/figma/word-decor.png" alt=""
+                      <img src={getFigmaAssetUrl('word-decor.png')} alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ left: 15, top: -26, width: 52, zIndex: 5 }} />
                     )}
                     {/* Heart decor on bottom-right cell (Figma 181:616: word-decor-2 at left:90.26%, top:135 of 390×263 section) */}
                     {idx === 3 && !isReview && showCatDecor && (
-                      <img src="/assets/figma/nav-decor-2.png" alt=""
+                      <img src={getFigmaAssetUrl('nav-decor-2.png')} alt=""
                         className="absolute pointer-events-none select-none"
                         style={{ right: -18, top: -12, width: 40, transform: 'rotate(-10deg)', zIndex: 5 }} />
                     )}
@@ -1786,7 +1787,7 @@ export default function LearningPage({
                     />
                     {/* Decoration frame */}
                     <img
-                      src={quizFormat === 'C' ? '/assets/figma/text-container.png' : '/assets/figma/choice-btn.png'}
+                      src={getFigmaAssetUrl(quizFormat === 'C' ? 'text-container.png' : 'choice-btn.png')}
                       alt=""
                       className="absolute inset-0 w-full h-full pointer-events-none select-none object-fill"
                       style={{ zIndex: 1 }}
@@ -1816,7 +1817,7 @@ export default function LearningPage({
               animation: animKey === 'skip' ? 'btnWiggle 0.46s ease-out' : undefined,
             }}>
               <img
-                src="/assets/figma/skip-btn.png"
+                src={getFigmaAssetUrl('skip-btn.png')}
                 alt=""
                 className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
                 style={{ transform: 'translateY(-5px)' }}
@@ -1982,7 +1983,7 @@ export default function LearningPage({
           <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
             {/* Outer page background (outside the bordered frame) */}
             <img
-              src="/assets/figma/category-bg.jpg" alt=""
+              src={getFigmaAssetUrl('category-bg.jpg')} alt=""
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               style={{ zIndex: 0 }}
             />
@@ -1999,7 +2000,7 @@ export default function LearningPage({
                   className="flex items-center justify-center active:scale-90"
                   style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
                 >
-                  <img src="/assets/figma/back-button.png" alt="返回" className="w-full h-full object-contain" />
+                  <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
                 </button>
                 {tabs.map(tab => {
                   const isActive = categoryTab === tab.key;
@@ -2067,13 +2068,13 @@ export default function LearningPage({
                   {categoryTab === 'detail' && (() => {
                     // Build items: "all" card first, followed by each concrete category
                     const detailItems = [
-                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: vocabPool },
+                      { key: 'all', label: detailCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: vocabPool },
                       ...detailCats.map(cat => {
                         const imgFile = vocabCategoryCovers[cat] || dynamicCatImages[cat];
                         return {
                           key: cat,
                           label: detailCatLabels[cat],
-                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          imgSrc: imgFile ? getImageUrl(imgFile) : null,
                           pool: vocabPool.filter(w => w.category === cat),
                         };
                       }),
@@ -2107,13 +2108,13 @@ export default function LearningPage({
                   {categoryTab === 'oral' && (() => {
                     // Build items: "all" card first, followed by each concrete oral category
                     const oralItems = [
-                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: '/assets/figma/all-smile-face.png', pool: oralPhrases },
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: oralPhrases },
                       ...oralCats.map(cat => {
                         const imgFile = oralCategoryCovers[cat];
                         return {
                           key: cat,
                           label: oralCatLabels[cat],
-                          imgSrc: imgFile ? `/images/${encodeURIComponent(imgFile)}` : null,
+                          imgSrc: imgFile ? getImageUrl(imgFile) : null,
                           pool: oralPhrases.filter(w => w.category === cat),
                         };
                       }),

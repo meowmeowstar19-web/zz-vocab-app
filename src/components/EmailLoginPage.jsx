@@ -5,6 +5,7 @@ import { validateEmailShape } from '../utils/emailValidate';
 import { usePostHog } from '@posthog/react';
 import { syncOnLogin } from '../utils/progressSync';
 import { primeAudio } from '../hooks/useAudio';
+import { getFigmaAssetUrl } from '../utils/assetUrl';
 
 // Email-only OTP login. No password — the same flow covers both first-time
 // signup and returning sign-in (Supabase's signInWithOtp with
@@ -206,7 +207,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     <div className="relative w-full h-full overflow-hidden">
       {/* Background */}
       <img
-        src="/assets/figma/login-bg.jpg"
+        src={getFigmaAssetUrl('login-bg.jpg')}
         alt=""
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />

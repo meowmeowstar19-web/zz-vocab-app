@@ -10,6 +10,7 @@ import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio, playSlaySound } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
+import { getFigmaAssetUrl } from './utils/assetUrl';
 import { supabase, intentionalSignOut } from './lib/supabase';
 import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
@@ -1197,7 +1198,7 @@ export default function App() {
       <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <img
-            src="/assets/figma/study_background.jpg"
+            src={getFigmaAssetUrl('study_background.jpg')}
             alt=""
             className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           />
@@ -1279,7 +1280,7 @@ export default function App() {
         <div className="shrink-0 relative overflow-visible" style={{ height: categoryModalOpen ? 0 : navH, backgroundColor: '#2b2a26', overflow: categoryModalOpen ? 'hidden' : undefined }}>
           {/* Nav separator line at top */}
           <img
-            src="/assets/figma/nav-separator.png"
+            src={getFigmaAssetUrl('nav-separator.png')}
             alt=""
             className="absolute top-0 left-0 w-full pointer-events-none select-none"
             style={{ height: 3 }}

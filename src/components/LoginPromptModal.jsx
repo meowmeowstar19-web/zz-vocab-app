@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import EmailLoginPage from './EmailLoginPage';
+import { getFigmaAssetUrl } from '../utils/assetUrl';
 
 const TOS_URL = '/legal/PlushieWord_Terms_of_Service.html';
 const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
@@ -456,7 +457,7 @@ export default function LoginPromptModal({
                 style={{ width: 48, height: 48 }}
                 aria-label="Google"
               >
-                <img src="/assets/figma/icon-google.png" alt="Google" className="w-full h-full object-cover" />
+                <img src={getFigmaAssetUrl('icon-google.png')} alt="Google" className="w-full h-full object-cover" />
               </button>
               <button
                 onClick={() => signInWithProvider('discord')}
@@ -464,7 +465,7 @@ export default function LoginPromptModal({
                 style={{ width: 48, height: 48 }}
                 aria-label="Discord"
               >
-                <img src="/assets/figma/icon-discord.png" alt="Discord" className="w-full h-full object-cover" />
+                <img src={getFigmaAssetUrl('icon-discord.png')} alt="Discord" className="w-full h-full object-cover" />
               </button>
               <button
                 onClick={handleEmailClick}
@@ -472,7 +473,7 @@ export default function LoginPromptModal({
                 style={{ width: 48, height: 48 }}
                 aria-label="Email"
               >
-                <img src="/assets/figma/icon-email.png" alt="Email" className="w-full h-full object-cover" />
+                <img src={getFigmaAssetUrl('icon-email.png')} alt="Email" className="w-full h-full object-cover" />
               </button>
             </div>
 

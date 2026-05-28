@@ -12,6 +12,7 @@ import {
   CATEGORY_LABELS,
 } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
+import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -236,7 +237,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   // Preload images (first 20) + translations (all) so popup opens instantly
   useEffect(() => {
     wordList.forEach((w, i) => {
-      if (i < 20 && w.img) preloadImage(`/images/${encodeURIComponent(w.img)}`);
+      if (i < 20 && w.img) preloadImage(getImageUrl(w.img));
       prefetchTranslation(w, targetLang, nativeLang, (cacheKey, tt) => {
         setTranslationCache(prev => new Map(prev).set(cacheKey, tt));
       });
@@ -250,7 +251,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     <div className="relative h-full">
       {/* Background — stays fixed behind scrolling content */}
       <div className="absolute inset-0 z-0 pointer-events-none">
-        <img src="/assets/figma/vocablist-background.jpg" alt="" className="w-full h-full object-cover" />
+        <img src={getFigmaAssetUrl('vocablist-background.jpg')} alt="" className="w-full h-full object-cover" />
       </div>
 
       {/* All content scrolls together */}
@@ -461,7 +462,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
                       onClick={(e) => handleSpeak(e, word)}
                       className="shrink-0 mt-[9px] active:scale-90"
                     >
-                      <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15, filter: 'brightness(0.45)' }} />
+                      <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15, filter: 'brightness(0.45)' }} />
                     </button>
 
                     {/* Word info */}
@@ -566,7 +567,7 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
       {words.map(word => {
         const isRevealed = revealedWords.has(word.id);
         const display = getWordText(word, targetLang) || word.en;
-        const imgSrc = word.img ? `/images/${encodeURIComponent(word.img)}` : null;
+        const imgSrc = word.img ? getImageUrl(word.img) : null;
         return (
           <div key={word.id} className="flex flex-col items-center" onClick={() => onTap(word)}>
             <div
@@ -625,7 +626,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
-  const imgSrc = word.img ? `/images/${encodeURIComponent(word.img)}` : null;
+  const imgSrc = word.img ? getImageUrl(word.img) : null;
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -681,7 +682,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         />
         <div className="flex items-center justify-center gap-1.5 mt-2">
           <button onClick={handleSpeak} className="active:scale-90 shrink-0">
-            <img src="/assets/figma/icon-speaker.png" alt="发音" style={{ width: 19, height: 15 }} />
+            <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15 }} />
           </button>
           {phonetic && (
             <span

@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { getLangName } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
+import { getFigmaAssetUrl } from '../utils/assetUrl';
 
 const LANG_CODES = ['en', 'ja', 'zh'];
 
 const LANG_ICONS = {
-  en: '/assets/figma/setting-lang-en.png',
-  ja: '/assets/figma/setting-lang-ja.png',
-  zh: '/assets/figma/setting-lang-chinese.png',
+  en: getFigmaAssetUrl('setting-lang-en.png'),
+  ja: getFigmaAssetUrl('setting-lang-ja.png'),
+  zh: getFigmaAssetUrl('setting-lang-chinese.png'),
 };
 
 // Prompt + confirm label rendered in the detected native language. Native
@@ -95,7 +96,7 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
     <div className="relative w-full h-full overflow-hidden">
       {/* Background — reuse login-bg */}
       <img
-        src="/assets/figma/login-bg.jpg"
+        src={getFigmaAssetUrl('login-bg.jpg')}
         alt=""
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
@@ -104,7 +105,7 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
       <div className="relative z-10 w-full h-full flex flex-col items-center justify-start gap-4 px-4 pt-[22%]">
         {/* App icon */}
         <img
-          src="/assets/figma/app-icon.png"
+          src={getFigmaAssetUrl('app-icon.png')}
           alt="PlushieWord"
           style={{ width: 100, height: 100 }}
         />

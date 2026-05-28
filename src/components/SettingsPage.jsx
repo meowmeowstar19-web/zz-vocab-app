@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { usePostHog } from '@posthog/react';
+import { getFigmaAssetUrl } from '../utils/assetUrl';
 
 const DEFAULT_AVATAR_ICON = '/icons/icon-source.png';
 const AVATAR_KEY = (uid) => `app_avatar_${uid || 'guest'}`;
@@ -29,9 +30,9 @@ function readStoredAvatar(uid) {
 const LANG_CODES = ['en', 'ja', 'zh'];
 
 const LANG_ICONS = {
-  en: '/assets/figma/setting-lang-en.png',
-  ja: '/assets/figma/setting-lang-ja.png',
-  zh: '/assets/figma/setting-lang-chinese.png',
+  en: getFigmaAssetUrl('setting-lang-en.png'),
+  ja: getFigmaAssetUrl('setting-lang-ja.png'),
+  zh: getFigmaAssetUrl('setting-lang-chinese.png'),
 };
 
 const ROW_PREFIX = {
@@ -211,10 +212,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   };
 
   const SOCIAL_LINKS = [
-    { key: 'discord', icon: '/assets/figma/social-icon-discord.png', url: 'https://discord.gg/FbkNw2AYYB' },
-    { key: 'tiktok', icon: '/assets/figma/social-icon-tiktok.png', url: 'https://www.tiktok.com/@getplushieword?_r=1&_t=ZT-96dQssXqgHO' },
-    { key: 'youtube', icon: '/assets/figma/social-icon-youtube.png', url: 'https://youtube.com/@plushieword?si=UggxFGiMaDEYE-PB' },
-    { key: 'instagram', icon: '/assets/figma/social-icon-ig.png', url: 'https://www.instagram.com/getplushieword?igsh=MWVnY2ptMzNoeW9rZw%3D%3D&utm_source=qr' },
+    { key: 'discord', icon: getFigmaAssetUrl('social-icon-discord.png'), url: 'https://discord.gg/FbkNw2AYYB' },
+    { key: 'tiktok', icon: getFigmaAssetUrl('social-icon-tiktok.png'), url: 'https://www.tiktok.com/@getplushieword?_r=1&_t=ZT-96dQssXqgHO' },
+    { key: 'youtube', icon: getFigmaAssetUrl('social-icon-youtube.png'), url: 'https://youtube.com/@plushieword?si=UggxFGiMaDEYE-PB' },
+    { key: 'instagram', icon: getFigmaAssetUrl('social-icon-ig.png'), url: 'https://www.instagram.com/getplushieword?igsh=MWVnY2ptMzNoeW9rZw%3D%3D&utm_source=qr' },
   ];
 
   // Use a real <a target="_blank"> below — window.open() in iOS standalone
@@ -437,7 +438,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {/* Background — stays fixed in the outer (non-scrolling) layer so the
           decorative artwork doesn't slide off as the content scrolls. */}
       <img
-        src="/assets/figma/setting-background.jpg"
+        src={getFigmaAssetUrl('setting-background.jpg')}
         alt=""
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         style={{ zIndex: 0 }}

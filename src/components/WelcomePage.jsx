@@ -3,6 +3,7 @@ import EmailLoginPage from './EmailLoginPage';
 import { supabase } from '../lib/supabase';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
+import { getFigmaAssetUrl } from '../utils/assetUrl';
 
 const TOS_URL = '/legal/PlushieWord_Terms_of_Service.html';
 const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
@@ -130,14 +131,14 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
     <div className="relative w-full h-full overflow-hidden">
       {/* Background */}
       <img
-        src="/assets/figma/login-bg.jpg"
+        src={getFigmaAssetUrl('login-bg.jpg')}
         alt=""
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
 
       {/* Welcome multilingual text overlay */}
       <img
-        src="/assets/figma/welcome-text.png"
+        src={getFigmaAssetUrl('welcome-text.png')}
         alt=""
         className="absolute left-[6px] top-[77px] w-[393px] h-[364px] object-cover opacity-70 pointer-events-none"
       />
@@ -154,7 +155,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
           onClick={() => signInWithProvider('google')}
           className="w-[48px] h-[48px] rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
         >
-          <img src="/assets/figma/icon-google.png" alt="Google" className="w-full h-full object-cover" />
+          <img src={getFigmaAssetUrl('icon-google.png')} alt="Google" className="w-full h-full object-cover" />
         </button>
 
         {/* Discord */}
@@ -162,7 +163,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
           onClick={() => signInWithProvider('discord')}
           className="w-[48px] h-[48px] rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
         >
-          <img src="/assets/figma/icon-discord.png" alt="Discord" className="w-full h-full object-cover" />
+          <img src={getFigmaAssetUrl('icon-discord.png')} alt="Discord" className="w-full h-full object-cover" />
         </button>
 
         {/* Email */}
@@ -170,7 +171,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
           onClick={handleEmailClick}
           className="w-[48px] h-[48px] rounded-full shadow-md flex items-center justify-center hover:scale-105 active:scale-95 transition-transform overflow-hidden"
         >
-          <img src="/assets/figma/icon-email.png" alt="Email" className="w-full h-full object-cover" />
+          <img src={getFigmaAssetUrl('icon-email.png')} alt="Email" className="w-full h-full object-cover" />
         </button>
       </div>
 
