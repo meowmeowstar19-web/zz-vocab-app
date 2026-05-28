@@ -2,12 +2,22 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v71';
+const CACHE_VERSION = 'v72';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
-// Bounded LRU cache for word/figma/install images (local or R2 CDN).
+// Bounded LRU cache for word-content images (local /images/ or R2 CDN). UI
+// chrome (figma/install graphics) is NOT here — it lives in SHELL_CACHE so a
+// heavy browsing session can't evict the app's own skeleton. See isShellAsset.
 const IMAGE_CACHE = `images-${CACHE_VERSION}`;
 const IMAGE_CACHE_LIMIT = 200;
+// Unbounded cache for app-shell UI graphics (backgrounds, decorations, frames,
+// login/settings art under /assets/figma/ and /assets/install/). This set is
+// small and fixed (~38 files) and never grows with the word/audio library, so
+// keeping all of it is cheap. Critically, it must NOT share the word-image LRU:
+// a user who views >200 distinct words would otherwise evict the chrome and see
+// a blank/broken shell offline. Suffixed with CACHE_VERSION so a deploy clears
+// the old set; within a version nothing here is ever evicted.
+const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 // Bounded LRU cache for pronunciation audio (local /assets/audio/ or R2 CDN).
 // The cap is how many clips a single device keeps cached at once — it has
 // nothing to do with the total audio library (tens of thousands of files
@@ -50,7 +60,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE && k !== AUDIO_CACHE && k !== BUILD_CACHE).map((k) => caches.delete(k))
+      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE && k !== SHELL_CACHE && k !== AUDIO_CACHE && k !== BUILD_CACHE).map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
 });
@@ -72,14 +82,23 @@ function isAudioAsset(url) {
   return url.pathname.startsWith('/assets/audio/');
 }
 
-// Cache-first audio with a true LRU cap. Two critical differences from images:
-// (1) <audio> seeking fires Range requests that return 206 (Partial Content),
-//     which the Cache API refuses to store ("Partial response is unsupported")
-//     — so we cache ONLY full 200s (and opaque 0 from cross-origin CDN) and
-//     pass 206 straight through uncached.
-// (2) Separate cache so audio eviction and image eviction don't fight over one
-//     LRU budget. Hit → re-put (move to MRU end); overflow → evict from front.
+// Cache-first audio with a true LRU cap. Media playback (especially iOS Safari)
+// is the hard part here:
+// (1) RANGE REQUESTS BYPASS THE CACHE ENTIRELY. <audio> issues Range requests
+//     (iOS opens with a tiny `bytes=0-1` probe) and REQUIRES a real 206 Partial
+//     Content response. Two ways the Cache API breaks this: a stored full 200
+//     served to a Range request, and — worse for CDN audio — a cross-origin
+//     no-cors media fetch yields an *opaque* response (status 0) whose body is
+//     just the probed bytes. Caching that opaque sliver and replaying it for
+//     every later Range request feeds iOS a couple of bytes instead of a 206,
+//     so all pronunciation goes silent after the first play. The CDN sends
+//     `immutable` long-max-age headers, so the browser's own HTTP cache handles
+//     replays — we lose nothing by streaming Range requests straight from net.
+// (2) Only NON-range, same-origin full 200s are cached (never opaque 0). Hit →
+//     re-put (move to MRU end); overflow → evict from front. Separate cache so
+//     audio and image eviction don't fight over one LRU budget.
 async function handleAudio(req) {
+  if (req.headers.has('range')) return fetch(req);
   const cache = await caches.open(AUDIO_CACHE);
   const cached = await cache.match(req);
   if (cached) {
@@ -87,7 +106,7 @@ async function handleAudio(req) {
     return cached;
   }
   const res = await fetch(req);
-  if (res.status === 200 || res.status === 0) {
+  if (res.status === 200) {
     const copy = res.clone();
     cache.put(req, copy).then(async () => {
       const keys = await cache.keys();
@@ -98,14 +117,42 @@ async function handleAudio(req) {
   return res;
 }
 
-// Image assets routed through the bounded LRU cache: R2 CDN host, plus the
-// local mirrors under /images/, /assets/figma/, /assets/install/.
+// App-shell UI graphics: backgrounds, decorations, frames, login/settings art
+// under /assets/figma/ and /assets/install/ (local or R2 CDN — the pathname is
+// identical in both cases). MUST be checked before isImageAsset: once CDN-
+// hosted, these share CDN_HOST with word images, and isImageAsset matches on
+// that host alone, which would wrongly funnel them into the bounded word-image
+// LRU and let a long browsing session evict the app's own skeleton.
+function isShellAsset(url) {
+  return (
+    url.pathname.startsWith('/assets/figma/') ||
+    url.pathname.startsWith('/assets/install/')
+  );
+}
+
+// Cache-first with NO eviction. The shell set is small and fixed, so once a
+// client has fetched these (after one online load) the visual skeleton stays
+// fully available offline regardless of how many words get browsed. On a hit we
+// serve straight from cache (no re-put needed — there's no LRU ordering to
+// maintain). Allows 200 and opaque (status 0) cross-origin CDN responses.
+async function handleShell(req) {
+  const cache = await caches.open(SHELL_CACHE);
+  const cached = await cache.match(req);
+  if (cached) return cached;
+  const res = await fetch(req);
+  if (res.status === 200 || res.status === 0) {
+    cache.put(req, res.clone()).catch(() => {});
+  }
+  return res;
+}
+
+// Word-content image assets routed through the bounded LRU cache: R2 CDN host,
+// plus the local mirror under /images/. Shell graphics (figma/install) are
+// handled separately by handleShell and never reach here.
 function isImageAsset(url) {
   return (
     url.hostname === CDN_HOST ||
-    url.pathname.startsWith('/images/') ||
-    url.pathname.startsWith('/assets/figma/') ||
-    url.pathname.startsWith('/assets/install/')
+    url.pathname.startsWith('/images/')
   );
 }
 
@@ -235,7 +282,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Images (local or R2 CDN) → bounded LRU cache, cache-first.
+  // App-shell UI graphics (figma/install) → unbounded cache, cache-first.
+  // MUST precede the image branch: CDN-hosted shell assets share CDN_HOST with
+  // word images, and isImageAsset matches on that host alone.
+  if (isShellAsset(url)) {
+    event.respondWith(handleShell(req));
+    return;
+  }
+
+  // Word-content images (local or R2 CDN) → bounded LRU cache, cache-first.
   if (isImageAsset(url)) {
     event.respondWith(handleImage(req));
     return;
