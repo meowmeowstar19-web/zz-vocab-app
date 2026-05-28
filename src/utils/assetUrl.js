@@ -46,3 +46,14 @@ export function getFigmaAssetUrl(filename) {
 export function getInstallAssetUrl(filename) {
   return getAssetUrl(`/assets/install/${filename}`);
 }
+
+// Recorded-audio URL. Unlike images, audio hashes are NOT in asset-manifest.json
+// — they live in per-language manifests (src/data/audio-manifest/<lang>.json),
+// lazy-loaded by useAudio.js — so the hash is passed in by the caller.
+// dev / no CDN: local path, no ?v=. prod + CDN: CDN_BASE + path?v=<hash>.
+export function getAudioUrl(lang, key, hash) {
+  const path = `/assets/audio/${lang}/${key}.mp3`;
+  const encoded = encodePath(path);
+  if (IS_DEV || !CDN_BASE) return encoded;
+  return hash ? `${CDN_BASE + encoded}?v=${hash}` : CDN_BASE + encoded;
+}

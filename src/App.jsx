@@ -7,7 +7,7 @@ import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
-import { primeAudio, playSlaySound } from './hooks/useAudio';
+import { primeAudio, playSlaySound, preloadAudioManifest } from './hooks/useAudio';
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { getFigmaAssetUrl } from './utils/assetUrl';
@@ -331,6 +331,15 @@ export default function App() {
     const guessNative = localStorage.getItem('app_native') || detectBrowserNativeLang();
     return defaultTargetFor(guessNative);
   });
+  // Lazy-load the per-language audio manifests for the active mode so recorded
+  // playback is ready before the first word. Covers app startup (persisted
+  // langs) plus any later change via LanguageSetupPage / SettingsPage, since
+  // both flow through nativeLang/targetLang state.
+  useEffect(() => {
+    if (nativeLang) preloadAudioManifest(nativeLang);
+    if (targetLang) preloadAudioManifest(targetLang);
+  }, [nativeLang, targetLang]);
+
   const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
   const [vpH, setVpH] = useState(() => window.innerHeight);
   // Daily check-in popup: null when hidden, number = login-day count when shown
