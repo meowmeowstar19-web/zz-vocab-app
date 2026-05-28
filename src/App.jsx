@@ -1293,6 +1293,7 @@ export default function App() {
             ].map(tab => (
               <button
                 key={tab.key}
+                data-tab={tab.key}
                 onClick={() => handleTabClick(tab.key)}
                 className="flex flex-col items-center gap-0.5 min-w-[60px]"
               >
