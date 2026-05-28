@@ -1275,7 +1275,7 @@ export default function LearningPage({
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
-              <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
+              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
                 <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             )}
@@ -1335,7 +1335,7 @@ export default function LearningPage({
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
-              <button onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
+              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
                 <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             )}
@@ -1393,7 +1393,7 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
+              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
@@ -1503,12 +1503,13 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
+              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
               </button>
             </div>
           ) : (
             <button
+              data-testid="learn-category-btn"
               onClick={handleOpenCategories}
               className="w-[28px] h-[28px] active:scale-90"
             >
@@ -1823,6 +1824,7 @@ export default function LearningPage({
                 style={{ transform: 'translateY(-5px)' }}
               />
               <button
+                data-testid="learn-skip-btn"
                 onClick={handleSkip}
                 className="absolute inset-0 flex items-start justify-center active:scale-95"
                 style={{ paddingTop: Math.round(85 * 0.42) }}
@@ -1980,7 +1982,7 @@ export default function LearningPage({
         };
 
         return (
-          <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
+          <div data-testid="category-modal" className="absolute inset-0 flex flex-col overflow-hidden" style={{ zIndex: 50, backgroundColor: '#faf2e2' }}>
             {/* Outer page background (outside the bordered frame) */}
             <img
               src={getFigmaAssetUrl('category-bg.jpg')} alt=""

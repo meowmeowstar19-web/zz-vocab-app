@@ -1432,6 +1432,7 @@ export default function App() {
         {loginModal.open && (
           <LoginPromptModal
             nativeLang={nativeLang}
+            surface={loginModal.surface}
             initialEmailMode={loginModal.emailMode}
             flowType={loginModal.flowType}
             oauthLandingPage={loginModal.surface === 'gate' ? 'learn' : 'settings'}

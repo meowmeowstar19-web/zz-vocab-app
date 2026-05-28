@@ -53,6 +53,10 @@ export default function LoginPromptModal({
   pending = false,
   // See block comment above the component.
   onAuthFailed,
+  // Which UI launched this modal: 'gate' (5-word gate on Learn) or 'settings'
+  // (Sign up / Log in from the Settings page). Only used to tag the root with
+  // a stable data-testid for cross-device tests.
+  surface = 'settings',
 }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
@@ -321,6 +325,7 @@ export default function LoginPromptModal({
 
   return (
     <div
+      data-testid={surface === 'gate' ? 'login-gate-modal' : 'login-prompt-modal'}
       className="absolute inset-0 z-50 flex items-center justify-center"
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
       onClick={handleClose}

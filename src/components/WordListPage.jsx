@@ -262,6 +262,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           <span className="text-[14px] text-[#3f3e3e]">{t.learning}</span>
           <span className="text-[36px] font-extrabold text-black leading-none mt-1">{totalLearning}</span>
           <button
+            data-testid="wordlist-review-btn"
             onClick={() => {
               posthog?.capture('review_session_started', { word_count: totalLearning, native_lang: nativeLang, target_lang: targetLang });
               onStartReview();

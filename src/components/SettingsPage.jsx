@@ -528,6 +528,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Native language pill */}
         <button
+          data-testid="settings-native-lang"
           onClick={() => openPicker('native')}
           className="flex items-center active:scale-[0.98]"
           style={{
@@ -548,6 +549,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Target language pill */}
         <button
+          data-testid="settings-target-lang"
           onClick={() => openPicker('target')}
           className="flex items-center active:scale-[0.98]"
           style={{
@@ -598,6 +600,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
         {/* Feedback pill — placed below "Add to home screen" */}
         <button
+          data-testid="settings-feedback"
           onClick={openFeedbackModal}
           className="flex items-center active:scale-[0.98]"
           style={{
@@ -647,6 +650,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             {SOCIAL_LINKS.map((s) => (
               <a
                 key={s.key}
+                data-testid={`settings-social-${s.key}`}
                 href={s.url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -683,6 +687,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           <>
             <div className="flex justify-center">
               <button
+                data-testid="settings-signup"
                 onClick={() => onOpenLoginPrompt?.({ flowType: 'bind', emailMode: 'signup' })}
                 className="active:scale-95 transition-transform"
                 style={{
@@ -709,6 +714,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               {t.hasAccountAlready || 'Already have an account? '}
               <button
                 type="button"
+                data-testid="settings-login"
                 onClick={() => onOpenLoginPrompt?.({ flowType: 'login', emailMode: 'login' })}
                 className="underline active:opacity-70"
                 style={{
@@ -757,6 +763,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           when the user is on a capped path and has selected a different language. */}
       {pickerType && (
         <div
+          data-testid="settings-lang-picker"
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
           onClick={pendingSwitch ? cancelSwitch : closePicker}
@@ -933,6 +940,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {/* Feedback modal */}
       {showFeedbackModal && (
         <div
+          data-testid="settings-feedback-modal"
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
           onClick={closeFeedbackModal}
