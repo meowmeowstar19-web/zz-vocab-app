@@ -2,11 +2,18 @@
 // ============================================================================
 // Upload Public Assets to Cloudflare R2
 // ----------------------------------------------------------------------------
-// Walks public/images, public/assets/figma, public/assets/install. Computes a
-// content hash for each file, compares against src/utils/asset-manifest.json,
-// and uploads only changed/new files via the S3-compatible R2 API. Updates the
-// manifest after each successful upload and prunes entries whose local file no
+// Walks public/images, public/assets/figma, public/assets/install (images →
+// shared src/utils/asset-manifest.json) and public/assets/audio/<lang>/ (audio →
+// per-language src/data/audio-manifest/<lang>.json). Computes a content hash for
+// each file, compares against the relevant manifest, and uploads only changed/new
+// files via the S3-compatible R2 API using a bounded-concurrency pool. Updates
+// each manifest after successful uploads and prunes entries whose local file no
 // longer exists.
+//
+// Audio language directories are discovered dynamically (any new
+// public/assets/audio/<lang>/ is picked up with zero code changes), and audio
+// keys/URLs are kept out of the shared image manifest so the main bundle stays
+// decoupled from the audio total (designed to scale to tens of thousands).
 //
 // Usage:
 //   node scripts/upload-r2.mjs           # diff-only upload
@@ -20,7 +27,7 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
 import {
-  readdirSync, readFileSync, writeFileSync, statSync, existsSync,
+  readdirSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync,
 } from 'node:fs';
 import { join, dirname, extname, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +46,16 @@ const ASSET_ROOTS = [
 
 const MANIFEST_PATH = join(ROOT, 'src', 'utils', 'asset-manifest.json');
 
-const CONTENT_TYPES = {
+// Audio lives under public/assets/audio/<lang>/<audioKey>.mp3. Each language gets
+// its own manifest so the runtime can lazy-load just the languages in use.
+const AUDIO_ROOT = join(ROOT, 'public', 'assets', 'audio');
+const AUDIO_MANIFEST_DIR = join(ROOT, 'src', 'data', 'audio-manifest');
+
+// Parallel PUTs. Sequential awaits are fine for ~300 images but unworkable for
+// the tens of thousands of audio files this is designed to scale to.
+const UPLOAD_CONCURRENCY = 16;
+
+const IMAGE_CONTENT_TYPES = {
   '.png':  'image/png',
   '.jpg':  'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -48,7 +64,9 @@ const CONTENT_TYPES = {
   '.svg':  'image/svg+xml',
 };
 
-const ALLOWED_EXTS = new Set(Object.keys(CONTENT_TYPES));
+const AUDIO_CONTENT_TYPE = 'audio/mpeg';
+
+const ALLOWED_IMAGE_EXTS = new Set(Object.keys(IMAGE_CONTENT_TYPES));
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 function loadEnv() {
@@ -78,18 +96,18 @@ function hashFile(buf) {
   return createHash('sha256').update(buf).digest('hex').slice(0, 8);
 }
 
-function loadManifest() {
-  if (!existsSync(MANIFEST_PATH)) return {};
-  try { return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')); }
+function loadManifest(path) {
+  if (!existsSync(path)) return {};
+  try { return JSON.parse(readFileSync(path, 'utf8')); }
   catch { return {}; }
 }
 
-function writeManifest(manifest) {
+function writeManifest(path, manifest) {
   const sorted = Object.keys(manifest).sort().reduce((acc, k) => {
     acc[k] = manifest[k];
     return acc;
   }, {});
-  writeFileSync(MANIFEST_PATH, JSON.stringify(sorted, null, 2) + '\n');
+  writeFileSync(path, JSON.stringify(sorted, null, 2) + '\n');
 }
 
 function fmt(bytes) {
@@ -107,11 +125,49 @@ function collectFiles(root) {
     const st = statSync(full);
     if (!st.isFile()) continue;
     const ext = extname(name).toLowerCase();
-    if (!ALLOWED_EXTS.has(ext)) continue;
+    if (!ALLOWED_IMAGE_EXTS.has(ext)) continue;
     const key = posix.join(root.keyPrefix, name);
-    out.push({ full, key, ext, size: st.size });
+    out.push({ full, key, ext, size: st.size, contentType: IMAGE_CONTENT_TYPES[ext] });
   }
   return out;
+}
+
+// Discover audio language directories dynamically so adding a new language needs
+// zero changes here.
+function discoverAudioLangs() {
+  if (!existsSync(AUDIO_ROOT)) return [];
+  return readdirSync(AUDIO_ROOT)
+    .filter((name) => !name.startsWith('.') && statSync(join(AUDIO_ROOT, name)).isDirectory())
+    .sort();
+}
+
+function collectAudioFiles(lang) {
+  const dir = join(AUDIO_ROOT, lang);
+  const out = [];
+  for (const name of readdirSync(dir).sort()) {
+    if (name.startsWith('.')) continue;
+    const full = join(dir, name);
+    if (!statSync(full).isFile()) continue;
+    if (extname(name).toLowerCase() !== '.mp3') continue;
+    // R2 key mirrors public/ layout; manifest key is the bare audioKey (basename).
+    const key = posix.join('assets/audio', lang, name);
+    const manifestKey = name.slice(0, -'.mp3'.length);
+    out.push({ full, key, manifestKey, ext: '.mp3', size: statSync(full).size, contentType: AUDIO_CONTENT_TYPE });
+  }
+  return out;
+}
+
+// Bounded-concurrency runner: keeps `limit` workers pulling from the shared
+// queue until exhausted.
+async function runPool(items, limit, worker) {
+  let idx = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (idx < items.length) {
+      const i = idx++;
+      await worker(items[i]);
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function main() {
@@ -127,70 +183,105 @@ async function main() {
   });
   const bucket = process.env.R2_BUCKET;
 
-  const manifest = loadManifest();
-  const nextManifest = FORCE ? {} : { ...manifest };
+  // A "group" is a set of files sharing one manifest: one for all images, plus
+  // one per audio language. keyOf maps a file to its manifest key.
+  const groups = [];
+
+  const imageFiles = [];
+  for (const root of ASSET_ROOTS) imageFiles.push(...collectFiles(root));
+  groups.push({
+    label: 'images',
+    manifestPath: MANIFEST_PATH,
+    files: imageFiles,
+    keyOf: (f) => f.key,
+  });
+
+  for (const lang of discoverAudioLangs()) {
+    const files = collectAudioFiles(lang);
+    if (!files.length) continue;
+    groups.push({
+      label: `audio/${lang}`,
+      manifestPath: join(AUDIO_MANIFEST_DIR, `${lang}.json`),
+      files,
+      keyOf: (f) => f.manifestKey,
+    });
+  }
 
   let uploaded = 0;
   let skipped = 0;
   let totalBytes = 0;
   let failed = 0;
-  const seenKeys = new Set();
 
-  for (const root of ASSET_ROOTS) {
-    const files = collectFiles(root);
-    for (const f of files) {
-      seenKeys.add(f.key);
-      const buf = readFileSync(f.full);
-      const hash = hashFile(buf);
-      const previous = manifest[f.key];
-
+  // Hash every file (local only) to decide what needs uploading. Buffers are not
+  // retained — changed files are re-read at upload time so memory stays bounded
+  // even with tens of thousands of audio files.
+  const tasks = [];
+  for (const g of groups) {
+    g.current = loadManifest(g.manifestPath);
+    g.next = FORCE ? {} : { ...g.current };
+    g.seen = new Set();
+    g.changed = FORCE && g.files.length > 0;
+    for (const f of g.files) {
+      const mk = g.keyOf(f);
+      g.seen.add(mk);
+      const previous = g.current[mk];
+      const hash = hashFile(readFileSync(f.full));
       if (!FORCE && previous === hash) {
         skipped++;
         continue;
       }
-
-      const contentType = CONTENT_TYPES[f.ext];
-      const label = `${f.key.padEnd(44)} ${fmt(f.size).padStart(7)}`;
-
-      if (DRY) {
-        console.log(`[dry] ↑ ${label}  ${previous ? previous + '→' : ''}${hash}`);
-        nextManifest[f.key] = hash;
-        uploaded++;
-        totalBytes += f.size;
-        continue;
-      }
-
-      try {
-        await client.send(new PutObjectCommand({
-          Bucket: bucket,
-          Key: f.key,
-          Body: buf,
-          ContentType: contentType,
-          CacheControl: CACHE_CONTROL,
-        }));
-        nextManifest[f.key] = hash;
-        uploaded++;
-        totalBytes += f.size;
-        console.log(`↑ ${label}  ${previous ? previous + '→' : ''}${hash}`);
-      } catch (err) {
-        failed++;
-        console.warn(`✗ ${label}  ${err.name}: ${err.message}`);
-      }
+      tasks.push({ group: g, file: f, manifestKey: mk, hash, previous });
     }
   }
 
-  // Prune manifest entries whose local file is gone
+  await runPool(tasks, UPLOAD_CONCURRENCY, async (t) => {
+    const { file: f, group: g } = t;
+    const label = `${f.key.padEnd(48)} ${fmt(f.size).padStart(7)}`;
+    const tag = `${t.previous ? t.previous + '→' : ''}${t.hash}`;
+
+    if (DRY) {
+      console.log(`[dry] ↑ ${label}  ${tag}`);
+      g.next[t.manifestKey] = t.hash;
+      g.changed = true;
+      uploaded++;
+      totalBytes += f.size;
+      return;
+    }
+
+    try {
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: f.key,
+        Body: readFileSync(f.full),
+        ContentType: f.contentType,
+        CacheControl: CACHE_CONTROL,
+      }));
+      g.next[t.manifestKey] = t.hash;
+      g.changed = true;
+      uploaded++;
+      totalBytes += f.size;
+      console.log(`↑ ${label}  ${tag}`);
+    } catch (err) {
+      failed++;
+      console.warn(`✗ ${label}  ${err.name}: ${err.message}`);
+    }
+  });
+
+  // Prune manifest entries whose local file is gone, then persist each manifest.
   let pruned = 0;
-  for (const key of Object.keys(nextManifest)) {
-    if (!seenKeys.has(key)) {
-      delete nextManifest[key];
-      pruned++;
-      console.log(`− ${key} (removed locally; pruned from manifest)`);
+  for (const g of groups) {
+    for (const key of Object.keys(g.next)) {
+      if (!g.seen.has(key)) {
+        delete g.next[key];
+        pruned++;
+        g.changed = true;
+        console.log(`− ${g.label}:${key} (removed locally; pruned from manifest)`);
+      }
     }
-  }
-
-  if (!DRY && (uploaded > 0 || pruned > 0 || FORCE)) {
-    writeManifest(nextManifest);
+    if (!DRY && g.changed) {
+      mkdirSync(dirname(g.manifestPath), { recursive: true });
+      writeManifest(g.manifestPath, g.next);
+    }
   }
 
   console.log(
