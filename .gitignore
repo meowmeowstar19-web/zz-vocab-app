@@ -42,3 +42,6 @@ Tab2_进阶地道_语义分类.csv
 
 # Playwright cache (tests live outside the repo at ~/Desktop/data_prep/moneky-test/)
 playwright/.cache/
+
+# R2 upload script's local diff manifest (if introduced later for faster diffs)
+scripts/.r2-upload-manifest.json
