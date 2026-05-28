@@ -255,6 +255,17 @@ export default function App() {
   const [isGuest, setIsGuest] = useState(() => {
     const hasLang = !!localStorage.getItem('app_native');
     const explicitlyLoggedOut = localStorage.getItem('app_logged_out') === '1';
+    const hadAccount = localStorage.getItem('app_had_account') === '1';
+    // Returning user (this device has previously held a real account) skips
+    // the WelcomePage entirely — they land directly on Learn as a guest and
+    // the 5-word gate fires on word 1 with the "welcome back" Sign-in modal.
+    // This applies to BOTH intentional logout and refresh-token expiry; the
+    // app_logged_out flag is treated as advisory, not blocking, once the
+    // device has ever been associated with a real account.
+    if (hadAccount && hasLang) {
+      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
+      return true;
+    }
     if (hasLang && !explicitlyLoggedOut && localStorage.getItem('app_logged_in') !== 'true') {
       try { localStorage.setItem('app_logged_in', 'true'); } catch {}
     }
@@ -297,13 +308,10 @@ export default function App() {
   });
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
-  // True when Supabase emitted SIGNED_OUT without an app-initiated trigger
-  // (i.e. the token refresh failed — typically because another device
-  // rotated the refresh token past the reuse window). Drives a one-shot
-  // "session expired, please log in again" modal on top of WelcomePage so
-  // the user knows what happened and isn't left wondering why they're
-  // suddenly a guest. Cleared when the user acknowledges the popup.
-  const [sessionExpired, setSessionExpired] = useState(false);
+  // Note: the previous "session expired" modal was removed 2026-05-27 — the
+  // welcome-back gate on the next visit covers the same emotional work
+  // (friendlier, fewer states). For an in-session forced signout, the user
+  // just lands on WelcomePage; rare enough to not warrant a dedicated UI.
   // Bumped after every syncOnLogin completion so LearningPage can re-read
   // its `progress` state from localStorage. Without this, the cloud→local
   // merge writes new entries but LearningPage's mount-time useState snapshot
@@ -649,7 +657,6 @@ export default function App() {
         // event — anon sessions getting cleared (e.g. during the email
         // send-code flow) are routine and not user-visible expiries.
         if (!intentional && session && !session.user?.is_anonymous) {
-          setSessionExpired(true);
           try { localStorage.setItem('app_logged_out', '1'); } catch {}
           setIsGuest(false);
         }
@@ -721,12 +728,12 @@ export default function App() {
     // guard below.
     if (!isGuest && !needsLangSetup) return;
     // Defensive: don't auto-recreate an anon session if the user explicitly
-    // logged out and React hasn't yet flipped isGuest to false. handleLogout
-    // sets app_logged_out BEFORE signOut, so the onAuthStateChange
-    // (session=null) re-render can see it even before setIsGuest(false)
-    // has been applied.
+    // logged out AND has never had a real account on this device. For
+    // returning users (app_had_account=1) we WANT the anon session — they
+    // stay in the in-app guest shell and the gate fires on word 1.
     try {
-      if (localStorage.getItem('app_logged_out') === '1') return;
+      if (localStorage.getItem('app_logged_out') === '1'
+          && localStorage.getItem('app_had_account') !== '1') return;
     } catch {}
     if (anonInFlight.current) return;
     anonInFlight.current = true;
@@ -1204,58 +1211,10 @@ export default function App() {
   // still set, so the language picker doesn't re-fire. WelcomePage provides
   // the Google / Discord / Email / Guest-mode picker.
   if (!isLoggedIn) {
-    const sessionExpiredText = UI_TEXT[nativeLang] || UI_TEXT.en;
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
-          {sessionExpired && (
-            <div
-              className="absolute inset-0 z-50 flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
-            >
-              <div
-                className="relative"
-                style={{
-                  width: 300,
-                  minHeight: 300,
-                  backgroundColor: '#fff',
-                  border: '2px solid #000',
-                  borderRadius: 20,
-                  padding: '34px 24px 28px',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center',
-                }}
-              >
-                <p style={{
-                  fontSize: 18, color: '#000', textAlign: 'center',
-                  fontWeight: 600, margin: 0,
-                }}>
-                  {sessionExpiredText.sessionExpiredTitle || 'Session Expired'}
-                </p>
-                <div style={{ flex: 1, minHeight: 24 }} />
-                <p style={{
-                  fontSize: 14, color: '#000', textAlign: 'center',
-                  lineHeight: 1.6, margin: 0, padding: '0 4px',
-                }}>
-                  {sessionExpiredText.sessionExpiredBody || 'For your account security, please log in again.'}
-                </p>
-                <div style={{ flex: 1, minHeight: 24 }} />
-                <button
-                  onClick={() => setSessionExpired(false)}
-                  className="active:scale-95"
-                  style={{
-                    width: 130, height: 39,
-                    backgroundColor: '#FFDF4E',
-                    border: '2px solid #000',
-                    borderRadius: 100,
-                    fontSize: 18, color: '#000',
-                  }}
-                >
-                  {sessionExpiredText.sessionExpiredBtn || 'OK'}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1418,11 +1377,8 @@ export default function App() {
                       transition: 'transform 0.08s ease',
                     }}
                   >
-                    {/* install-hint-icon.png is a pre-cropped 134x165 version of the
-                        watermelon (the original apple-touch-icon.png has built-in safe-area
-                        padding so the character only fills ~60% of its canvas — bad here). */}
                     <img
-                      src="/icons/install-hint-icon.png"
+                      src="/icons/apple-touch-icon.png"
                       alt=""
                       style={{
                         width: 44,
