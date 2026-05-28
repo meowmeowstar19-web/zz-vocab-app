@@ -2,12 +2,19 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v70';
+const CACHE_VERSION = 'v71';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word/figma/install images (local or R2 CDN).
 const IMAGE_CACHE = `images-${CACHE_VERSION}`;
 const IMAGE_CACHE_LIMIT = 200;
+// Bounded LRU cache for pronunciation audio (local /assets/audio/ or R2 CDN).
+// The cap is how many clips a single device keeps cached at once — it has
+// nothing to do with the total audio library (tens of thousands of files
+// across many languages): users only ever replay a small handful, so 800
+// (~8MB) holds plenty without ever needing to grow with the library.
+const AUDIO_CACHE = `audio-${CACHE_VERSION}`;
+const AUDIO_CACHE_LIMIT = 800;
 // Permanent cache for the content-hashed entry bundle (/assets/index-*.js
 // and index-*.css) — the only build output on the startup-critical path.
 // Deliberately NOT suffixed with CACHE_VERSION: the filename hash already
@@ -42,7 +49,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE && k !== BUILD_CACHE).map((k) => caches.delete(k))
+      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE && k !== AUDIO_CACHE && k !== BUILD_CACHE).map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
 });
@@ -54,6 +61,40 @@ function shouldBypass(url) {
     url.hostname.includes('supabase.in') ||
     url.pathname.startsWith('/api/')
   );
+}
+
+// Pronunciation audio, local or R2 CDN. Path is identical in both cases
+// (/assets/audio/<lang>/<key>.mp3), so the pathname test catches both. MUST be
+// checked before isImageAsset: once audio is CDN-hosted its hostname is also
+// CDN_HOST, and isImageAsset would otherwise swallow it into the image LRU.
+function isAudioAsset(url) {
+  return url.pathname.startsWith('/assets/audio/');
+}
+
+// Cache-first audio with a true LRU cap. Two critical differences from images:
+// (1) <audio> seeking fires Range requests that return 206 (Partial Content),
+//     which the Cache API refuses to store ("Partial response is unsupported")
+//     — so we cache ONLY full 200s (and opaque 0 from cross-origin CDN) and
+//     pass 206 straight through uncached.
+// (2) Separate cache so audio eviction and image eviction don't fight over one
+//     LRU budget. Hit → re-put (move to MRU end); overflow → evict from front.
+async function handleAudio(req) {
+  const cache = await caches.open(AUDIO_CACHE);
+  const cached = await cache.match(req);
+  if (cached) {
+    cache.put(req, cached.clone()).catch(() => {});
+    return cached;
+  }
+  const res = await fetch(req);
+  if (res.status === 200 || res.status === 0) {
+    const copy = res.clone();
+    cache.put(req, copy).then(async () => {
+      const keys = await cache.keys();
+      const excess = keys.length - AUDIO_CACHE_LIMIT;
+      for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
+    }).catch(() => {});
+  }
+  return res;
 }
 
 // Image assets routed through the bounded LRU cache: R2 CDN host, plus the
@@ -177,6 +218,14 @@ self.addEventListener('fetch', (event) => {
   // CACHE_VERSION bumps so the ~1MB bundle isn't re-downloaded every deploy.
   if (isBuildAsset(url)) {
     event.respondWith(handleBuildAsset(req));
+    return;
+  }
+
+  // Audio (local or R2 CDN) → dedicated bounded LRU, cache-first, 206-safe.
+  // MUST precede the image branch: CDN-hosted audio shares CDN_HOST with
+  // images, and isImageAsset matches on that host alone.
+  if (isAudioAsset(url)) {
+    event.respondWith(handleAudio(req));
     return;
   }
 
