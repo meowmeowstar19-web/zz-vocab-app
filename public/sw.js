@@ -2,12 +2,25 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v69';
+const CACHE_VERSION = 'v70';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word/figma/install images (local or R2 CDN).
 const IMAGE_CACHE = `images-${CACHE_VERSION}`;
 const IMAGE_CACHE_LIMIT = 200;
+// Permanent cache for the content-hashed entry bundle (/assets/index-*.js
+// and index-*.css) — the only build output on the startup-critical path.
+// Deliberately NOT suffixed with CACHE_VERSION: the filename hash already
+// changes whenever the code changes, so these entries are immutable and must
+// survive version bumps. Otherwise every deploy that bumps CACHE_VERSION (we
+// bump on every asset refresh) evicts the ~1MB JS bundle and forces a full
+// re-download on the next visit — the main cause of slow repeat loads.
+// The ~1600 per-word lazy chunks are NOT included: they're loaded on demand,
+// never block first paint, and stay on the existing versioned static path.
+const BUILD_CACHE = 'build-assets';
+// Keep the current entry bundle plus a few recent deploys' worth so an
+// in-flight tab mid-deploy can still resolve its (now-previous) bundle.
+const BUILD_CACHE_LIMIT = 6;
 // R2 public bucket custom domain (Phase 5 sets VITE_CDN_BASE to this).
 const CDN_HOST = 'cdn.plushieword.com';
 
@@ -29,7 +42,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE).map((k) => caches.delete(k))
+      keys.filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE && k !== IMAGE_CACHE && k !== BUILD_CACHE).map((k) => caches.delete(k))
     )).then(() => self.clients.claim())
   );
 });
@@ -78,6 +91,39 @@ async function handleImage(req) {
   return res;
 }
 
+// The content-hashed entry bundle emitted by Vite: /assets/index-<hash>.js
+// and /assets/index-<hash>.css. Per-word lazy chunks (<word>-<hash>.js) are
+// intentionally excluded — they don't gate first paint.
+function isBuildAsset(url) {
+  if (url.origin !== self.location.origin) return false;
+  if (!url.pathname.startsWith('/assets/index-')) return false;
+  return url.pathname.endsWith('.js') || url.pathname.endsWith('.css');
+}
+
+// Cache-first into the permanent BUILD_CACHE with a bounded LRU. Hashed
+// filenames are immutable, so a hit is always safe to serve without
+// revalidation. On a hit we re-put to mark the entry most-recently-used;
+// stale bundles from old deploys drift to the front and get evicted once we
+// exceed BUILD_CACHE_LIMIT.
+async function handleBuildAsset(req) {
+  const cache = await caches.open(BUILD_CACHE);
+  const cached = await cache.match(req);
+  if (cached) {
+    cache.put(req, cached.clone()).catch(() => {});
+    return cached;
+  }
+  const res = await fetch(req);
+  if (res.status === 200) {
+    const copy = res.clone();
+    cache.put(req, copy).then(async () => {
+      const keys = await cache.keys();
+      const excess = keys.length - BUILD_CACHE_LIMIT;
+      for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
+    }).catch(() => {});
+  }
+  return res;
+}
+
 // Cacheable static asset paths (large, rarely changing).
 function isStaticAsset(url) {
   return (
@@ -100,17 +146,37 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (shouldBypass(url)) return;
 
-  // HTML / app shell → network-first so deploys take effect, fall back to cache offline.
+  // HTML / app shell → stale-while-revalidate. Serve the cached shell
+  // instantly (first paint no longer waits on a network round-trip to the
+  // origin every load), then refresh the cache in the background so the next
+  // load picks up a new deploy. The one-reload propagation lag is acceptable;
+  // the stale shell references a hashed bundle that this client already has in
+  // the permanent BUILD_CACHE (it was stored on the same prior visit), so
+  // there's no stale-HTML-vs-missing-bundle mismatch. Falls back to the
+  // precached '/' when both cache and network miss (offline first visit).
   if (req.mode === 'navigate' || req.destination === 'document') {
-    event.respondWith(
-      fetch(req)
+    event.respondWith((async () => {
+      const cache = await caches.open(RUNTIME_CACHE);
+      const cached = await cache.match(req);
+      const networkFetch = fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
+          if (res && res.status === 200) cache.put(req, res.clone()).catch(() => {});
           return res;
         })
-        .catch(() => caches.match(req).then((r) => r || caches.match('/')))
-    );
+        .catch(() => cached || caches.match('/'));
+      if (cached) {
+        event.waitUntil(networkFetch.catch(() => {}));
+        return cached;
+      }
+      return networkFetch;
+    })());
+    return;
+  }
+
+  // Entry bundle (index-*.js / .css) → permanent cache, cache-first, survives
+  // CACHE_VERSION bumps so the ~1MB bundle isn't re-downloaded every deploy.
+  if (isBuildAsset(url)) {
+    event.respondWith(handleBuildAsset(req));
     return;
   }
 
