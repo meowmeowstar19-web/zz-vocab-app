@@ -25,9 +25,10 @@ const AUDIO_CACHE_LIMIT = 800;
 // The ~1600 per-word lazy chunks are NOT included: they're loaded on demand,
 // never block first paint, and stay on the existing versioned static path.
 const BUILD_CACHE = 'build-assets';
-// Keep the current entry bundle plus a few recent deploys' worth so an
-// in-flight tab mid-deploy can still resolve its (now-previous) bundle.
-const BUILD_CACHE_LIMIT = 6;
+// Each deploy produces 3 startup entries (index.js + vendor.js + index.css),
+// so 9 keeps the current build plus the two previous ones — enough for an
+// in-flight tab mid-deploy to still resolve its (now-previous) chunks.
+const BUILD_CACHE_LIMIT = 9;
 // R2 public bucket custom domain (Phase 5 sets VITE_CDN_BASE to this).
 const CDN_HOST = 'cdn.plushieword.com';
 
@@ -132,12 +133,17 @@ async function handleImage(req) {
   return res;
 }
 
-// The content-hashed entry bundle emitted by Vite: /assets/index-<hash>.js
-// and /assets/index-<hash>.css. Per-word lazy chunks (<word>-<hash>.js) are
-// intentionally excluded — they don't gate first paint.
+// The content-hashed startup bundle emitted by Vite: the entry
+// /assets/index-<hash>.{js,css} plus the /assets/vendor-<hash>.js chunk
+// (third-party libs split out via build.rollupOptions in vite.config.js).
+// Both are on the first-paint critical path and must survive CACHE_VERSION
+// bumps. Per-word lazy chunks (<word>-<hash>.js) are intentionally excluded —
+// they don't gate first paint.
 function isBuildAsset(url) {
   if (url.origin !== self.location.origin) return false;
-  if (!url.pathname.startsWith('/assets/index-')) return false;
+  const isStartupChunk = url.pathname.startsWith('/assets/index-')
+    || url.pathname.startsWith('/assets/vendor-');
+  if (!isStartupChunk) return false;
   return url.pathname.endsWith('.js') || url.pathname.endsWith('.css');
 }
 
