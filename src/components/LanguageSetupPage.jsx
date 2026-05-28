@@ -101,13 +101,16 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
 
-      {/* App icon + welcome heading + picker card, vertically centered as a group. */}
-      <div className="relative z-10 w-full h-full flex flex-col items-center justify-start gap-4 px-4 pt-[22%]">
+      {/* App icon + welcome heading + picker card, vertically centered as a
+          group. justify-center keeps the group from being pushed off the
+          bottom on short screens (iPhone SE, 320×568) where a fixed top
+          padding used to make the fixed-height card overflow and collapse. */}
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-4 px-4">
         {/* App icon */}
         <img
           src={getFigmaAssetUrl('app-icon.png')}
           alt="PlushieWord"
-          style={{ width: 100, height: 100 }}
+          style={{ width: 100, height: 100, flexShrink: 0 }}
         />
 
         {/* Welcome to PlushieWord :D — localized to detected native lang. */}
@@ -119,7 +122,8 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         <div
         style={{
           position: 'relative',
-          width: 353, height: 310,
+          width: '100%', maxWidth: 353, height: 310,
+          flexShrink: 0,
           backgroundColor: '#fff',
           border: '2px solid #000',
           borderRadius: 20,
@@ -129,7 +133,6 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         <p style={{
           position: 'absolute', top: 38, left: 16, right: 16,
           textAlign: 'center', fontSize: 15, color: '#000', opacity: 0.55,
-          whiteSpace: 'nowrap',
         }}>
           {TARGET_PROMPT[native] || TARGET_PROMPT.en}
         </p>
