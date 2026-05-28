@@ -101,11 +101,12 @@ export default function LanguageSetupPage({ onComplete, nativeLang = 'en' }) {
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
       />
 
-      {/* App icon + welcome heading + picker card, vertically centered as a
-          group. justify-center keeps the group from being pushed off the
-          bottom on short screens (iPhone SE, 320×568) where a fixed top
-          padding used to make the fixed-height card overflow and collapse. */}
-      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center gap-4 px-4">
+      {/* App icon + welcome heading + picker card. Default: upper third
+          (pt-[22%]) — intentional, do not center on normal phones. Only on
+          very short viewports (height < 550px) do we center the group and
+          drop the top padding, so the fixed-height card doesn't overflow off
+          the bottom. Card width stays responsive (max 353) either way. */}
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-start gap-4 px-4 pt-[22%] [@media(max-height:550px)]:justify-center [@media(max-height:550px)]:pt-0">
         {/* App icon */}
         <img
           src={getFigmaAssetUrl('app-icon.png')}
