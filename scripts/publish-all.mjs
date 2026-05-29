@@ -198,6 +198,11 @@ async function main() {
     run('node', ['scripts/sync-data.mjs']); // 注意:不带 --auto,不让它 git
     did.push('data');
 
+    // ②.1 反爬 Phase 4 → 从刚生成的 src/data/* 重新生成 客户端种子包 + 元数据。
+    // App 不再 bundle 全量词表,只 bundle 这个小种子包(新手 0ms 兜底)+ 类目元数据。
+    console.log('\n' + C.b('②.1 重新生成客户端种子包 (gen-seed)'));
+    run('node', ['scripts/gen-seed.mjs']);
+
     // ②.5 数据有变 → 推 Supabase(反爬 Phase 1 的库,语言无关 schema)
     // 读刚生成的 src/data/*.js,upsert + prune(护栏:incoming <50% 时跳过删除)。
     // 非致命:失败只告警(需 .env.local 有 SUPABASE_SERVICE_ROLE_KEY);App 还读 bundle,不挡上线。

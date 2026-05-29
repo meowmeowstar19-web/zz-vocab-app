@@ -1,13 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { words, categories as wordCategories } from '../data/words';
-import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
-import { jaData } from '../data/jaData';
+import { categories as wordCategories, oralCategories, ORAL_CATEGORY_LABELS } from '../data/contentMeta';
+import { seedWords, seedPhrases } from '../data/seed';
 import { getMeta } from '../data/wordsRepo';
 import { getAllLearnedWords, cacheLearnedWords } from '../data/learnedCache';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
-import { phoneticMap } from '../data/phonetics';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
@@ -16,12 +14,14 @@ import {
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 
-// Look up a sentence in `lang` from the word's static data (Excel / jaData).
+// Look up a sentence in `lang` from the word object's own fields. (Every word
+// object — seed pack, Edge API, or learned cache — carries its per-language
+// fields, so no bundle-wide jaData lookup is needed.)
 function getStaticSentence(word, lang) {
   if (!word) return '';
   if (lang === 'zh') return word.sentenceZh || '';
   if (lang === 'en') return word.sentence || '';
-  if (lang === 'ja') return word.jaSentence || jaData[word.en]?.sentence || '';
+  if (lang === 'ja') return word.jaSentence || '';
   return '';
 }
 
@@ -58,15 +58,16 @@ function prefetchTranslation(word, targetLang, nativeLang, onDone) {
     .catch(() => {});
 }
 
-function usePhonetic(wordEn, targetLang) {
+function usePhonetic(word, targetLang) {
   const [phonetic, setPhonetic] = useState('');
+  const wordEn = word?.en || '';
+  const ipa = word?.ipa;
   useEffect(() => {
     if (!wordEn) { setPhonetic(''); return; }
-    const word = { en: wordEn };
+    // getPhonetic reads the object's own ipa/jaReading/pinyin first; it only
+    // returns null for English words lacking ipa → those fall through to the API.
     const staticP = getPhonetic(word, targetLang);
     if (staticP !== null) { setPhonetic(staticP); return; }
-    const local = phoneticMap[wordEn];
-    if (local) { setPhonetic(local); return; }
     setPhonetic('');
     let cancelled = false;
     const parts = wordEn.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
@@ -83,7 +84,7 @@ function usePhonetic(wordEn, targetLang) {
       }
     })();
     return () => { cancelled = true; };
-  }, [wordEn, targetLang]);
+  }, [wordEn, ipa, targetLang]); // eslint-disable-line react-hooks/exhaustive-deps
   return phonetic;
 }
 
@@ -122,18 +123,20 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setPopupWord(null);
   }, [langKey]);
 
-  // Dev fallback: resolve a learned id to its object from the bundle when the
-  // IndexedDB cache doesn't have it yet. Removed in Phase 4 once the bundle goes.
-  const bundleById = useMemo(() => {
+  // Resolve a learned id to its object from the small seed pack when the
+  // IndexedDB cache doesn't have it yet. (The full library is no longer in the
+  // bundle — Phase 4 — so only the ~30 seed words resolve this way; everything
+  // else comes from the learned-word cache, populated as the user meets words.)
+  const seedById = useMemo(() => {
     const m = new Map();
-    for (const w of words) m.set(w.id, w);
-    for (const p of oralPhrases) m.set(p.id, p);
+    for (const w of seedWords) m.set(w.id, w);
+    for (const p of seedPhrases) m.set(p.id, p);
     return m;
   }, []);
 
-  // Load the learned-word cache, then backfill it from the bundle for any
-  // already-learned id not yet stored — so words learned before Phase 3 (and
-  // before LearningPage started caching) still render once the bundle is gone.
+  // Load the learned-word cache, then backfill it from the seed pack for any
+  // already-learned seed id not yet stored — so a seed word learned before the
+  // cache existed still renders.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -142,7 +145,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       const prog = getProgress(langKey);
       const missing = [];
       for (const id of Object.keys(prog)) {
-        if (!cache.has(id) && bundleById.has(id)) missing.push(bundleById.get(id));
+        if (!cache.has(id) && seedById.has(id)) missing.push(seedById.get(id));
       }
       if (missing.length) {
         cacheLearnedWords(missing);
@@ -151,7 +154,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       setCachedWords(cache);
     })();
     return () => { cancelled = true; };
-  }, [langKey, refreshKey, bundleById]);
+  }, [langKey, refreshKey, seedById]);
 
   // Per-category totals come from get_meta — numbers only, never content.
   useEffect(() => {
@@ -163,8 +166,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   }, [nativeLang, targetLang]);
 
   const resolveWord = useCallback(
-    (id) => cachedWords.get(id) || bundleById.get(id) || null,
-    [cachedWords, bundleById],
+    (id) => cachedWords.get(id) || seedById.get(id) || null,
+    [cachedWords, seedById],
   );
 
   useEffect(() => {
@@ -225,8 +228,9 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       if (galleryCat === 'all') return Object.values(meta.wordCategories).reduce((a, b) => a + b, 0);
       return meta.wordCategories[galleryCat] || 0;
     }
-    // Dev fallback while meta loads (removed in Phase 4).
-    return words.filter(w =>
+    // Transient/offline fallback before get_meta arrives — the full count lives
+    // in Supabase now, so this only approximates from the small seed pack.
+    return seedWords.filter(w =>
       isWordAvailable(w, nativeLang, targetLang) &&
       (galleryCat === 'all' || w.category === galleryCat)
     ).length;
@@ -682,7 +686,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     : '';
   const translatedSentence = staticTranslation || cachedTranslation;
 
-  const phonetic = usePhonetic(word.en, targetLang);
+  const phonetic = usePhonetic(word, targetLang);
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
