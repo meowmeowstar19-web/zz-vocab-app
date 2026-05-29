@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
@@ -75,6 +75,34 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     return () => window.removeEventListener('resize', update);
   }, []);
   const pillGap = isShortScreen ? 25 : 35;
+
+  // Scale-to-fit: on short viewports the stacked rows + sign-up section can't
+  // fit between the profile and the nav bar, cutting off the bottom CTA. We
+  // measure the content's natural height vs. the available height and shrink
+  // it just enough to fit. When it already fits, fitScale stays 1 and NO
+  // transform is applied — normal-height devices render byte-identically.
+  const scrollRef = useRef(null);
+  const contentRef = useRef(null);
+  const [fitScale, setFitScale] = useState(1);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const avail = scrollRef.current?.clientHeight || 0;
+      // scrollHeight is a layout value, unaffected by the CSS transform we
+      // apply below, so measuring it here can't feed back into itself.
+      const natural = contentRef.current?.scrollHeight || 0;
+      if (!avail || !natural) return;
+      const next = Math.min(1, avail / natural);
+      setFitScale((prev) => (Math.abs(prev - next) > 0.004 ? next : prev));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && contentRef.current) ro.observe(contentRef.current);
+    return () => {
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, []);
 
   const GUEST_LABEL = { zh: '游客', en: 'Guest', ja: 'ゲスト' };
 
@@ -446,7 +474,19 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
       {/* Scroll layer — everything (profile, pills, signup) flows naturally
           and scrolls together when the viewport is short. */}
-      <div className="relative z-10 h-full overflow-y-auto scrollbar-hide flex flex-col">
+      <div
+        ref={scrollRef}
+        className="relative z-10 h-full overflow-y-auto scrollbar-hide"
+        style={{ overflowY: fitScale < 1 ? 'hidden' : 'auto' }}
+      >
+      <div
+        ref={contentRef}
+        className="flex flex-col"
+        style={{
+          transformOrigin: 'top center',
+          transform: fitScale < 1 ? `scale(${fitScale})` : undefined,
+        }}
+      >
 
       {/* Top: Profile */}
       <div className="shrink-0" style={{ padding: isShortScreen ? '25px 18px 20px 26px' : '35px 18px 25px 26px' }}>
@@ -757,6 +797,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         )}
       </div>
 
+      </div>{/* /content scale wrapper */}
       </div>{/* /scroll layer */}
 
       {/* Language picker modal — content swaps to a confirmation prompt
@@ -772,7 +813,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           <div
             className="relative"
             style={{
-              width: 353, height: 310,
+              width: 'min(353px, calc(100vw - 24px))', height: 310,
               backgroundColor: '#fff',
               border: '2px solid #000',
               borderRadius: 20,
@@ -947,7 +988,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         >
           <div
             style={{
-              width: 373,
+              width: 'min(373px, calc(100vw - 24px))',
               backgroundColor: '#fff',
               border: '2px solid #000',
               borderRadius: 20,
