@@ -28,6 +28,19 @@ function shuffle(arr) {
   return a;
 }
 
+// Merge the Edge pool into the local bundle by id WITHOUT ever shrinking below
+// the bundle. The Edge copy may be incomplete (Supabase not yet re-synced after
+// new words were added, or a pair missing some translations); replacing the
+// full bundle with that smaller set would hide words the user hasn't learned and
+// falsely trip the "已学完 / all-done" screen. So Edge entries override matching
+// bundle entries (fresher content wins) but bundle-only words always survive.
+function mergeById(base, incoming) {
+  if (!incoming || incoming.length === 0) return base;
+  const byId = new Map(base.map((w) => [w.id, w]));
+  for (const w of incoming) byId.set(w.id, { ...byId.get(w.id), ...w });
+  return Array.from(byId.values());
+}
+
 function getOptions(correctWord, wordPool, nativeLang) {
   const correctText = getWordText(correctWord, nativeLang);
   const others = wordPool.filter(w => w.id !== correctWord.id && getWordText(w, nativeLang) !== correctText);
@@ -195,10 +208,10 @@ export default function LearningPage({
       try {
         await Promise.all([
           getWords({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setWordSource(acc);
+            if (!cancelled && acc.length) setWordSource(mergeById(words, acc));
           }),
           getPhrases({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setPhraseSource(acc);
+            if (!cancelled && acc.length) setPhraseSource(mergeById(oralPhrases, acc));
           }),
         ]);
         if (cancelled) return;
