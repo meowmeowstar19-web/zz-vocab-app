@@ -47,10 +47,27 @@
       });
       // Register service worker so Chrome treats us as installable
       // and so static assets are cached for offline / fast loads.
+      // NEVER in local dev: a stale SW serves a cached shell that masks a
+      // stopped/restarting dev server, showing a half-broken page (shell
+      // loads, word images blank) instead of a clear connection error.
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function () {});
-        });
+        var isLocalDev =
+          ['localhost', '127.0.0.1', '0.0.0.0'].indexOf(location.hostname) !== -1 ||
+          location.port === '5174';
+        if (isLocalDev) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          });
+          if (window.caches) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (k) { caches.delete(k); });
+            });
+          }
+        } else {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js').catch(function () {});
+          });
+        }
       }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
