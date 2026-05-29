@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { words, categories as wordCategories } from '../data/words';
 import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { jaData } from '../data/jaData';
+import { getMeta } from '../data/wordsRepo';
+import { getAllLearnedWords, cacheLearnedWords } from '../data/learnedCache';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
@@ -111,12 +113,59 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [leavingWords, setLeavingWords] = useState(new Set());
   const [pendingMasteredWords, setPendingMasteredWords] = useState(new Map()); // wordId → newMasteredState
   const [randomKey, setRandomKey] = useState(0);
+  const [cachedWords, setCachedWords] = useState(() => new Map()); // id → learned word object (IndexedDB)
+  const [meta, setMeta] = useState(null); // { languages, wordCategories, phraseCategories } — counts only
 
   useEffect(() => {
     setProgress(getProgress(langKey));
     setRevealedWords(new Set());
     setPopupWord(null);
   }, [langKey]);
+
+  // Dev fallback: resolve a learned id to its object from the bundle when the
+  // IndexedDB cache doesn't have it yet. Removed in Phase 4 once the bundle goes.
+  const bundleById = useMemo(() => {
+    const m = new Map();
+    for (const w of words) m.set(w.id, w);
+    for (const p of oralPhrases) m.set(p.id, p);
+    return m;
+  }, []);
+
+  // Load the learned-word cache, then backfill it from the bundle for any
+  // already-learned id not yet stored — so words learned before Phase 3 (and
+  // before LearningPage started caching) still render once the bundle is gone.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const cache = await getAllLearnedWords();
+      if (cancelled) return;
+      const prog = getProgress(langKey);
+      const missing = [];
+      for (const id of Object.keys(prog)) {
+        if (!cache.has(id) && bundleById.has(id)) missing.push(bundleById.get(id));
+      }
+      if (missing.length) {
+        cacheLearnedWords(missing);
+        for (const w of missing) cache.set(w.id, w);
+      }
+      setCachedWords(cache);
+    })();
+    return () => { cancelled = true; };
+  }, [langKey, refreshKey, bundleById]);
+
+  // Per-category totals come from get_meta — numbers only, never content.
+  useEffect(() => {
+    let cancelled = false;
+    getMeta({ native: nativeLang, target: targetLang })
+      .then(m => { if (!cancelled) setMeta(m); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [nativeLang, targetLang]);
+
+  const resolveWord = useCallback(
+    (id) => cachedWords.get(id) || bundleById.get(id) || null,
+    [cachedWords, bundleById],
+  );
 
   useEffect(() => {
     setProgress(getProgress(langKey));
@@ -126,52 +175,62 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setRevealedWords(new Set());
   }, [filter]);
 
-  // Full pool — words + oral phrases.
-  const allWords = useMemo(() => {
-    return [...words, ...oralPhrases];
-  }, []);
-
-  const eligibleWords = useMemo(() => {
-    return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang, allWords]);
+  // The user's learned/mastered words, enumerated from PROGRESS (not the full
+  // library) and resolved to objects via the cache (bundle as dev fallback).
+  // This is why the word-list page never needs to pull the full set.
+  const learnedObjs = useMemo(() => {
+    const prog = progress;
+    const out = [];
+    for (const id of Object.keys(prog)) {
+      const p = prog[id];
+      if (!p || (!p.timestamp && !p.mastered)) continue;
+      const w = resolveWord(id);
+      if (w && isWordAvailable(w, nativeLang, targetLang)) out.push(w);
+    }
+    return out;
+  }, [progress, resolveWord, nativeLang, targetLang]);
 
   // Pool filtered by 单词/短语 sub-tab (used by non-gallery filters)
   const subTabPool = useMemo(() => {
-    if (subTab === 'phrases') return eligibleWords.filter(w => w.level === 'oral');
-    return eligibleWords.filter(w => w.level !== 'oral');
-  }, [eligibleWords, subTab]);
+    if (subTab === 'phrases') return learnedObjs.filter(w => w.level === 'oral');
+    return learnedObjs.filter(w => w.level !== 'oral');
+  }, [learnedObjs, subTab]);
 
   const totalLearning = useMemo(() => {
     const prog = progress;
-    return eligibleWords.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
-  }, [progress, eligibleWords]);
+    return learnedObjs.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
+  }, [progress, learnedObjs]);
 
-  // Word categories available for gallery ("all" + each category).
+  // Word categories available for gallery ("all" + each category). Category
+  // KEYS/order are UI metadata (not scrapeable content), so they stay bundled.
   const galleryCategoryList = useMemo(() => {
     return ['all', ...wordCategories.filter(c => c !== 'all')];
   }, []);
 
-  // Gallery view: learned OR mastered words in the selected category.
-  // Order reshuffles each time the user taps a category (galleryShuffleKey).
+  // Gallery view: learned OR mastered words (vocab only) in the selected
+  // category. Order reshuffles each time the user taps a category.
   const galleryWords = useMemo(() => {
-    const prog = progress;
-    const list = words
-      .filter(w => isWordAvailable(w, nativeLang, targetLang))
-      .filter(w => galleryCat === 'all' || w.category === galleryCat)
-      .filter(w => !!prog[w.id]?.timestamp || !!prog[w.id]?.mastered);
+    const list = learnedObjs
+      .filter(w => w.level !== 'oral')
+      .filter(w => galleryCat === 'all' || w.category === galleryCat);
     for (let i = list.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [list[i], list[j]] = [list[j], list[i]];
     }
     return list;
-  }, [progress, nativeLang, targetLang, galleryCat, galleryShuffleKey]);
+  }, [learnedObjs, galleryCat, galleryShuffleKey]);
 
   const galleryCategoryTotal = useMemo(() => {
+    if (meta && meta.wordCategories) {
+      if (galleryCat === 'all') return Object.values(meta.wordCategories).reduce((a, b) => a + b, 0);
+      return meta.wordCategories[galleryCat] || 0;
+    }
+    // Dev fallback while meta loads (removed in Phase 4).
     return words.filter(w =>
       isWordAvailable(w, nativeLang, targetLang) &&
       (galleryCat === 'all' || w.category === galleryCat)
     ).length;
-  }, [nativeLang, targetLang, galleryCat]);
+  }, [meta, galleryCat, nativeLang, targetLang]);
 
   const wordList = useMemo(() => {
     const prog = progress;
