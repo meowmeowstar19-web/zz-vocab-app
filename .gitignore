@@ -48,3 +48,6 @@ scripts/.r2-upload-manifest.json
 
 # Supabase CLI local link cache (project ref / pooler info — not project code)
 supabase/.temp/
+
+# 临时工作区(水印 venv/演示产物等),勿提交
+tmp/
