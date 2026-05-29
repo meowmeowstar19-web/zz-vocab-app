@@ -15,9 +15,16 @@
 // Upsert is keyed by slug (== the app's word/phrase id), so it's idempotent and
 // safe to re-run. The app does NOT read from Supabase yet — that's Phase 3/4.
 //
+// Mirrors deletions too: any word/phrase whose slug is no longer in the
+// generated data is pruned from Supabase (cascade removes its translations).
+// A safety guard SKIPS pruning if the incoming set is < 50% of what's already
+// in the DB (i.e. a likely partial/failed parse) so a bad run can't wipe the
+// table. Pass --no-prune to disable deletion mirroring entirely.
+//
 // Usage:
-//   node scripts/push-to-supabase.mjs           # import / re-import everything
+//   node scripts/push-to-supabase.mjs           # import + prune deletions
 //   node scripts/push-to-supabase.mjs --dry     # parse + report, no network
+//   node scripts/push-to-supabase.mjs --no-prune  # upsert only, never delete
 //
 // Requires .env.local with:
 //   VITE_SUPABASE_URL   (reused) and SUPABASE_SERVICE_ROLE_KEY  (server-only,
@@ -32,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const DRY = process.argv.includes('--dry');
+const NO_PRUNE = process.argv.includes('--no-prune');
 
 const log = {
   info:    (m) => console.log(`\x1b[36m→\x1b[0m ${m}`),
@@ -92,6 +100,30 @@ async function chunkedUpsert(supabase, table, rows, onConflict) {
     const { error } = await supabase.from(table).upsert(slice, { onConflict });
     if (error) throw new Error(`${table} upsert failed: ${error.message}`);
   }
+}
+
+// Delete rows whose slug is no longer present in the generated data. Cascade
+// (on delete cascade in the FK) removes the matching *_translations rows.
+// Safety guard: refuse to prune when the incoming set is < 50% of what's in the
+// DB — that signals a partial/failed parse, and we'd rather leave orphans than
+// wipe the table. Caller passes the live slug Set.
+async function pruneOrphans(supabase, table, currentSlugs) {
+  if (NO_PRUNE) { log.info(`${table}: --no-prune, skipping deletion mirror`); return; }
+  const { data: existing, error } = await supabase.from(table).select('slug');
+  if (error) throw new Error(`${table} prune fetch failed: ${error.message}`);
+  const orphans = existing.map((r) => r.slug).filter((s) => !currentSlugs.has(s));
+  if (orphans.length === 0) { log.ok(`${table}: no orphans to prune`); return; }
+  if (currentSlugs.size < existing.length * 0.5) {
+    log.warn(`${table}: incoming ${currentSlugs.size} rows < 50% of existing ${existing.length} — SKIPPING prune (looks like a partial parse). ${orphans.length} orphan(s) left in place; investigate and re-run.`);
+    return;
+  }
+  const SIZE = 200;
+  for (let i = 0; i < orphans.length; i += SIZE) {
+    const slice = orphans.slice(i, i + SIZE);
+    const { error: delErr } = await supabase.from(table).delete().in('slug', slice);
+    if (delErr) throw new Error(`${table} prune delete failed: ${delErr.message}`);
+  }
+  log.warn(`${table}: pruned ${orphans.length} orphan(s): ${orphans.slice(0, 10).join(', ')}${orphans.length > 10 ? ' …' : ''}`);
 }
 
 async function main() {
@@ -171,6 +203,7 @@ async function main() {
   }
   await chunkedUpsert(supabase, 'word_translations', wordTrans, 'word_id,lang_code');
   log.ok(`words (${wordRows.length}) + word_translations (${wordTrans.length})`);
+  await pruneOrphans(supabase, 'words', new Set(wordRows.map((r) => r.slug)));
 
   // ── Phrases + translations ──────────────────────────────────────────────
   await chunkedUpsert(supabase, 'phrases', phraseRows, 'slug');
@@ -189,6 +222,7 @@ async function main() {
   }
   await chunkedUpsert(supabase, 'phrase_translations', phraseTrans, 'phrase_id,lang_code');
   log.ok(`phrases (${phraseRows.length}) + phrase_translations (${phraseTrans.length})`);
+  await pruneOrphans(supabase, 'phrases', new Set(phraseRows.map((r) => r.slug)));
 
   console.log('\n\x1b[32m✓ Done — content is in Supabase. App behaviour unchanged (still reads bundled JS).\x1b[0m\n');
 }
