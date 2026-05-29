@@ -710,7 +710,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         )}
         <button
           onClick={onClose}
-          className="mt-4 w-full py-2.5 bg-[#2b2a26] text-white rounded-full text-[14px] active:scale-95"
+          className="mt-4 mx-auto block active:scale-95"
+          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '2px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
         >
           {t.close}
         </button>
