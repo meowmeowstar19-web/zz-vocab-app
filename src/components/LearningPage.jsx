@@ -1319,7 +1319,7 @@ export default function LearningPage({
               style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
               className="absolute pointer-events-none select-none"
-              style={{ right: 8, bottom: -4, width: 37, zIndex: 3 }} />
+              style={{ right: 8, bottom: -5, width: 37, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1482,7 +1482,7 @@ export default function LearningPage({
             style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
             className="absolute pointer-events-none select-none"
-            style={{ right: 8, bottom: -4, width: 37, zIndex: 3 }} />
+            style={{ right: 8, bottom: -5, width: 37, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
