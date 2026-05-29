@@ -16,6 +16,19 @@ html, body, #root {
   background-color: #ffffff;
 }
 
+/* WeChat in-app browser under-reports window.innerHeight when its bottom
+   toolbar toggles, so the app (sized to that value) stops a few px short of
+   the real viewport bottom and exposes the white page background as a thin
+   line beneath the dark nav bar. In WeChat the page background is never
+   visible anyway (the white app shell fills the screen), so tint it the nav
+   color — the only place it shows is that gap, where it now blends in. Other
+   browsers keep the white background. */
+html.wechat-bg,
+html.wechat-bg body,
+html.wechat-bg #root {
+  background-color: #2b2a26;
+}
+
 
 body {
   font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif;

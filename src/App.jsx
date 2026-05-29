@@ -39,6 +39,13 @@ function countLearnedWords(scope) {
 }
 const IS_WECHAT = isWeChatBrowser();
 
+// WeChat's in-app browser leaves a thin white strip below the nav bar (its
+// window.innerHeight under-reports the visible viewport). Tinting the page
+// background the nav color makes that gap blend in. See index.css .wechat-bg.
+if (IS_WECHAT) {
+  try { document.documentElement.classList.add('wechat-bg'); } catch {}
+}
+
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
 function TabIcon({ type, active }) {
