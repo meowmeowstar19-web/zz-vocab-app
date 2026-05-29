@@ -1,39 +1,25 @@
 #!/bin/bash
-# Double-click this file to sync data & push to Vercel.
-# It reads WordList.xlsx + Daily_Expressions.xlsx + updated_image/,
-# regenerates src/data/*.js, compresses images to public/images/,
-# then git commits and pushes (Vercel auto-deploys in ~30s).
+# 双击我 = 一键发布(图片 + 音频 + Excel 数据)。
+#
+# 用法:把要更新的东西放好,再双击我:
+#   · 单词图 → update_data_folder/updated_image/   (文件名 = 单词, 如 apple.jpg, 多大都行)
+#   · 非单词图 → 直接覆盖到 public/assets/figma/ (保持原名, 多大都行)
+#   · 新音频 → update_data_folder/updated_audio/{WordList|PhraseList}/{en|zh|jp}/
+#   · 改词库 → update_data_folder/WordList.xlsx / PhraseList.xlsx / category.xlsx
+# 脚本自动:缩放/压缩/传 R2/刷新 manifest/bump 缓存/提交,最后问你要不要 push 上线。
+# 只提交素材+数据,不会动你手改的代码。
 
 cd "$(dirname "$0")" || exit 1
 
-echo ""
-echo "================================================"
-echo "  🔄 VocabWorkspace Data Sync"
-echo "================================================"
-echo ""
-
-# Verify Node.js is available
 if ! command -v node >/dev/null 2>&1; then
-    echo "❌ Node.js not found. Please install from https://nodejs.org"
-    echo ""
-    echo "Press any key to close this window..."
-    read -rn 1
-    exit 1
+    echo "❌ 没找到 Node.js,请先装 https://nodejs.org"
+    echo "（按任意键关闭）"; read -n 1 -s; exit 1
 fi
 
-node scripts/sync-data.mjs --auto
+node scripts/publish-all.mjs
 EXIT=$?
 
 echo ""
-echo "================================================"
-if [ $EXIT -eq 0 ]; then
-    echo "  ✅ All done! Vercel will redeploy in ~30s."
-else
-    echo "  ❌ Sync failed (exit code $EXIT)"
-    echo "  Scroll up to see what went wrong."
-fi
-echo "================================================"
-echo ""
-echo "Press any key to close this window..."
-read -rn 1
+echo "（按任意键关闭窗口）"
+read -n 1 -s
 exit $EXIT

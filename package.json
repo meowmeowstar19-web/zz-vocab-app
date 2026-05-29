@@ -13,7 +13,7 @@
     "compress:figma": "node scripts/compress-figma-assets.mjs",
     "upload:assets": "node scripts/upload-r2.mjs",
     "deploy:assets": "npm run compress:figma && node scripts/upload-r2.mjs",
-    "publish:assets": "node scripts/publish-assets.mjs",
+    "publish:all": "node scripts/publish-all.mjs",
     "build:prod": "npm run deploy:assets && vite build",
     "predev": "node scripts/compress-figma-assets.mjs",
     "prebuild": "node scripts/compress-figma-assets.mjs",
