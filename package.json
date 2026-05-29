@@ -11,6 +11,7 @@
     "sync:push": "node scripts/sync-data.mjs --auto",
     "sync:audio": "node scripts/sync-audio.mjs",
     "push:supabase": "node scripts/push-to-supabase.mjs",
+    "seed:gen": "node scripts/gen-seed.mjs",
     "compress:figma": "node scripts/compress-figma-assets.mjs",
     "upload:assets": "node scripts/upload-r2.mjs",
     "deploy:assets": "npm run compress:figma && node scripts/upload-r2.mjs",

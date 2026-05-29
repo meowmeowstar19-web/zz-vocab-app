@@ -1,10 +1,10 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { words, categories } from '../data/words';
-import { jaData } from '../data/jaData';
-import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { categories, oralCategories, ORAL_CATEGORY_LABELS } from '../data/contentMeta';
+import { seedWords, seedPhrases } from '../data/seed';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { getWords, getPhrases } from '../data/wordsRepo';
 import { cacheLearnedWords, getAllLearnedWords } from '../data/learnedCache';
+import { readQueueSync, persistQueue } from '../data/prefetchQueue';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
@@ -163,24 +163,36 @@ export default function LearningPage({
   const catLabels = isOralMode
     ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
     : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-  // Anti-scraping Phase 3 — content arrives from the async Edge API (wordsRepo)
-  // into these buffers, but the network is NEVER on the critical path: the
-  // buffers are ALWAYS seeded with valid local data first, and the Edge refresh
-  // only swaps in underneath, in the background.
+  // Anti-scraping Phase 4 — the full word/phrase list lives ONLY in Supabase now
+  // (no longer in the JS bundle). Content arrives from the async Edge API
+  // (wordsRepo) into these buffers, but the network is NEVER on the critical
+  // path: the buffers are ALWAYS seeded with valid LOCAL data first, and the
+  // Edge refresh only swaps in underneath, in the background.
   //
-  // ⚡ HARD RULE: no user (new or returning) ever waits on the network to see a
-  // word. On mount AND on every language-pair switch we re-seed the buffers from
-  // the bundle SYNCHRONOUSLY (the bundle holds every language's fields, so any
-  // pair renders at 0ms), then kick off a background fetch that streams the Edge
-  // copy in on top. (Phase 4 removes the bundle; entry stays instant then via a
-  // small per-language seed pack + a persistent local prefetch queue — see plan.)
-  const [wordSource, setWordSource] = useState(words);
-  const [phraseSource, setPhraseSource] = useState(oralPhrases);
-  // True whenever we have ANY local data to paint. It only ever goes false in a
-  // future bundle-less world with no cache yet — then (and only then) the
-  // spinner below is the safety net. While the bundle exists it stays true, so
-  // the screen is never gated on the network.
-  const [bufferReady, setBufferReady] = useState(words.length > 0);
+  // ⚡ HARD RULE (feedback_never_block_on_network): no user — new OR returning —
+  // ever waits on the network to see a word. The synchronous local seed is:
+  //   • the rolling prefetch queue (next unlearned words from last session,
+  //     persisted to localStorage) when present → returning users get real new
+  //     words at 0ms, no "all learned" flash; else
+  //   • the tiny static seed pack (seed.js, ~30 starter words, all languages) →
+  //     brand-new users render at 0ms before the Edge pool arrives.
+  // On mount AND on every language-pair switch we re-seed SYNCHRONOUSLY from
+  // that local source, then stream the Edge copy in on top.
+  const localWordSeed = () => {
+    const q = readQueueSync('w', nativeLang, targetLang);
+    return q.length ? q : seedWords;
+  };
+  const localPhraseSeed = () => {
+    const q = readQueueSync('p', nativeLang, targetLang);
+    return q.length ? q : seedPhrases;
+  };
+  const [wordSource, setWordSource] = useState(localWordSeed);
+  const [phraseSource, setPhraseSource] = useState(localPhraseSeed);
+  // True whenever we have ANY local data to paint. The seed pack is always
+  // non-empty, so this stays true and the screen is never gated on the network;
+  // the spinner below is only a safety net for the (impossible-in-practice)
+  // case of zero local data.
+  const [bufferReady, setBufferReady] = useState(() => localWordSeed().length > 0);
   // Flips true once the background Edge refresh has fully completed. Used to
   // rebuild the SRS session with the freshest pool — but only if the user hasn't
   // started yet (see the rebuild effect below), so nothing ever swaps mid-use.
@@ -198,15 +210,15 @@ export default function LearningPage({
   // drip-feed serving is Phase 6's job; Phase 3 only moves the SOURCE.
   useEffect(() => {
     let cancelled = false;
-    // ⚡ Re-seed from the bundle synchronously so the NEW pair has valid local
-    // data to paint at 0ms (previous Edge data may lack this pair's fields).
-    // bufferReady stays true throughout — we never blank the screen for the net.
-    setWordSource(words);
-    setPhraseSource(oralPhrases);
+    // ⚡ Re-seed from the local source (queue → seed pack) synchronously so the
+    // NEW pair has valid local data to paint at 0ms (previous Edge data may lack
+    // this pair's fields). bufferReady stays true — never blank for the net.
+    setWordSource(localWordSeed());
+    setPhraseSource(localPhraseSeed());
     setBufferComplete(false);
     (async () => {
       try {
-        await Promise.all([
+        const [allW, allP] = await Promise.all([
           getWords({ native: nativeLang, target: targetLang }, (acc) => {
             if (!cancelled && acc.length) setWordSource(mergeById(words, acc));
           }),
@@ -215,6 +227,14 @@ export default function LearningPage({
           }),
         ]);
         if (cancelled) return;
+        // Refresh the rolling prefetch queue: stash the next UNLEARNED words so
+        // the NEXT open of this pair lands on real new material at 0ms (no
+        // "all learned" flash) without waiting on the Edge pool again.
+        try {
+          const prog = getProgress(storageKey);
+          persistQueue('w', nativeLang, targetLang, allW.filter((w) => !prog[w.id]?.timestamp));
+          persistQueue('p', nativeLang, targetLang, allP.filter((p) => !prog[p.id]?.timestamp));
+        } catch {}
         setBufferComplete(true); // full pool in → allow a one-time session rebuild
       } catch {
         if (cancelled) return;
@@ -855,7 +875,7 @@ export default function LearningPage({
       return;
     }
     if (translationLang === 'ja') {
-      const jaSentence = currentWord.jaSentence || jaData[currentWord.en]?.sentence;
+      const jaSentence = currentWord.jaSentence;
       if (jaSentence) { setSentenceTranslation(jaSentence); return; }
     }
     // Fallback to API for any missing translations
