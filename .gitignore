@@ -45,3 +45,6 @@ playwright/.cache/
 
 # R2 upload script's local diff manifest (if introduced later for faster diffs)
 scripts/.r2-upload-manifest.json
+
+# Supabase CLI local link cache (project ref / pooler info — not project code)
+supabase/.temp/
