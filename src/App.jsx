@@ -1095,6 +1095,13 @@ export default function App() {
   // which reads the per-uid progress slot the user's word list already shows.
   const requestNextWord = () => {
     if (!authReady) return true;
+    // DEV-only test hook: lets the monkey/screenshot suite roam past the
+    // 5-word gate in any browser UA (only WeChat is exempt at runtime). Inert
+    // in production — import.meta.env.DEV is false after `vite build`, so this
+    // can never disable the real gate for end users.
+    if (import.meta.env.DEV) {
+      try { if (localStorage.getItem('__test_no_gate') === '1') return true; } catch {}
+    }
     if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
     // Returning user (this device has previously held a real account session
     // and is now back in guest mode — either after intentional logout or a
