@@ -68,6 +68,16 @@ function ask(q) {
   return new Promise((res) => rl.question(q, (a) => { rl.close(); res(a.trim()); }));
 }
 
+// 只接受 y / n,其它输入(包括直接回车)一律重问,绝不放行
+async function confirmYesNo(q) {
+  for (;;) {
+    const a = (await ask(q)).toLowerCase();
+    if (a === 'y' || a === 'yes') return true;
+    if (a === 'n' || a === 'no') return false;
+    console.log(C.y('   ⚠ 请输入 y(上线)或 n(取消),不能直接按回车或别的键。'));
+  }
+}
+
 // 递归找某目录下是否有匹配后缀的文件
 function dirHasFiles(dir, re) {
   if (!existsSync(dir)) return false;
@@ -221,12 +231,14 @@ async function main() {
 
   const ahead = sh('git log --oneline origin/main..HEAD').trim();
   console.log('\n' + C.b('即将 push 上线的提交:') + '\n' + ahead.split('\n').map((l) => '   ' + l).join('\n'));
-  const yn = (await ask('\n确认 push origin main 上线? [y/N] ')).toLowerCase();
-  if (yn === 'y' || yn === 'yes') {
+  const ok = await confirmYesNo('\n确认 push origin main 上线?(必须输入 y 才会上线)[y/n] ');
+  if (ok) {
     run('git', ['push', 'origin', 'main']);
     console.log('\n' + C.g('✅ 已上线,Vercel 正在自动构建。'));
   } else {
-    console.log('\n已提交但未 push。想上线时手动 `git push origin main`。');
+    console.log('\n' + C.y(C.b('⚠️  你选了 n —— 改动只在本地,【没有上线】!')));
+    console.log(C.y('   线上还是旧的。想上线请重新双击 update.command 并输入 y,'));
+    console.log(C.y('   或在终端手动跑:git push origin main'));
   }
 }
 
