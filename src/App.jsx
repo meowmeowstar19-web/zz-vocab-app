@@ -434,17 +434,43 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // iOS standalone OAuth viewport-shrink (direction A, 2026-05-30): the shell
-    // tracks the LIVE visible viewport — we do NOT floor it back to 100lvh.
-    // Flooring (the previous approach) kept the shell taller than the
-    // OAuth-shrunk viewport, which overflowed and scrolled the top off under
-    // the status bar = the "shift up" bug. By sizing to the real innerHeight
-    // and anchoring content to the top (items-start on the outer shells + no
-    // 100lvh floor in index.css), a shrink loses a little at the BOTTOM (the
-    // already-accepted strip) and the top never moves. Uniform for every
-    // context (browser / WeChat / standalone) — no pixel-band heuristics.
+    // iOS standalone PWA ONLY: after an OAuth in-app-browser round-trip the
+    // webview viewport spuriously collapses (innerHeight 793 → 657) and the
+    // document scrolls ~54px under the black-translucent status bar, shoving
+    // the whole shell up. dvh/svh/visualViewport all collapse with it; only
+    // the large-viewport unit (100lvh) stays stable. So in standalone we
+    // floor the height with lvh and undo the stray scroll — but ONLY for that
+    // narrow spurious-collapse band, so a real shrink (soft keyboard) is left
+    // alone. Browser and WeChat paths are byte-for-byte unchanged.
+    const isStandalone = (() => {
+      try {
+        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+        if (window.navigator.standalone === true) return true; // iOS Safari
+      } catch {}
+      return false;
+    })();
+    const readLvh = () => {
+      try {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
+        document.body.appendChild(probe);
+        const h = probe.getBoundingClientRect().height;
+        document.body.removeChild(probe);
+        return h;
+      } catch { return 0; }
+    };
     const update = () => {
-      const h = window.innerHeight;
+      let h = window.innerHeight;
+      if (isStandalone) {
+        const lvh = readLvh();
+        // Correct only the spurious OAuth-return collapse: innerHeight dips a
+        // little below lvh (657 vs 768). A big shrink (≥30%, e.g. keyboard) is
+        // a genuine layout change — leave it. lvh===0 (unsupported) → no-op.
+        if (lvh > 0 && h < lvh && h >= lvh * 0.7) {
+          h = lvh;
+          if (window.scrollY !== 0) window.scrollTo(0, 0);
+        }
+      }
       setNavH(h < 833 ? 52 : 57);
       setVpH(h);
     };
@@ -1195,7 +1221,7 @@ export default function App() {
   // drop straight into Learn (no Welcome page).
   if (needsLangSetup) {
     return (
-      <div className="w-screen bg-white flex items-start justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
         </div>
@@ -1228,7 +1254,7 @@ export default function App() {
     // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
     // against the beige polka-dot LearningPage background.
     return (
-      <div className="w-screen flex items-start justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
+      <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <img
             src={getFigmaAssetUrl('study_background.jpg')}
@@ -1246,7 +1272,7 @@ export default function App() {
   // the Google / Discord / Email / Guest-mode picker.
   if (!isLoggedIn) {
     return (
-      <div className="w-screen bg-white flex items-start justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
         </div>
@@ -1255,7 +1281,7 @@ export default function App() {
   }
 
   return (
-    <div className="w-screen flex items-start justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
+    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
       <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
