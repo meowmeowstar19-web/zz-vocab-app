@@ -16,21 +16,18 @@ html, body, #root {
   background-color: #ffffff;
 }
 
-/* iOS standalone PWA only: after an OAuth in-app-browser round-trip the
-   layout viewport spuriously collapses (100% → 657) and never restores,
-   so body/#root shrink and overflow:hidden clips the bottom of the app
-   shell, leaving white space under the nav bar (content looks shoved up).
-   The large-viewport unit (100lvh) is the only one that stays stable, so
-   floor the container with it. min-height never shrinks the healthy state
-   (100% ≥ 100lvh there) and the media query keeps every in-browser path —
-   incl. WeChat — completely untouched. The JS shell-height floor in
-   App.jsx sizes the inner shell to match. Pre-lvh Safari ignores the
-   declaration and falls back to today's behavior. */
-@media all and (display-mode: standalone) {
-  html, body, #root {
-    min-height: 100lvh;
-  }
-}
+/* iOS standalone PWA — OAuth viewport-shrink handling (direction A, 2026-05-30).
+   When iOS presents/dismisses the OAuth in-app browser it reclaims the
+   status-bar strip and window.innerHeight shrinks ~25px; on a silent
+   cancel-return it STAYS shrunk (no navigation re-applies the full viewport).
+   The previous fix floored the container to 100lvh (stable full height) — but
+   that pinned the document TALLER than the now-shrunk visible viewport,
+   creating ~25px of scrollable overflow that scrolled the top off under the
+   status bar = the "shift up" bug. So we deliberately do NOT floor: the shell
+   tracks the LIVE viewport (sized in App.jsx), content is anchored to the TOP
+   (items-start), and nothing exceeds the viewport (overflow:hidden above). A
+   shrink therefore loses a little at the BOTTOM (already-accepted strip) and
+   the top never moves. No 100lvh floor — that was the overflow source. */
 
 /* WeChat in-app browser under-reports window.innerHeight when its bottom
    toolbar toggles, so the app (sized to that value) stops a few px short of
