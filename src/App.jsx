@@ -438,27 +438,15 @@ export default function App() {
       setNavH(window.innerHeight < 833 ? 52 : 57);
       setVpH(window.innerHeight);
     };
-    // BFCache restore (e.g. pressing Back from an OAuth provider page) fires
-    // `pageshow` while the URL bar is still animating, so a single synchronous
-    // read returns a transient innerHeight — the layout then sizes to a
-    // viewport that's gone a frame later, leaving the phone shell shifted up
-    // with white space below the nav. Re-measure across a couple of frames
-    // and once more after the chrome settles so the final value is correct.
-    const updateSettled = () => {
-      update();
-      requestAnimationFrame(update);
-      setTimeout(update, 300);
-    };
     window.addEventListener('resize', update);
-    window.addEventListener('pageshow', updateSettled);
-    // visualViewport.resize fires when the URL bar shows/hides — the most
-    // reliable signal for the post-restore settle that `resize` can miss.
-    const vv = window.visualViewport;
-    if (vv) vv.addEventListener('resize', update);
+    // BFCache restore on mobile browsers doesn't fire `resize`, but the
+    // viewport may have changed while the tab was backgrounded — re-read
+    // window.innerHeight on every pageshow (incl. `persisted=true` restores)
+    // so the saved state doesn't drive the layout off the new viewport.
+    window.addEventListener('pageshow', update);
     return () => {
       window.removeEventListener('resize', update);
-      window.removeEventListener('pageshow', updateSettled);
-      if (vv) vv.removeEventListener('resize', update);
+      window.removeEventListener('pageshow', update);
     };
   }, []);
 
