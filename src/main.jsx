@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { installAntiScrape } from './utils/antiScrape';
+import { initVpLogger } from './debug/vpLogger';
 import posthog from 'posthog-js';
 import { PostHogProvider } from '@posthog/react';
 
@@ -26,6 +27,7 @@ posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN, {
 }
 
 installAntiScrape();
+initVpLogger();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
