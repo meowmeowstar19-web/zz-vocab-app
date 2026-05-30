@@ -486,17 +486,21 @@ export default function App() {
     };
   }, []);
 
-  // iOS standalone PWA ONLY: when the user launches an OAuth provider and then
-  // taps "back" WITHOUT logging in, iOS restores the PWA from bfcache with a
-  // permanently-collapsed viewport (793 → 768), shoving the shell up ~25px with
-  // no web API to reclaim it. A fresh load recomputes the full 793, so on that
-  // exact return — bfcache restore (`persisted`) while an OAuth round-trip is
-  // still pending — force a one-time reload, stamping a flag so LearningPage
-  // re-pins the same word across the reload (the card must not change). A
-  // successful login returns via a fresh navigation (tokens in the URL), NOT a
-  // bfcache restore, so `persisted` is false there and this never fires on the
-  // success path. The pending flag is cleared by the fresh mount's no-session
-  // branch, so no loop (a reload is never a bfcache restore).
+  // iOS standalone PWA ONLY: returning from an OAuth provider WITHOUT logging in
+  // leaves the webview viewport permanently shrunk ~25px (793 → 768) with no web
+  // API to reclaim it — the shell (sized to window.innerHeight) shrinks with it,
+  // so the page looks shoved up. A successful login self-heals because it
+  // returns via a fresh top-level navigation (tokens in the URL) and iOS
+  // recomputes the full height; the cancel path returns to the SAME document and
+  // stays collapsed. So on return, detect the small spurious shrink and force a
+  // reload to mimic the healthy navigation — pinning the current word so the
+  // card doesn't change.
+  //
+  // Self-gated on the actual collapse (current innerHeight a little below the
+  // tallest seen this session), so it can't misfire on login-vs-signup wiring,
+  // and the small-shrink band (10px..15%) excludes the soft keyboard (a much
+  // bigger shrink). Loop-guarded via sessionStorage: at most one reload per
+  // collapse episode, cleared once the viewport is healthy again.
   useEffect(() => {
     const isStandalone = (() => {
       try {
@@ -506,19 +510,41 @@ export default function App() {
       return false;
     })();
     if (!isStandalone) return;
-    const onShow = (e) => {
-      if (!e.persisted) return;
-      let pending = false;
+    const MAX_KEY = 'vp_max_h';
+    const recordMax = () => {
       try {
-        pending = localStorage.getItem('gate_oauth_pending') === '1'
-          || localStorage.getItem('bind_oauth_pending') === '1';
+        const cur = window.innerHeight;
+        const prev = parseInt(sessionStorage.getItem(MAX_KEY) || '0', 10);
+        if (cur > prev) sessionStorage.setItem(MAX_KEY, String(cur));
       } catch {}
-      if (!pending) return;
-      try { sessionStorage.setItem('srs_pin_after_reload', '1'); } catch {}
+    };
+    recordMax();
+    const maybeReload = () => {
+      let max = 0;
+      try { max = parseInt(sessionStorage.getItem(MAX_KEY) || '0', 10); } catch {}
+      const cur = window.innerHeight;
+      const collapsed = max > 0 && cur > 0 && cur < max - 10 && cur >= max * 0.85;
+      if (!collapsed) {
+        try { sessionStorage.removeItem('vp_reloading'); } catch {}
+        return;
+      }
+      let already = false;
+      try { already = sessionStorage.getItem('vp_reloading') === '1'; } catch {}
+      if (already) return; // one reload per episode — don't loop if it can't restore
+      try {
+        sessionStorage.setItem('vp_reloading', '1');
+        sessionStorage.setItem('srs_pin_after_reload', '1');
+      } catch {}
       window.location.reload();
     };
+    const onShow = () => { recordMax(); maybeReload(); };
+    const onVis = () => { if (document.visibilityState === 'visible') maybeReload(); };
     window.addEventListener('pageshow', onShow);
-    return () => window.removeEventListener('pageshow', onShow);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pageshow', onShow);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   // Sync entry point — wraps syncOnLogin so the OAuth bind path can detect
