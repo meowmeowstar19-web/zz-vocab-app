@@ -349,11 +349,6 @@ export default function App() {
 
   const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
   const [vpH, setVpH] = useState(() => window.innerHeight);
-  // Height of the iOS home-indicator safe area at the bottom of the screen.
-  // With viewport-fit=cover the web viewport now reaches the physical screen
-  // bottom, so we pad the nav bar by this much to keep the tab icons above the
-  // home indicator. 0 on every non-notched device / browser.
-  const [safeBottom, setSafeBottom] = useState(0);
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
   // Shown when the user tried to bind from guest mode onto an account that
@@ -464,20 +459,6 @@ export default function App() {
         return h;
       } catch { return 0; }
     };
-    // Numeric read of env(safe-area-inset-bottom). Only nonzero once
-    // viewport-fit=cover is in effect AND the device has a home indicator
-    // (notched iPhones in standalone). max(0px, ...) so unsupported browsers
-    // resolve to 0 rather than an invalid length.
-    const readSafeBottom = () => {
-      try {
-        const probe = document.createElement('div');
-        probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;height:max(0px,env(safe-area-inset-bottom));visibility:hidden;pointer-events:none;';
-        document.body.appendChild(probe);
-        const h = probe.getBoundingClientRect().height;
-        document.body.removeChild(probe);
-        return h;
-      } catch { return 0; }
-    };
     const update = () => {
       let h = window.innerHeight;
       if (isStandalone) {
@@ -492,7 +473,6 @@ export default function App() {
       }
       setNavH(h < 833 ? 52 : 57);
       setVpH(h);
-      setSafeBottom(readSafeBottom());
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
@@ -1242,7 +1222,7 @@ export default function App() {
   if (needsLangSetup) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-        <div className="w-[402px] overflow-hidden sm:rounded-[2rem] sm:!max-h-[841px] relative" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
         </div>
       </div>
@@ -1275,7 +1255,7 @@ export default function App() {
     // against the beige polka-dot LearningPage background.
     return (
       <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
-        <div className="w-[402px] overflow-hidden sm:rounded-[2rem] sm:!max-h-[841px] relative" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <img
             src={getFigmaAssetUrl('study_background.jpg')}
             alt=""
@@ -1293,7 +1273,7 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
-        <div className="w-[402px] overflow-hidden sm:rounded-[2rem] sm:!max-h-[841px] relative" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
         </div>
       </div>
@@ -1302,7 +1282,7 @@ export default function App() {
 
   return (
     <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
-      <div className="w-[402px] flex flex-col overflow-hidden sm:rounded-[2rem] sm:!max-h-[841px] relative bg-warm-bg" style={{ height: vpH }}>
+      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
@@ -1316,7 +1296,7 @@ export default function App() {
               selectedCategory={learningCategory}
               selectedLevel={learningLevel}
               onCategoryChange={handleCategoryChange}
-              contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH + safeBottom) - 2)}
+              contentHFromParent={Math.max(0, vpH - (categoryModalOpen ? 0 : navH) - 2)}
               onLevelChange={handleLevelChange}
               isVisible={(page === 'learn' || reviewMode) && checkinDay == null && !(loginModal.open && loginModal.surface === 'gate')}
               onCategoryModalChange={setCategoryModalOpen}
@@ -1356,7 +1336,7 @@ export default function App() {
         </div>
 
         {/* Bottom tab bar */}
-        <div className="shrink-0 relative overflow-visible" style={{ height: categoryModalOpen ? 0 : navH + safeBottom, paddingBottom: categoryModalOpen ? 0 : safeBottom, backgroundColor: '#2b2a26', overflow: categoryModalOpen ? 'hidden' : undefined }}>
+        <div className="shrink-0 relative overflow-visible" style={{ height: categoryModalOpen ? 0 : navH, backgroundColor: '#2b2a26', overflow: categoryModalOpen ? 'hidden' : undefined }}>
           {/* Nav separator line at top */}
           <img
             src={getFigmaAssetUrl('nav-separator.png')}
