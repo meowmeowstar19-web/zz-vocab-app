@@ -16,6 +16,30 @@ html, body, #root {
   background-color: #ffffff;
 }
 
+/* Dynamic-viewport sizing for the app shell. Filling the real visible viewport
+   via CSS dvh is deterministic — unlike a JS window.innerHeight read, which
+   under-reports for a frame after an iOS bfcache restore (Back from an OAuth
+   page) and left the shell shifted up with white space below the nav. The 100vh
+   line is a fallback for browsers without dvh; dvh wins where supported. */
+.app-vp-h {
+  height: 100vh;
+  height: 100dvh;
+}
+.app-vp-maxh {
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+/* WeChat's webview support for dvh is inconsistent and its sizing is already
+   handled by the under-report + tint workaround above. Keep it on the bounded
+   #root height (100%) so the 100vh fallback can't push the shell taller than
+   the visible viewport and cut off the nav. */
+html.wechat-bg .app-vp-h {
+  height: 100%;
+}
+html.wechat-bg .app-vp-maxh {
+  max-height: 100%;
+}
+
 /* WeChat in-app browser under-reports window.innerHeight when its bottom
    toolbar toggles, so the app (sized to that value) stops a few px short of
    the real viewport bottom and exposes the white page background as a thin
