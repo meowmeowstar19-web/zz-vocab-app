@@ -486,21 +486,21 @@ export default function App() {
     };
   }, []);
 
-  // iOS standalone PWA ONLY: returning from an OAuth provider WITHOUT logging in
-  // leaves the webview viewport permanently shrunk ~25px (793 → 768) with no web
-  // API to reclaim it — the shell (sized to window.innerHeight) shrinks with it,
-  // so the page looks shoved up. A successful login self-heals because it
-  // returns via a fresh top-level navigation (tokens in the URL) and iOS
-  // recomputes the full height; the cancel path returns to the SAME document and
-  // stays collapsed. So on return, detect the small spurious shrink and force a
-  // reload to mimic the healthy navigation — pinning the current word so the
-  // card doesn't change.
+  // iOS standalone PWA ONLY: launching an OAuth provider opens an overlay that
+  // shrinks the webview viewport ~25px. A SUCCESSFUL or FAILED login both return
+  // via a real top-level navigation (the provider redirects back to our origin
+  // with a token/error in the URL), and iOS recomputes the full viewport on that
+  // navigation — so those paths self-heal. The CANCEL/back path only dismisses
+  // the overlay and returns to the SAME, still-collapsed document, so the shell
+  // (sized to window.innerHeight) stays shoved up. We mimic the healing
+  // navigation by reloading on exactly that cancel return.
   //
-  // Self-gated on the actual collapse (current innerHeight a little below the
-  // tallest seen this session), so it can't misfire on login-vs-signup wiring,
-  // and the small-shrink band (10px..15%) excludes the soft keyboard (a much
-  // bigger shrink). Loop-guarded via sessionStorage: at most one reload per
-  // collapse episode, cleared once the viewport is healthy again.
+  // Discriminator: `oauth_in_flight` is set right before every OAuth launch
+  // (WelcomePage + LoginPromptModal). A real navigation back (success/failure)
+  // produces a FRESH document, where the mount-time clear below wipes the flag
+  // before any listener can fire — so it can only still be set on the ORIGINAL,
+  // never-reloaded document, i.e. the cancel path. No pixel heuristics, no
+  // soft-keyboard false positives. Pin the current word across the reload.
   useEffect(() => {
     const isStandalone = (() => {
       try {
@@ -510,40 +510,26 @@ export default function App() {
       return false;
     })();
     if (!isStandalone) return;
-    const MAX_KEY = 'vp_max_h';
-    const recordMax = () => {
+    // Fresh document (cold start, or a real navigation back from the provider on
+    // success/failure): the flag can only survive on the same document that
+    // launched OAuth, so clear it here. Harmless no-op on cold start.
+    try { localStorage.removeItem('oauth_in_flight'); } catch {}
+    const onReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      let inFlight = false;
+      try { inFlight = localStorage.getItem('oauth_in_flight') === '1'; } catch {}
+      if (!inFlight) return; // not back from a cancelled OAuth attempt
       try {
-        const cur = window.innerHeight;
-        const prev = parseInt(sessionStorage.getItem(MAX_KEY) || '0', 10);
-        if (cur > prev) sessionStorage.setItem(MAX_KEY, String(cur));
-      } catch {}
-    };
-    recordMax();
-    const maybeReload = () => {
-      let max = 0;
-      try { max = parseInt(sessionStorage.getItem(MAX_KEY) || '0', 10); } catch {}
-      const cur = window.innerHeight;
-      const collapsed = max > 0 && cur > 0 && cur < max - 10 && cur >= max * 0.85;
-      if (!collapsed) {
-        try { sessionStorage.removeItem('vp_reloading'); } catch {}
-        return;
-      }
-      let already = false;
-      try { already = sessionStorage.getItem('vp_reloading') === '1'; } catch {}
-      if (already) return; // one reload per episode — don't loop if it can't restore
-      try {
-        sessionStorage.setItem('vp_reloading', '1');
+        localStorage.removeItem('oauth_in_flight');
         sessionStorage.setItem('srs_pin_after_reload', '1');
       } catch {}
       window.location.reload();
     };
-    const onShow = () => { recordMax(); maybeReload(); };
-    const onVis = () => { if (document.visibilityState === 'visible') maybeReload(); };
-    window.addEventListener('pageshow', onShow);
-    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pageshow', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
     return () => {
-      window.removeEventListener('pageshow', onShow);
-      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pageshow', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
     };
   }, []);
 
