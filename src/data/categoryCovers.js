@@ -4,25 +4,25 @@
 
 // Representative image for each vocab category (detail tab in category modal)
 export const vocabCategoryCovers = {
-  action: 'eat.jpg',
-  adjective: 'cheap.jpg',
-  animal: 'bird.jpg',
-  color: 'pink.jpg',
-  food: 'cherry.jpg',
-  nature: 'wind.jpg',
-  number: 'eight.jpg',
-  object: 'trophy.jpg',
-  people: 'sister.jpg',
-  place: 'bank.jpg',
-  time: 'today.jpg',
-  transport: 'taxi.jpg',
+  action: '74aaea1fdd7aa851aaf2.jpg',
+  adjective: '4f921c9dab9c62fea086.jpg',
+  animal: '5b35f96428c7e210d37b.jpg',
+  color: 'e7fac542c54b045f9225.jpg',
+  food: '9250a1ae394b98c960ca.jpg',
+  nature: 'f947461ae68fb5e8834f.jpg',
+  number: 'a569cadac149dc961494.jpg',
+  object: '49c6a5cb50da3428038f.jpg',
+  people: '6eccac64fb4c1aad5292.jpg',
+  place: '3ad8e1dcbac8dcd12104.jpg',
+  time: '966782aa41e9f52a08c7.jpg',
+  transport: '1e7714dcfe288bde199b.jpg',
 };
 
 // Representative image for each oral category (uses a vocab word's image)
 export const oralCategoryCovers = {
-  greeting: 'hand.jpg',
-  response: 'talk.jpg',
-  life: 'coffee.jpg',
-  feeling: 'happy.jpg',
-  social: 'friend.jpg',
+  greeting: '3348cf319bc3cdbad3c0.jpg',
+  response: '98421a805df203462e0d.jpg',
+  life: 'a1c54ed2f5fe9ca41180.jpg',
+  feeling: '7a543a60bfde6238190e.jpg',
+  social: '022e5e2854affcc100d9.jpg',
 };
