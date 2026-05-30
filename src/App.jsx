@@ -486,62 +486,6 @@ export default function App() {
     };
   }, []);
 
-  // iOS standalone PWA ONLY: launching an OAuth provider opens an overlay that
-  // shrinks the webview viewport ~25px. A SUCCESSFUL or FAILED login both return
-  // via a real top-level navigation (the provider redirects back to our origin
-  // with a token/error in the URL), and iOS recomputes the full viewport on that
-  // navigation — so those paths self-heal. The CANCEL/back path only dismisses
-  // the overlay and returns to the SAME, still-collapsed document, so the shell
-  // (sized to window.innerHeight) stays shoved up. We mimic the healing
-  // navigation by reloading on exactly that cancel return.
-  //
-  // Discriminator: `oauth_in_flight` is set right before every OAuth launch
-  // (WelcomePage + LoginPromptModal). A real navigation back (success/failure)
-  // produces a FRESH document, where the mount-time clear below wipes the flag
-  // before any listener can fire — so it can only still be set on the ORIGINAL,
-  // never-reloaded document, i.e. the cancel path. No pixel heuristics, no
-  // soft-keyboard false positives. Pin the current word across the reload.
-  useEffect(() => {
-    const isStandalone = (() => {
-      try {
-        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
-        if (window.navigator.standalone === true) return true;
-      } catch {}
-      return false;
-    })();
-    if (!isStandalone) return;
-    // Fresh document (cold start, or a real navigation back from the provider on
-    // success/failure): the flag can only survive on the same document that
-    // launched OAuth, so clear it here. Harmless no-op on cold start.
-    try { localStorage.removeItem('oauth_in_flight'); } catch {}
-    const onReturn = () => {
-      if (document.visibilityState !== 'visible') return;
-      let inFlight = false;
-      try { inFlight = localStorage.getItem('oauth_in_flight') === '1'; } catch {}
-      if (!inFlight) return; // not back from an OAuth attempt
-      // Whatever the outcome, this OAuth round-trip is now resolved — drop the
-      // marker so a later app-switch can't re-trigger.
-      try { localStorage.removeItem('oauth_in_flight'); } catch {}
-      // If the provider redirected back with callback params (success token, a
-      // PKCE `code` mid-exchange, or an `error`), DON'T reload: supabase + the
-      // mount-time handlers are processing that URL, and a reload would abort
-      // the in-flight code-exchange fetch (surfacing WebKit's "Load failed").
-      // Those paths are also the ones that already self-heal the viewport via
-      // the real navigation. Only the SILENT cancel — no callback params on the
-      // unchanged URL — needs the manual reload to recompute the viewport.
-      const tail = (window.location.hash || '') + (window.location.search || '');
-      if (/access_token|[?&#]code=|error=|error_code=/.test(tail)) return;
-      try { sessionStorage.setItem('srs_pin_after_reload', '1'); } catch {}
-      window.location.reload();
-    };
-    window.addEventListener('pageshow', onReturn);
-    document.addEventListener('visibilitychange', onReturn);
-    return () => {
-      window.removeEventListener('pageshow', onReturn);
-      document.removeEventListener('visibilitychange', onReturn);
-    };
-  }, []);
-
   // Sync entry point — wraps syncOnLogin so the OAuth bind path can detect
   // "this account already has progress" and refuse to merge. Soft signOut
   // (keeps guest mode + local data intact) on rejection.

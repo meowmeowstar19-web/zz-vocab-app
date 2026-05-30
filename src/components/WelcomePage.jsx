@@ -47,9 +47,6 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
     if (!guard()) return;
     setOauthError('');
     posthog?.capture('login_oauth_initiated', { provider, native_lang: nativeLang });
-    // Mark an OAuth round-trip as in-flight so App can heal the iOS-standalone
-    // viewport collapse on the cancel/back path (see App.jsx).
-    try { localStorage.setItem('oauth_in_flight', '1'); } catch {}
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -57,10 +54,7 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
         queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
       },
     });
-    if (error) {
-      try { localStorage.removeItem('oauth_in_flight'); } catch {}
-      setOauthError(error.message);
-    }
+    if (error) setOauthError(error.message);
   };
 
   const handleEmailClick = () => {

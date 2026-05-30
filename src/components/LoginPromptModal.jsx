@@ -187,10 +187,6 @@ export default function LoginPromptModal({
         }
       }
     }
-    // Mark an OAuth round-trip as in-flight (both bind and login) so App can
-    // heal the iOS-standalone viewport collapse on the cancel/back path (see
-    // App.jsx). Independent of the bind/gate landing-page flags.
-    try { localStorage.setItem('oauth_in_flight', '1'); } catch {}
     const { error } = await (effectiveFlow === 'bind'
       ? supabase.auth.linkIdentity({
           provider,
@@ -207,7 +203,6 @@ export default function LoginPromptModal({
           },
         }));
     if (error) {
-      try { localStorage.removeItem('oauth_in_flight'); } catch {}
       if (effectiveFlow === 'bind') {
         try {
           localStorage.removeItem('bind_flow_active');
