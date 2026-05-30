@@ -85,6 +85,28 @@ export async function parseBatchRequest(
   return { kind: 'ok', userId, native, target, cursor, limit };
 }
 
+// Anti-scraping Phase 6 (切片2 (c)): per-request gate run BEFORE serving a
+// content batch. Returns 'ok' to serve, or a reason ('rate' | 'noprogress') the
+// caller maps to a silent 429. FAIL-OPEN: any error (RPC missing, DB hiccup)
+// returns 'ok' so a real learner is never blocked by a gate fault.
+//
+//   • 'rate'       — token-bucket speed line (5/sec, burst 30) drained: a loop
+//                    hammering the endpoint. A normal open-burst fits the burst.
+//   • 'noprogress' — pulled >= 500 today with ZERO all-time progress: a bot
+//                    looping the API directly. Any learner has progress > 0.
+//
+// ⚠️ Wiring this in only became safe once the windowed-fetch client (8a4696e)
+// shipped; before that the client bulk-pulled and would trip its own gate.
+export async function requestGate(supabase: SupabaseClient, userId: string): Promise<string> {
+  try {
+    const { data, error } = await supabase.rpc('antiscrape_request_gate', { p_user_id: userId });
+    if (error) return 'ok'; // fail-open: never block a real user on a gate fault
+    return typeof data === 'string' && data ? data : 'ok';
+  } catch (_e) {
+    return 'ok';
+  }
+}
+
 // Anti-scraping Phase 6 (切片1): record how many content items this account
 // pulled, fire-and-forget. The daily_activity counter is OBSERVE-ONLY — read by
 // a daily pg_cron job, never in the request path — so this must NEVER block or

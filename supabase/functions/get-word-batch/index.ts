@@ -5,7 +5,7 @@
 // POST body: { native, target, cursor?, limit? }
 // Response:  { items: [...], nextCursor: string | null }
 
-import { corsHeaders, jsonResponse, serviceClient, parseBatchRequest, recordActivity } from '../_shared/content-api.ts';
+import { corsHeaders, jsonResponse, serviceClient, parseBatchRequest, requestGate, recordActivity } from '../_shared/content-api.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -15,6 +15,12 @@ Deno.serve(async (req) => {
   if (parsed.kind === 'response') return parsed.response;
 
   const { userId, native, target, cursor, limit } = parsed;
+  // Phase 6 切片2 (c): speed line + zero-progress gate. Silent 429, no body the
+  // app surfaces; the windowed client treats it as a fetch failure and falls
+  // back to offline cache. Real learners never reach either threshold.
+  const gate = await requestGate(supabase, userId);
+  if (gate !== 'ok') return jsonResponse({ items: [], nextCursor: null }, 429);
+
   const { data, error } = await supabase.rpc('get_word_batch', {
     p_native: native,
     p_target: target,
