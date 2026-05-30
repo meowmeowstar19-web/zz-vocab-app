@@ -46,6 +46,21 @@ if (IS_WECHAT) {
   try { document.documentElement.classList.add('wechat-bg'); } catch {}
 }
 
+// iOS Safari's window.innerHeight can momentarily under-report after a bfcache
+// restore (e.g. pressing Back from an OAuth provider page) while the URL bar is
+// still animating — the layout then sizes to a too-short viewport, leaving the
+// phone shell shifted up with white space below the nav. visualViewport.height
+// stays accurate in that case; taking the max of the two also stops the
+// on-screen keyboard (which shrinks visualViewport but NOT innerHeight) from
+// collapsing the layout. Both values are bounded by the screen, so the max can
+// never overflow. WeChat stays on pure innerHeight — its separate under-report
+// is masked by the .wechat-bg tint above, so we don't change that behavior.
+function measureViewportH() {
+  if (IS_WECHAT) return window.innerHeight;
+  const vv = window.visualViewport;
+  return vv ? Math.max(window.innerHeight, Math.round(vv.height)) : window.innerHeight;
+}
+
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
 function TabIcon({ type, active }) {
@@ -347,8 +362,8 @@ export default function App() {
     if (targetLang) preloadAudioManifest(targetLang);
   }, [nativeLang, targetLang]);
 
-  const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
-  const [vpH, setVpH] = useState(() => window.innerHeight);
+  const [navH, setNavH] = useState(() => measureViewportH() < 833 ? 52 : 57);
+  const [vpH, setVpH] = useState(() => measureViewportH());
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
   // Shown when the user tried to bind from guest mode onto an account that
@@ -435,18 +450,24 @@ export default function App() {
 
   useEffect(() => {
     const update = () => {
-      setNavH(window.innerHeight < 833 ? 52 : 57);
-      setVpH(window.innerHeight);
+      const h = measureViewportH();
+      setNavH(h < 833 ? 52 : 57);
+      setVpH(h);
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
-    // viewport may have changed while the tab was backgrounded — re-read
-    // window.innerHeight on every pageshow (incl. `persisted=true` restores)
-    // so the saved state doesn't drive the layout off the new viewport.
+    // viewport may have changed while the tab was backgrounded — re-read on
+    // every pageshow (incl. `persisted=true` restores) so the saved state
+    // doesn't drive the layout off the new viewport.
     window.addEventListener('pageshow', update);
+    // visualViewport.resize fires when the URL bar shows/hides — the reliable
+    // signal for the post-bfcache settle that `resize` can miss on iOS.
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener('resize', update);
     return () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('pageshow', update);
+      if (vv) vv.removeEventListener('resize', update);
     };
   }, []);
 
