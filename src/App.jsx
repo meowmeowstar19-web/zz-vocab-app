@@ -489,6 +489,16 @@ export default function App() {
           h = lvh;
           if (window.scrollY !== 0) window.scrollTo(0, 0);
         }
+      } else if (window.visualViewport) {
+        // Browser / in-app browser (NOT standalone): viewport-fit=cover makes
+        // innerHeight include the strip behind a translucent bottom toolbar —
+        // e.g. the Safari in-app browser shown mid-OAuth — so the shell and the
+        // vertically-centered login popup slide down under the chrome. Clamp to
+        // the actually-visible viewport. Guarded by a 20px threshold so a normal
+        // browser (where visualViewport.height === innerHeight) is a no-op and
+        // momentary 1px rounding never causes a resize tick.
+        const vv = window.visualViewport.height;
+        if (vv > 0 && h - vv > 20) h = vv;
       }
       setNavH(h < 833 ? 52 : 57);
       setVpH(h);
@@ -500,9 +510,18 @@ export default function App() {
     // window.innerHeight on every pageshow (incl. `persisted=true` restores)
     // so the saved state doesn't drive the layout off the new viewport.
     window.addEventListener('pageshow', update);
+    // The in-app browser's chrome appearing/leaving changes the visible
+    // viewport without firing a window 'resize'; visualViewport.resize catches
+    // it so the non-standalone clamp above stays in sync.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', update);
+    }
     return () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('pageshow', update);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', update);
+      }
     };
   }, []);
 
