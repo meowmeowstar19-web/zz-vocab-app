@@ -1,8 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { categories, oralCategories, ORAL_CATEGORY_LABELS } from '../data/contentMeta';
+import { categories, oralCategories, ORAL_CATEGORY_LABELS, WORD_CATEGORY_COUNTS, PHRASE_CATEGORY_COUNTS } from '../data/contentMeta';
 import { seedWords, seedPhrases } from '../data/seed';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
-import { getWords, getPhrases } from '../data/wordsRepo';
+import { fetchWordBatch, fetchPhraseBatch, getMeta } from '../data/wordsRepo';
 import { cacheLearnedWords, getAllLearnedWords } from '../data/learnedCache';
 import { readQueueSync, persistQueue } from '../data/prefetchQueue';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
@@ -40,6 +40,11 @@ function mergeById(base, incoming) {
   for (const w of incoming) byId.set(w.id, { ...byId.get(w.id), ...w });
   return Array.from(byId.values());
 }
+
+// Anti-scraping Phase 6 切片2 — windowed-fetch tuning.
+const BATCH = 50;         // page size per Edge request
+const WINDOW_LOW = 12;    // refill once fewer than this many in-scope new words remain queued
+const WINDOW_TARGET = 30; // fetch until at least this many in-scope new words are buffered ahead
 
 function getOptions(correctWord, wordPool, nativeLang) {
   const correctText = getWordText(correctWord, nativeLang);
@@ -128,6 +133,21 @@ const CATEGORY_TAB_LABELS = {
 // Module-level cache for sentence translations (persists for session)
 const _sentenceCache = new Map();
 
+// Synchronous source for the counter denominator: per-pair, per-category COUNTS
+// baked into the bundle at generation time (numbers only, never content — the
+// same numbers get-meta hands any logged-in user). This is what makes the
+// counter show the true total INSTANTLY on open ("0/243", not a climbing
+// "0/31"): get-meta needs a JWT and races auth, so for a fresh / logged-out /
+// offline open it can't be the denominator. The network get-meta is now only a
+// best-effort refresh layered on top.
+function bundledMeta(native, target) {
+  const key = `${native}_${target}`;
+  return {
+    wordCategories: WORD_CATEGORY_COUNTS[key] || {},
+    phraseCategories: PHRASE_CATEGORY_COUNTS[key] || {},
+  };
+}
+
 export default function LearningPage({
   isReview = false, onExitReview,
   nativeLang = 'zh', targetLang = 'en',
@@ -197,67 +217,69 @@ export default function LearningPage({
   // rebuild the SRS session with the freshest pool — but only if the user hasn't
   // started yet (see the rebuild effect below), so nothing ever swaps mid-use.
   const [bufferComplete, setBufferComplete] = useState(false);
+  // Anti-scraping Phase 6 切片2 (d): with windowed fetch, `activeWords` is only
+  // the loaded window, so it can NO LONGER be the counter's denominator (that
+  // showed "5/30" instead of "5/200"). The true per-category totals come from
+  // get_meta (numbers only, never content), and the learned ids we resolve to a
+  // category via the persisted learned cache (so returning users count past
+  // learns the window never held). Both are async; until they arrive the counter
+  // falls back to the in-memory pool — never blocking the screen.
+  const [meta, setMeta] = useState(() => bundledMeta(nativeLang, targetLang)); // { wordCategories:{cat:n}, phraseCategories:{cat:n} }
+  const [learnedMap, setLearnedMap] = useState(null); // id -> word obj, from learnedCache
   const activeWords = isOralMode ? phraseSource : wordSource;
   const activeWordsShuffled = useMemo(() => shuffle(activeWords), [activeWords]);
+  // id → word map of the loaded window, for resolving learned-id categories in the counter.
+  const activeById = useMemo(() => new Map(activeWords.map(w => [w.id, w])), [activeWords]);
   const activeCategories = isOralMode ? oralCategories : categories;
 
-  // Background-refresh the buffers from the Edge API for this language pair.
-  // The buffers are re-seeded from the bundle FIRST (synchronously, below) so
-  // the screen is painted instantly; this effect only swaps the Edge copy in on
-  // top. On any failure (dev without Supabase, offline, not-logged-in) the
-  // already-seeded bundle stays, augmented with locally-cached learned words so
-  // review still works offline. NOTE: it still walks every page — bounded
-  // drip-feed serving is Phase 6's job; Phase 3 only moves the SOURCE.
+  // Anti-scraping Phase 6 切片2 — windowed, interaction-paced fetch.
+  // The buffers are re-seeded from the local source (queue → seed pack) FIRST,
+  // synchronously, so the screen paints at 0ms and NEVER blocks on the network.
+  // We then fetch only the NEXT page(s) — enough unlearned words to start the
+  // session — instead of walking the whole library. As the user learns, the
+  // session tops itself up via ensureBuffer (see refill-when-low + run-out
+  // resume below), so the full pool is never held client-side nor pulled in a
+  // burst. On any failure (dev without Supabase, offline, not-logged-in) the
+  // seed stays, merged with locally-cached learned words so review works offline.
   useEffect(() => {
     let cancelled = false;
-    // ⚡ Re-seed from the local source (queue → seed pack) synchronously so the
-    // NEW pair has valid local data to paint at 0ms (previous Edge data may lack
-    // this pair's fields). bufferReady stays true — never blank for the net.
     setWordSource(localWordSeed());
     setPhraseSource(localPhraseSeed());
     setBufferComplete(false);
+    // Bump the pair token so any fetch still in flight from the previous pair
+    // drops its result instead of leaking wrong-language words into the buffer.
+    pairTokenRef.current += 1;
+    // Fresh cursors so we paginate this pair from the top, keeping the in-memory
+    // buffer and the pager in sync (each session re-walks, skipping learned).
+    wordPagerRef.current = { cursor: null, exhausted: false };
+    phrasePagerRef.current = { cursor: null, exhausted: false };
+    refillingRef.current = { w: false, p: false };
     (async () => {
       try {
-        const [allW, allP] = await Promise.all([
-          getWords({ native: nativeLang, target: targetLang }, (acc) => {
-            // Merge Edge content into the CURRENT local source (queue → seed),
-            // never shrinking below it — preserves the "已学完" fix now that the
-            // full `words` bundle is gone (Phase 4).
-            if (!cancelled && acc.length) setWordSource((prev) => mergeById(prev, acc));
-          }),
-          getPhrases({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setPhraseSource((prev) => mergeById(prev, acc));
-          }),
-        ]);
-        if (cancelled) return;
-        // Refresh the rolling prefetch queue: stash the next UNLEARNED words so
-        // the NEXT open of this pair lands on real new material at 0ms (no
-        // "all learned" flash) without waiting on the Edge pool again.
-        try {
-          const prog = getProgress(storageKey);
-          persistQueue('w', nativeLang, targetLang, allW.filter((w) => !prog[w.id]?.timestamp));
-          persistQueue('p', nativeLang, targetLang, allP.filter((p) => !prog[p.id]?.timestamp));
-        } catch {}
-        setBufferComplete(true); // full pool in → allow a one-time session rebuild
+        const activeKind = (selectedLevel === 'oral') ? 'p' : 'w';
+        const otherKind = activeKind === 'p' ? 'w' : 'p';
+        // Load enough unlearned words for the active mode to start the session,
+        // then prime a single page for the other tab so a mode switch is instant.
+        await ensureBufferRef.current?.(activeKind);
+        if (!cancelled) ensureBufferRef.current?.(otherKind, { single: true });
       } catch {
         if (cancelled) return;
-        // Edge unreachable: keep the bundle seed; if the bundle is ever empty
-        // (Phase 4), fall back to locally-cached learned words for offline review.
-        let cw = [], cp = [];
+        // Edge unreachable: keep the seed; merge locally-cached learned words so
+        // offline review still surfaces what the user already learned.
         try {
           const cached = await getAllLearnedWords();
+          if (cancelled) return;
+          const cw = [], cp = [];
           for (const [id, obj] of cached) (id.startsWith('oral-') ? cp : cw).push(obj);
+          if (cw.length) setWordSource((prev) => mergeById(prev, cw));
+          if (cp.length) setPhraseSource((prev) => mergeById(prev, cp));
         } catch {}
-        if (cancelled) return;
-        setWordSource((prev) => (prev.length ? prev : cw));
-        setPhraseSource((prev) => (prev.length ? prev : cp));
-        setBufferComplete(true);
       } finally {
         if (!cancelled) setBufferReady(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [nativeLang, targetLang]);
+  }, [nativeLang, targetLang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [showCategories, _setShowCategories] = useState(false);
   const setShowCategories = useCallback((val) => {
@@ -339,6 +361,19 @@ export default function LearningPage({
   const preserveCardRef = useRef(null); // card to pin to queue[0] on the post-streaming rebuild (so the visible word/image never swaps)
   liveSrsCardRef.current = srsCard;
 
+  // ── Anti-scraping Phase 6 切片2: windowed fetch state ──
+  // The client no longer pulls the whole library on open. Each pager walks the
+  // Edge keyset cursor for one kind ('w' words / 'p' phrases) of the CURRENT
+  // language pair, fetching the next page only when the in-scope unlearned
+  // buffer runs low (refill-when-low) and stopping once the cursor is exhausted.
+  // Refs (not state) because they drive imperative fetch loops, not rendering.
+  const wordPagerRef = useRef({ cursor: null, exhausted: false });
+  const phrasePagerRef = useRef({ cursor: null, exhausted: false });
+  const refillingRef = useRef({ w: false, p: false }); // kind -> in-flight Promise | false
+  const ensureBufferRef = useRef(null); // latest closure, called from effects/callbacks
+  const pairTokenRef = useRef(0);       // bumped on every pair switch; guards stale fetches
+  const resumingRef = useRef(false);    // true while the run-out resume effect is handling
+
   // ── Review Queue State ──
   const reviewQueueRef = useRef([]);       // [{word}] current cycle's queue
   const reviewPointerRef = useRef(0);      // current position in queue
@@ -374,6 +409,129 @@ export default function LearningPage({
   const allWordsFiltered = useMemo(() => {
     return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
   }, [activeWords, nativeLang, targetLang, isOralMode]);
+
+  // ── Windowed-fetch helpers (anti-scraping Phase 6 切片2) ──
+  // Function declarations (hoisted) so the ensureBuffer closure below can call
+  // them; they read the latest props/refs at call time.
+  function inCurrentScope(w) {
+    if (selectedCategory !== 'all' && w.category !== selectedCategory) return false;
+    if (selectedLevel !== 'all' && selectedLevel !== 'oral' && w.level !== selectedLevel) return false;
+    return true;
+  }
+  // How many NEW-word cards remain ahead of the cursor in the live base queue.
+  function remainingNewCards() {
+    const q = baseQueueRef.current;
+    let n = 0;
+    for (let i = baseIdxRef.current; i < q.length; i++) if (q[i].type === 'new') n++;
+    return n;
+  }
+  // Append freshly-fetched, in-scope, unlearned words to the END of the live
+  // base queue so an in-progress session flows continuously (no extra
+  // category-done popup in 'all' mode) as the window refills. Deduped against
+  // what's already queued/learned.
+  function appendNewToBaseQueue(words, prog) {
+    if (!words.length) return;
+    const q = baseQueueRef.current;
+    const present = new Set(q.map((c) => c.word.id));
+    const cards = shuffle(words)
+      .filter((w) => !present.has(w.id) && !prog[w.id]?.timestamp)
+      .map((w) => ({ word: w, format: 'A', type: 'new', step: 0 }));
+    if (cards.length) baseQueueRef.current = q.concat(cards);
+  }
+
+  // Pull the next window for one kind ('w' words / 'p' phrases) of the current
+  // pair. Normal mode loops until WINDOW_TARGET in-scope unlearned words are
+  // buffered (or the cursor is exhausted), appending them to the live session;
+  // `single` fetches exactly one page (used to prime the inactive tab).
+  //
+  // Returns a promise that resolves when fetching settles. Concurrent calls for
+  // the same kind share one in-flight promise (so the run-out resume below can
+  // `await` an already-running refill instead of falsely concluding "done").
+  // A pair token guards every state write: if the language pair switched while a
+  // fetch was in flight, the stale result is dropped (no cross-pair leak). On
+  // fetch error the promise rejects so the open path can fall back to offline
+  // cache; refill-when-low / run-out callers swallow rejections.
+  ensureBufferRef.current = (kind, { single = false } = {}) => {
+    const pager = kind === 'p' ? phrasePagerRef.current : wordPagerRef.current;
+    if (pager.exhausted) return Promise.resolve();
+    if (refillingRef.current[kind]) return refillingRef.current[kind];
+    const myToken = pairTokenRef.current;
+    const fetchBatch = kind === 'p' ? fetchPhraseBatch : fetchWordBatch;
+    const setSrc = kind === 'p' ? setPhraseSource : setWordSource;
+    const run = (async () => {
+      let addedNew = 0, guard = 0;
+      do {
+        guard++;
+        const { items, nextCursor } = await fetchBatch({
+          native: nativeLang, target: targetLang, cursor: pager.cursor, limit: BATCH,
+        });
+        if (pairTokenRef.current !== myToken) return; // pair switched mid-flight → drop
+        pager.cursor = nextCursor;
+        if (!nextCursor) pager.exhausted = true;
+        if (items.length) {
+          setSrc((prev) => mergeById(prev, items));
+          if (!single && !effectiveIsReview) {
+            const prog = getProgress(storageKey);
+            const fresh = items.filter(
+              (w) => isWordAvailable(w, nativeLang, targetLang) && inCurrentScope(w) && !prog[w.id]?.timestamp,
+            );
+            addedNew += fresh.length;
+            appendNewToBaseQueue(fresh, prog);
+          }
+        }
+        if (single) break;
+      } while (!pager.exhausted && addedNew < WINDOW_TARGET && guard < 40);
+    })().finally(() => {
+      refillingRef.current[kind] = false;
+      if (pairTokenRef.current === myToken && pager.exhausted) setBufferComplete(true);
+    });
+    refillingRef.current[kind] = run;
+    return run;
+  };
+
+  // Keep the rolling prefetch queue fresh: as the window grows (and words get
+  // learned), stash the next UNLEARNED words locally so the NEXT open of this
+  // pair lands on real new material at 0ms — no "all learned" flash, no waiting
+  // on the Edge pool. Bounded window (persistQueue caps it), so this never
+  // reopens the bulk-scrape hole.
+  useEffect(() => {
+    if (!bufferReady) return;
+    try {
+      const prog = getProgress(storageKey);
+      const wq = wordSource.filter((w) => !prog[w.id]?.timestamp);
+      const pq = phraseSource.filter((w) => !prog[w.id]?.timestamp);
+      if (wq.length) persistQueue('w', nativeLang, targetLang, wq);
+      if (pq.length) persistQueue('p', nativeLang, targetLang, pq);
+    } catch {}
+  }, [wordSource, phraseSource, bufferReady, storageKey, nativeLang, targetLang]);
+
+  // Counter denominator source (切片2 d): per-category totals, numbers only.
+  // Start from the bundled counts (synchronous, always correct, survives
+  // clear-data / offline / logged-out) so the counter is right at 0ms, then
+  // best-effort refresh from get-meta in case the live DB diverged from the
+  // last build. A failed refresh just leaves the bundled value in place.
+  useEffect(() => {
+    let cancelled = false;
+    setMeta(bundledMeta(nativeLang, targetLang));
+    getMeta({ native: nativeLang, target: targetLang })
+      .then((m) => {
+        if (cancelled) return;
+        if (m && (m.wordCategories || m.phraseCategories)) setMeta(m);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [nativeLang, targetLang]);
+
+  // Counter numerator source (切片2 d): resolve learned ids → category/level, even
+  // for past learns the current window never loaded. Refreshed whenever progress
+  // changes so newly-learned words (added to the cache on learn/skip) are counted.
+  useEffect(() => {
+    let cancelled = false;
+    getAllLearnedWords()
+      .then((entries) => { if (!cancelled) setLearnedMap(new Map(entries)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [nativeLang, targetLang, progress]);
 
   // ── Review Queue Initialization & helpers ──
   const showNextReviewCard = useCallback((queue, pointer, wordStates) => {
@@ -776,19 +934,40 @@ export default function LearningPage({
     }
   }, [bufferComplete, effectiveIsReview, resetSrsSession]);
 
-  // ── Category-done detection (SRS learning path) ──
-  // Fires when the SRS session runs out of cards but more words exist globally.
-  // Shows a popup with 2 actions ("重新复习" vs "学习新的") — no auto-switch.
+  // ── SRS run-out: top up, then decide done (anti-scraping Phase 6 切片2) ──
+  // When the session runs dry we must NOT declare "done" while the library still
+  // has pages to fetch (that's the windowed-fetch trap). So: if the active kind's
+  // cursor isn't exhausted, pull the next window and resume; only once the cursor
+  // is truly exhausted AND no cards remain do we show the category-done / all-done
+  // screen. A guard ref keeps this single-flight despite the buffer growing
+  // (which re-runs this effect) mid-fetch.
   useEffect(() => {
     if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current || !bufferReady) return;
-
-    const prog = getProgress(storageKey);
-    const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
-    if (unlearned.length === 0) return; // truly all done — show the all-done screen
-
-    completedCatNameRef.current = catLabels[selectedCategory] || '';
-    setCategoryDoneVisible(true);
-  }, [srsCard, effectiveIsReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel, bufferReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (resumingRef.current) return;
+    resumingRef.current = true;
+    let cancelled = false;
+    const kind = isOralMode ? 'p' : 'w';
+    const pager = isOralMode ? phrasePagerRef.current : wordPagerRef.current;
+    (async () => {
+      try {
+        if (!pager.exhausted) {
+          try { await ensureBufferRef.current?.(kind); } catch {}
+          if (cancelled) return;
+          // New in-scope words appended → resume the session (no popup, no flash).
+          if (baseIdxRef.current < baseQueueRef.current.length) { showNextCard(); return; }
+        }
+        // Library exhausted (or nothing new in scope) and queue drained → genuine done.
+        const prog = getProgress(storageKey);
+        const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
+        if (unlearned.length === 0) return; // truly all done — show the all-done screen
+        completedCatNameRef.current = catLabels[selectedCategory] || '';
+        setCategoryDoneVisible(true);
+      } finally {
+        resumingRef.current = false;
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [srsCard, effectiveIsReview, isVisible, isOralMode, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel, bufferReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Unified currentWord ──
   const currentWord = effectiveIsReview ? (reviewCard?.word || null) : (srsCard?.word || null);
@@ -1154,7 +1333,16 @@ export default function LearningPage({
     totalShownRef.current++;
     setProgress(getProgress(storageKey));
     showNextCard();
-  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
+
+    // Refill-when-low (anti-scraping Phase 6 切片2): keep unlearned new words
+    // buffered ahead so the session never starves mid-stream — the next page is
+    // fetched only as the user learns, paced far below any machine-flood line.
+    const kind = isOralMode ? 'p' : 'w';
+    const pager = isOralMode ? phrasePagerRef.current : wordPagerRef.current;
+    if (!pager.exhausted && remainingNewCards() < WINDOW_LOW) {
+      ensureBufferRef.current?.(kind)?.catch(() => {});
+    }
+  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard, isOralMode]);
 
   // ── Click handlers ──
   const handleOptionClick = useCallback((option) => {
@@ -1300,9 +1488,14 @@ export default function LearningPage({
       setTimeout(() => {
         setProgress(getProgress(storageKey));
         showNextCard();
+        const kind = isOralMode ? 'p' : 'w';
+        const pager = isOralMode ? phrasePagerRef.current : wordPagerRef.current;
+        if (!pager.exhausted && remainingNewCards() < WINDOW_LOW) {
+          ensureBufferRef.current?.(kind)?.catch(() => {});
+        }
       }, 400);
     }
-  }, [currentWord, effectiveIsReview, storageKey, nativeLang, targetLang, posthog, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
+  }, [currentWord, effectiveIsReview, storageKey, nativeLang, targetLang, posthog, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard, isOralMode]);
 
   // Counter text
   const counterText = useMemo(() => {
@@ -1319,14 +1512,44 @@ export default function LearningPage({
       for (let i = 0; i < pointer; i++) pastIds.add(queue[i].id);
       return `${pastIds.size}/${totalIds.size}`;
     }
-    // SRS mode: learned/total in current category+level filter
-    let pool = selectedCategory === 'all' ? [...activeWords] : activeWords.filter(w => w.category === selectedCategory);
+    // SRS mode: learned/total in the current category.
+    // 切片2 (d): the window is no longer the whole library, so the DENOMINATOR
+    // must come from get_meta (true per-category totals), NOT activeWords.length.
+    // get_meta has per-CATEGORY counts only — no per-level breakdown — and the
+    // level tab isn't exposed in the UI (level is effectively always 'beginner' =
+    // every word), so the counter is category-scoped and ignores selectedLevel.
+    const metaCats = meta ? (isOralMode ? meta.phraseCategories : meta.wordCategories) : null;
+
+    if (metaCats) {
+      const total0 = selectedCategory === 'all'
+        ? Object.values(metaCats).reduce((a, b) => a + b, 0)
+        : (metaCats[selectedCategory] || 0);
+      // NUMERATOR: count learned ids in scope. Resolve each learned id's category
+      // via the persisted learned cache merged with the live window, so a
+      // returning user's past learns count even though the window never held them.
+      const isOralId = (id) => id.startsWith('oral-');
+      const resolve = (id) => (learnedMap && learnedMap.get(id)) || activeById.get(id) || null;
+      let learned = 0;
+      for (const id in progress) {
+        if (!progress[id]?.timestamp) continue;
+        if (isOralMode !== isOralId(id)) continue; // count only the active kind
+        const w = resolve(id);
+        if (!w || !isWordAvailable(w, nativeLang, targetLang)) continue;
+        if (selectedCategory !== 'all' && w.category !== selectedCategory) continue;
+        learned++;
+      }
+      // Clamp: a stale meta total could momentarily read below the learned count.
+      return `${learned}/${Math.max(total0, learned)}`;
+    }
+
+    // meta not loaded yet → fall back to the in-memory window (may be partial
+    // until meta arrives, but never blocks the screen).
+    let pool = selectedCategory === 'all' ? activeWords : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
     if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
-    const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
-    return `${learned}/${total}`;
-  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress, activeWords]);
+    return `${learned}/${pool.length}`;
+  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress, activeWords, activeById, isOralMode, meta, learnedMap]);
 
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
@@ -2064,7 +2287,14 @@ export default function LearningPage({
           { key: 'advanced', label: 'Level 3', num: '3' },
         ];
         const levelItems = allLevelDefs.filter(lv => vocabPool.some(w => w.level === lv.key));
-        const detailCats = categories.filter(c => c !== 'all' && vocabPool.some(w => w.category === c));
+        // 切片2 d: which category cells to show. Source from get-meta (the true
+        // library) so a category whose words haven't entered the window yet still
+        // gets a cell; fall back to the in-memory window until meta arrives.
+        const detailCats = categories.filter(c => {
+          if (c === 'all') return false;
+          if (meta?.wordCategories) return (meta.wordCategories[c] || 0) > 0;
+          return vocabPool.some(w => w.category === c);
+        });
         const dynamicCatImages = {};
         detailCats.forEach(cat => {
           const firstWord = vocabPool.find(w => w.category === cat);
@@ -2072,10 +2302,32 @@ export default function LearningPage({
         });
         const oralCats = oralCategories.filter(c => c !== 'all');
 
-        // Progress helper: count learned / total for a word pool
-        const getCatProgress = (wordPool) => {
-          const learned = wordPool.filter(w => progress[w.id]?.timestamp).length;
-          return { learned, total: wordPool.length };
+        // Progress helper (切片2 d): total comes from get-meta category counts
+        // (the true library size, decoupled from how many words the window holds),
+        // learned is resolved from the persisted learnedCache + live window so a
+        // returning user's past learns count even though the window never held them.
+        // Falls back to the in-memory window only until meta arrives.
+        const getCatProgress = (catKey, kind, fallbackPool, useMeta = true) => {
+          const metaCats = !meta ? null : (kind === 'oral' ? meta.phraseCategories : meta.wordCategories);
+          if (useMeta && metaCats) {
+            const total = catKey === 'all'
+              ? Object.values(metaCats).reduce((a, b) => a + b, 0)
+              : (metaCats[catKey] || 0);
+            const isOralId = (id) => id.startsWith('oral-');
+            const wantOral = kind === 'oral';
+            let learned = 0;
+            for (const id in progress) {
+              if (!progress[id]?.timestamp) continue;
+              if (wantOral !== isOralId(id)) continue;
+              const w = (learnedMap && learnedMap.get(id)) || activeById.get(id) || null;
+              if (!w || !isWordAvailable(w, nativeLang, targetLang)) continue;
+              if (catKey !== 'all' && w.category !== catKey) continue;
+              learned++;
+            }
+            return { learned, total: Math.max(total, learned) };
+          }
+          const learned = fallbackPool.filter(w => progress[w.id]?.timestamp).length;
+          return { learned, total: fallbackPool.length };
         };
 
         // Per-row decoration picker (matches Figma 343:232 spec):
@@ -2228,7 +2480,7 @@ export default function LearningPage({
                       {levelItems.map((lv, idx) => {
                         const isSelected = pendingLevel === lv.key && categoryTab === 'level';
                         const pool = vocabPool.filter(w => w.level === lv.key);
-                        const prog = getCatProgress(pool);
+                        const prog = getCatProgress(lv.key, 'word', pool, false);
                         const rowIdx = Math.floor(idx / 3);
                         const colIdx = idx % 3;
                         const row = getRowDecor(`level-${rowIdx}`);
@@ -2265,7 +2517,7 @@ export default function LearningPage({
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
                         {detailItems.map((item, idx) => {
                           const isSelected = pendingCategory === item.key && categoryTab === 'detail';
-                          const prog = getCatProgress(item.pool);
+                          const prog = getCatProgress(item.key, 'word', item.pool);
                           const rowIdx = Math.floor(idx / 3);
                           const colIdx = idx % 3;
                           const row = getRowDecor(`detail-${rowIdx}`);
@@ -2305,7 +2557,7 @@ export default function LearningPage({
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
                         {oralItems.map((item, idx) => {
                           const isSelected = pendingCategory === item.key && categoryTab === 'oral';
-                          const prog = getCatProgress(item.pool);
+                          const prog = getCatProgress(item.key, 'oral', item.pool);
                           const rowIdx = Math.floor(idx / 3);
                           const colIdx = idx % 3;
                           const row = getRowDecor(`oral-${rowIdx}`);
