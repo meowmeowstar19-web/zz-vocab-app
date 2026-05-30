@@ -1,8 +1,10 @@
 // TEMPORARY diagnostic overlay for the OAuth viewport-shift bug. NOT for
 // production — delete this file and its <DebugViewportHUD/> mount before merge.
 //
-// Enable on the phone by visiting `<url>/#vpdebug` once (the flag is then stored
-// in localStorage and survives the OAuth redirect, which drops the hash).
+// Enable on the phone two ways:
+//   1. Visit `<url>/#vpdebug` once (flag stored in localStorage).
+//   2. In the installed PWA (no address bar): tap the TOP-RIGHT corner 5 times
+//      within 2.5s. The corner trigger is always mounted, even when off.
 // Disable with the "off" button or by clearing localStorage `vpdebug`.
 //
 // It logs scroll + visualViewport + shell-offset values on every event that
@@ -25,6 +27,12 @@ function enabled() {
   } catch { return false; }
 }
 
+function isStandalone() {
+  try {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  } catch { return false; }
+}
+
 function snapshot(ev) {
   const vv = window.visualViewport;
   const se = document.scrollingElement || document.documentElement;
@@ -32,6 +40,7 @@ function snapshot(ev) {
   return {
     t: new Date().toTimeString().slice(0, 8),
     ev,
+    sa: isStandalone() ? 1 : 0,
     sy: Math.round(window.scrollY || 0),
     st: Math.round(se?.scrollTop || 0),
     bt: Math.round(document.body?.scrollTop || 0),
@@ -101,11 +110,36 @@ export default function DebugViewportHUD() {
     };
   }, [on]);
 
-  if (!on) return null;
+  // Secret enable for the installed PWA (no address bar to type #vpdebug):
+  // 5 taps in the top-right corner within 2.5s.
+  const tapRef = useRef([]);
+  const onCornerTap = () => {
+    const now = Date.now();
+    tapRef.current = [...tapRef.current, now].filter((t) => now - t < 2500);
+    if (tapRef.current.length >= 5) {
+      tapRef.current = [];
+      try { localStorage.setItem(FLAG_KEY, '1'); } catch {}
+      setOn(true);
+    }
+  };
 
-  const row = (s) => `${s.t} ${s.ev}  sy${s.sy} st${s.st} bt${s.bt} vot${s.vot} vh${s.vh} ih${s.ih} shy${s.shy}`;
+  const corner = (
+    <div
+      onClick={onCornerTap}
+      style={{
+        position: 'fixed', top: 0, right: 0, width: 40, height: 40,
+        zIndex: 2147483647, background: 'transparent',
+      }}
+    />
+  );
+
+  if (!on) return corner;
+
+  const row = (s) => `${s.t} ${s.ev} sa${s.sa} sy${s.sy} st${s.st} bt${s.bt} vot${s.vot} vh${s.vh} ih${s.ih} shy${s.shy}`;
 
   return (
+    <>
+    {corner}
     <div
       style={{
         position: 'fixed', top: 0, left: 0, zIndex: 2147483647,
@@ -131,5 +165,6 @@ export default function DebugViewportHUD() {
         <div key={i} style={{ color: s.ev.startsWith('pageshow') ? '#ff0' : '#0f0' }}>{row(s)}</div>
       ))}
     </div>
+    </>
   );
 }
