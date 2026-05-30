@@ -5,7 +5,6 @@ import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
 import WelcomePage from './components/WelcomePage';
 import LoginPromptModal from './components/LoginPromptModal';
-import DebugViewportHUD from './components/DebugViewportHUD';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, migrateClearStaleGateWords, migrateScopesToAnon, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
 import { primeAudio, playSlaySound, preloadAudioManifest } from './hooks/useAudio';
@@ -1246,8 +1245,7 @@ export default function App() {
   }
 
   return (
-    <div data-shell className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
-      <DebugViewportHUD />
+    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
       <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
