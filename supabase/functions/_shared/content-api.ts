@@ -61,7 +61,7 @@ export async function parseBatchRequest(
   supabase: SupabaseClient,
 ): Promise<
   | { kind: 'response'; response: Response }
-  | { kind: 'ok'; native: string; target: string; cursor: string | null; limit: number }
+  | { kind: 'ok'; userId: string; native: string; target: string; cursor: string | null; limit: number }
 > {
   if (req.method !== 'POST') {
     return { kind: 'response', response: jsonResponse({ error: 'method_not_allowed' }, 405) };
@@ -82,5 +82,27 @@ export async function parseBatchRequest(
   }
   const cursor = typeof body?.cursor === 'string' && body.cursor ? body.cursor : null;
   const limit = clampLimit(body?.limit);
-  return { kind: 'ok', native, target, cursor, limit };
+  return { kind: 'ok', userId, native, target, cursor, limit };
+}
+
+// Anti-scraping Phase 6 (切片1): record how many content items this account
+// pulled, fire-and-forget. The daily_activity counter is OBSERVE-ONLY — read by
+// a daily pg_cron job, never in the request path — so this must NEVER block or
+// fail the response. Errors are swallowed; the work runs after the response via
+// EdgeRuntime.waitUntil when available, else best-effort un-awaited.
+export function recordActivity(supabase: SupabaseClient, userId: string, count: number): void {
+  if (!userId || count <= 0) return;
+  const task = (async () => {
+    try {
+      await supabase.rpc('bump_daily_activity', { p_user_id: userId, p_count: count });
+    } catch (_e) {
+      // swallow — metering must never affect content delivery
+    }
+  })();
+  try {
+    // @ts-ignore — EdgeRuntime is provided by the Supabase Edge runtime
+    EdgeRuntime.waitUntil(task);
+  } catch (_e) {
+    // not available (e.g. local) — let it run un-awaited
+  }
 }

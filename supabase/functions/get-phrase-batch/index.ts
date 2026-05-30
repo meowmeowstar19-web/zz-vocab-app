@@ -5,7 +5,7 @@
 // POST body: { native, target, cursor?, limit? }
 // Response:  { items: [...], nextCursor: string | null }
 
-import { corsHeaders, jsonResponse, serviceClient, parseBatchRequest } from '../_shared/content-api.ts';
+import { corsHeaders, jsonResponse, serviceClient, parseBatchRequest, recordActivity } from '../_shared/content-api.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   const parsed = await parseBatchRequest(req, supabase);
   if (parsed.kind === 'response') return parsed.response;
 
-  const { native, target, cursor, limit } = parsed;
+  const { userId, native, target, cursor, limit } = parsed;
   const { data, error } = await supabase.rpc('get_phrase_batch', {
     p_native: native,
     p_target: target,
@@ -27,6 +27,8 @@ Deno.serve(async (req) => {
   }
 
   const items = Array.isArray(data) ? data : [];
+  // Phase 6 切片1: meter how much this account pulled (fire-and-forget).
+  recordActivity(supabase, userId, items.length);
   const nextCursor = items.length === limit ? items[items.length - 1].slug : null;
   return jsonResponse({ items, nextCursor });
 });
