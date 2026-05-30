@@ -8,13 +8,18 @@
 --      starts/refills with 30 tokens. Only SUSTAINED firing above 5/sec (a loop
 --      hammering the Edge endpoint) drains the bucket and gets a silent 429.
 --
---   2) zero-progress gate (the drip-feed "interaction" lock, real-time form) —
---      blocks ONLY an account that has pulled a LOT today (>= 500 content items)
---      AND has written ZERO learning progress all-time. The client cannot reach
---      500 fetched with zero progress (refill is interaction-gated client-side),
---      so this only fires on a bot looping the API directly. ANY progress (one
---      answer, one skip → mastered) makes the account immune. Same signal slice
---      1's daily scan uses ("零进度=爬虫 / 真人有进度→免疫"), just enforced live.
+--   2) no-interaction gate (the drip-feed "interaction" lock, real-time form) —
+--      this is about whether the account is INTERACTING WHILE LEARNING RIGHT NOW,
+--      NOT its all-time total. Each word a real user sees gets an answer or a
+--      skip (both write progress → mastered); a scraper just pulls words with
+--      ZERO interaction. So we capture each account's progress count when its
+--      day STARTS (first fetch of the UTC day → progress_at_start) and block only
+--      when it has pulled a LOT today (>= 500 items) yet TODAY'S progress has not
+--      moved at all (current progress - progress_at_start == 0). An account that
+--      learned plenty in the past but is now pure-pulling is still caught; a user
+--      who answered/skipped even once today is immune. The windowed client can't
+--      reach 500 fetched with zero today-interaction (refill is interaction-gated
+--      client-side), so this only fires on a bot looping the API directly.
 --
 -- ⚠️ DEPLOY ORDER: the windowed-fetch client (commit 8a4696e) MUST be live and
 -- rolled out BEFORE these checks are wired into the Edge Functions, or the line
@@ -85,6 +90,50 @@ $$;
 revoke all on function public.check_rate_limit(uuid, numeric, numeric) from public, anon, authenticated;
 grant execute on function public.check_rate_limit(uuid, numeric, numeric) to service_role;
 
+-- ── daily_activity.progress_at_start: today's interaction baseline ───────────
+-- The no-interaction gate measures TODAY'S progress delta, so it needs the
+-- progress count as it stood when the account's day began. Captured on the first
+-- fetch of the day (the INSERT branch of bump_daily_activity). Nullable: rows
+-- created by 切片1 before this migration have no baseline → the gate treats them
+-- as unmeasurable and never blocks them.
+alter table public.daily_activity add column if not exists progress_at_start int;
+
+-- Replace bump_daily_activity (originally from 20260530000000) so the first
+-- fetch of the day records progress_at_start. derive_progress_count runs ONLY on
+-- the day's first fetch (guarded by the not-exists check), never on every bump.
+create or replace function public.bump_daily_activity(p_user_id uuid, p_count int)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now  timestamptz := now();
+  v_day  date := (v_now at time zone 'UTC')::date;
+  v_base int;
+begin
+  if p_user_id is null or coalesce(p_count, 0) <= 0 then
+    return;
+  end if;
+  -- Baseline only matters when we're about to INSERT the day's first row.
+  if not exists (
+    select 1 from public.daily_activity where user_id = p_user_id and day = v_day
+  ) then
+    v_base := public.derive_progress_count(p_user_id);
+  end if;
+  insert into public.daily_activity as da
+    (user_id, day, words_fetched, first_ts, last_ts, max_gap_sec, progress_at_start)
+  values (p_user_id, v_day, p_count, v_now, v_now, 0, v_base)
+  on conflict (user_id, day) do update
+    set words_fetched = da.words_fetched + excluded.words_fetched,
+        max_gap_sec   = greatest(da.max_gap_sec, extract(epoch from (v_now - da.last_ts))::int),
+        last_ts       = v_now;
+end;
+$$;
+
+revoke all on function public.bump_daily_activity(uuid, int) from public, anon, authenticated;
+grant execute on function public.bump_daily_activity(uuid, int) to service_role;
+
 -- ── antiscrape_request_gate: the combined per-request decision ────────────────
 -- Returns 'ok' | 'rate' | 'noprogress'. The Edge Functions call this before
 -- serving a content batch and map anything other than 'ok' to a silent 429.
@@ -100,6 +149,7 @@ set search_path = public
 as $$
 declare
   v_fetched  int;
+  v_base     int;
   v_progress int;
 begin
   if p_user_id is null then
@@ -111,15 +161,21 @@ begin
     return 'rate';
   end if;
 
-  -- 2) zero-progress gate — only consider blocking once a lot was pulled today.
-  select words_fetched into v_fetched
+  -- 2) no-interaction gate — only consider blocking once a lot was pulled today,
+  --    and only block if TODAY'S progress hasn't moved at all (pure pulling, no
+  --    answer/skip). progress_at_start = progress when the day's first fetch hit.
+  select words_fetched, progress_at_start into v_fetched, v_base
     from public.daily_activity
     where user_id = p_user_id
       and day = (now() at time zone 'UTC')::date;
 
   if coalesce(v_fetched, 0) >= 500 then
+    -- Legacy row with no captured baseline → can't measure today's delta → allow.
+    if v_base is null then
+      return 'ok';
+    end if;
     v_progress := public.derive_progress_count(p_user_id);
-    if v_progress = 0 then
+    if v_progress - v_base <= 0 then
       return 'noprogress';
     end if;
   end if;

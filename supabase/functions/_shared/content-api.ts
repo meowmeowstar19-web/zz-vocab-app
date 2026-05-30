@@ -92,8 +92,9 @@ export async function parseBatchRequest(
 //
 //   • 'rate'       — token-bucket speed line (5/sec, burst 30) drained: a loop
 //                    hammering the endpoint. A normal open-burst fits the burst.
-//   • 'noprogress' — pulled >= 500 today with ZERO all-time progress: a bot
-//                    looping the API directly. Any learner has progress > 0.
+//   • 'noprogress' — pulled >= 500 today yet TODAY'S progress hasn't moved at
+//                    all (pure pulling, no answer/skip) — a bot looping the API.
+//                    A user who interacted even once today is immune.
 //
 // ⚠️ Wiring this in only became safe once the windowed-fetch client (8a4696e)
 // shipped; before that the client bulk-pulled and would trip its own gate.
