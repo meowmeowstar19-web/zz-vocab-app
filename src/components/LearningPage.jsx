@@ -322,6 +322,7 @@ export default function LearningPage({
 
   // ── SRS Session State ──
   const [srsCard, setSrsCard] = useState(null); // current card from SRS queue
+  const liveSrsCardRef = useRef(null); // mirrors srsCard so effects can read it without depending on it
   const [sessionKey, setSessionKey] = useState(0); // increment to force session rebuild
   const [categoryDoneVisible, setCategoryDoneVisible] = useState(false);
   // Shown after one complete pass of a categoryReviewMode cycle (a small category
@@ -335,6 +336,8 @@ export default function LearningPage({
   const totalShownRef = useRef(0); // total cards shown in this session
   const sessionInitKey = useRef(''); // to detect when session should rebuild
   const sessionLoadingRef = useRef(false); // true while session is being (re)built — blocks category-done false-positive
+  const preserveCardRef = useRef(null); // card to pin to queue[0] on the post-streaming rebuild (so the visible word/image never swaps)
+  liveSrsCardRef.current = srsCard;
 
   // ── Review Queue State ──
   const reviewQueueRef = useRef([]);       // [{word}] current cycle's queue
@@ -726,6 +729,19 @@ export default function LearningPage({
       ),
     });
 
+    // Post-streaming rebuild: keep the word the user is currently looking at
+    // pinned to the front so the full pool merges in WITHOUT swapping the
+    // visible card/image out from under them.
+    if (preserveCardRef.current) {
+      const keep = preserveCardRef.current;
+      preserveCardRef.current = null;
+      const idx = queue.findIndex(c => c.word.id === keep.word.id);
+      if (idx >= 0) {
+        queue.splice(idx, 1);
+        queue.unshift(keep);
+      }
+    }
+
     baseQueueRef.current = queue;
     baseIdxRef.current = 0;
     pendingRef.current = [];
@@ -754,7 +770,10 @@ export default function LearningPage({
   // naturally via the category-done "学习新的" path instead.
   useEffect(() => {
     if (!bufferComplete || effectiveIsReview) return;
-    if (totalShownRef.current === 0) resetSrsSession();
+    if (totalShownRef.current === 0) {
+      preserveCardRef.current = liveSrsCardRef.current; // keep the visible card after the rebuild
+      resetSrsSession();
+    }
   }, [bufferComplete, effectiveIsReview, resetSrsSession]);
 
   // ── Category-done detection (SRS learning path) ──
