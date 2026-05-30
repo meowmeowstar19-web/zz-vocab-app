@@ -220,10 +220,13 @@ export default function LearningPage({
       try {
         const [allW, allP] = await Promise.all([
           getWords({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setWordSource(mergeById(words, acc));
+            // Merge Edge content into the CURRENT local source (queue → seed),
+            // never shrinking below it — preserves the "已学完" fix now that the
+            // full `words` bundle is gone (Phase 4).
+            if (!cancelled && acc.length) setWordSource((prev) => mergeById(prev, acc));
           }),
           getPhrases({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setPhraseSource(mergeById(oralPhrases, acc));
+            if (!cancelled && acc.length) setPhraseSource((prev) => mergeById(prev, acc));
           }),
         ]);
         if (cancelled) return;
