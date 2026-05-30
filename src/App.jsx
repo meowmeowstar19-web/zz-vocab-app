@@ -434,9 +434,45 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // iOS standalone PWA ONLY: after an OAuth in-app-browser round-trip the
+    // webview viewport spuriously collapses (innerHeight 793 → 657) and the
+    // document scrolls ~54px under the black-translucent status bar, shoving
+    // the whole shell up. dvh/svh/visualViewport all collapse with it; only
+    // the large-viewport unit (100lvh) stays stable. So in standalone we
+    // floor the height with lvh and undo the stray scroll — but ONLY for that
+    // narrow spurious-collapse band, so a real shrink (soft keyboard) is left
+    // alone. Browser and WeChat paths are byte-for-byte unchanged.
+    const isStandalone = (() => {
+      try {
+        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+        if (window.navigator.standalone === true) return true; // iOS Safari
+      } catch {}
+      return false;
+    })();
+    const readLvh = () => {
+      try {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
+        document.body.appendChild(probe);
+        const h = probe.getBoundingClientRect().height;
+        document.body.removeChild(probe);
+        return h;
+      } catch { return 0; }
+    };
     const update = () => {
-      setNavH(window.innerHeight < 833 ? 52 : 57);
-      setVpH(window.innerHeight);
+      let h = window.innerHeight;
+      if (isStandalone) {
+        const lvh = readLvh();
+        // Correct only the spurious OAuth-return collapse: innerHeight dips a
+        // little below lvh (657 vs 768). A big shrink (≥30%, e.g. keyboard) is
+        // a genuine layout change — leave it. lvh===0 (unsupported) → no-op.
+        if (lvh > 0 && h < lvh && h >= lvh * 0.7) {
+          h = lvh;
+          if (window.scrollY !== 0) window.scrollTo(0, 0);
+        }
+      }
+      setNavH(h < 833 ? 52 : 57);
+      setVpH(h);
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
