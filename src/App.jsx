@@ -491,13 +491,13 @@ export default function App() {
   // permanently-collapsed viewport (793 → 768), shoving the shell up ~25px with
   // no web API to reclaim it. A fresh load recomputes the full 793, so on that
   // exact return — bfcache restore (`persisted`) while an OAuth round-trip is
-  // still pending — force a one-time reload. The pending flag is cleared by the
-  // fresh mount's no-session branch, so no loop (a reload is never a bfcache
-  // restore). Flag-gated for on-device verification before going live.
+  // still pending — force a one-time reload, stamping a flag so LearningPage
+  // re-pins the same word across the reload (the card must not change). A
+  // successful login returns via a fresh navigation (tokens in the URL), NOT a
+  // bfcache restore, so `persisted` is false there and this never fires on the
+  // success path. The pending flag is cleared by the fresh mount's no-session
+  // branch, so no loop (a reload is never a bfcache restore).
   useEffect(() => {
-    let enabled = false;
-    try { enabled = localStorage.getItem('__oauthreload') === '1'; } catch {}
-    if (!enabled) return;
     const isStandalone = (() => {
       try {
         if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
@@ -513,7 +513,9 @@ export default function App() {
         pending = localStorage.getItem('gate_oauth_pending') === '1'
           || localStorage.getItem('bind_oauth_pending') === '1';
       } catch {}
-      if (pending) window.location.reload();
+      if (!pending) return;
+      try { sessionStorage.setItem('srs_pin_after_reload', '1'); } catch {}
+      window.location.reload();
     };
     window.addEventListener('pageshow', onShow);
     return () => window.removeEventListener('pageshow', onShow);

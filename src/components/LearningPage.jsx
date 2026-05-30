@@ -740,6 +740,19 @@ export default function LearningPage({
         queue.splice(idx, 1);
         queue.unshift(keep);
       }
+    } else if (sessionStorage.getItem('srs_pin_after_reload') === '1') {
+      // After the iOS-standalone OAuth-cancel reload (App.jsx), re-pin the word
+      // the user was on before the reload so the card doesn't visibly change.
+      try { sessionStorage.removeItem('srs_pin_after_reload'); } catch {}
+      let pinnedId = null;
+      try { pinnedId = sessionStorage.getItem('srs_live_word'); } catch {}
+      if (pinnedId) {
+        const idx = queue.findIndex(c => c.word.id === pinnedId);
+        if (idx > 0) {
+          const [keep] = queue.splice(idx, 1);
+          queue.unshift(keep);
+        }
+      }
     }
 
     baseQueueRef.current = queue;
@@ -755,6 +768,16 @@ export default function LearningPage({
       setSrsCard(null);
     }
   }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey, bufferReady]);
+
+  // Mirror the word the user is currently looking at into sessionStorage so it
+  // survives a full reload. The iOS-standalone OAuth-cancel path (App.jsx) does
+  // a one-time location.reload() to reclaim the collapsed viewport; this lets
+  // the rebuilt SRS session below re-pin the very same word so the visible card
+  // doesn't change across that reload.
+  useEffect(() => {
+    const id = srsCard?.word?.id;
+    if (id) { try { sessionStorage.setItem('srs_live_word', id); } catch {} }
+  }, [srsCard]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
