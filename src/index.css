@@ -32,29 +32,6 @@ html, body, #root {
   }
 }
 
-/* EXPERIMENT (flag-gated via html.vpfix, set from localStorage __vpfix=1):
-   iOS-standalone device logs show the document scrolls ~54px under the status
-   bar the instant the OAuth consent sheet appears (scrollY/scrollTop=54),
-   shoving the whole app up — and scrollTo(0,0) loses the race against the
-   sheet animation. Pinning html/body/#root with position:fixed removes the
-   scrollable document entirely, so iOS has nothing to scroll. Gated to the
-   tester's device only; real users are byte-for-byte unaffected. */
-@media all and (display-mode: standalone) {
-  html.vpfix,
-  html.vpfix body,
-  html.vpfix #root {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-    overflow: hidden;
-  }
-}
-
 /* WeChat in-app browser under-reports window.innerHeight when its bottom
    toolbar toggles, so the app (sized to that value) stops a few px short of
    the real viewport bottom and exposes the white page background as a thin

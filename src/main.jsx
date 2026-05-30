@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { installAntiScrape } from './utils/antiScrape';
-import { initVpLogger } from './debug/vpLogger';
 import posthog from 'posthog-js';
 import { PostHogProvider } from '@posthog/react';
 
@@ -27,15 +26,6 @@ posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN, {
 }
 
 installAntiScrape();
-// Flag-gated layout experiment (tester device only): pin the document with
-// position:fixed (see index.css html.vpfix) to kill the iOS-standalone
-// scroll-under-status-bar shift. Applied before first paint.
-try {
-  if (localStorage.getItem('__vpfix') === '1') {
-    document.documentElement.classList.add('vpfix');
-  }
-} catch {}
-initVpLogger();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

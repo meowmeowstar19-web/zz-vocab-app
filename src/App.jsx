@@ -473,8 +473,6 @@ export default function App() {
       }
       setNavH(h < 833 ? 52 : 57);
       setVpH(h);
-      // Expose the computed shell height so the debug logger can show it.
-      try { window.__vpH = h; } catch {}
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
