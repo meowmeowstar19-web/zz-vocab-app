@@ -24,7 +24,7 @@
 //   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT
 // ============================================================================
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
 import {
   readdirSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync,
@@ -194,6 +194,8 @@ async function main() {
     manifestPath: MANIFEST_PATH,
     files: imageFiles,
     keyOf: (f) => f.key,
+    // For images the manifest key IS the R2 object key (images/<name>).
+    r2KeyOf: (mk) => mk,
   });
 
   for (const lang of discoverAudioLangs()) {
@@ -204,6 +206,9 @@ async function main() {
       manifestPath: join(AUDIO_MANIFEST_DIR, `${lang}.json`),
       files,
       keyOf: (f) => f.manifestKey,
+      // Audio manifest keys are bare audioKeys; the R2 object lives under
+      // assets/audio/<lang>/<audioKey>.mp3.
+      r2KeyOf: (mk) => posix.join('assets/audio', lang, `${mk}.mp3`),
     });
   }
 
@@ -268,13 +273,18 @@ async function main() {
   });
 
   // Prune manifest entries whose local file is gone, then persist each manifest.
+  // A pruned entry also means the object should be removed from R2 — otherwise a
+  // renamed/deleted image (e.g. the old guessable apple.jpg, Phase 5) keeps
+  // serving from the CDN and the side-door stays open.
   let pruned = 0;
+  const deleteQueue = [];
   for (const g of groups) {
     for (const key of Object.keys(g.next)) {
       if (!g.seen.has(key)) {
         delete g.next[key];
         pruned++;
         g.changed = true;
+        deleteQueue.push({ label: g.label, r2Key: g.r2KeyOf(key) });
         console.log(`− ${g.label}:${key} (removed locally; pruned from manifest)`);
       }
     }
@@ -284,10 +294,38 @@ async function main() {
     }
   }
 
+  // Delete the pruned objects from R2.
+  let deleted = 0;
+  let deleteFailed = 0;
+  if (deleteQueue.length) {
+    if (DRY) {
+      for (const d of deleteQueue) console.log(`[dry] ✗ delete R2 ${d.r2Key}`);
+      deleted = deleteQueue.length;
+    } else {
+      await runPool(deleteQueue, UPLOAD_CONCURRENCY, async (d) => {
+        try {
+          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: d.r2Key }));
+          deleted++;
+          console.log(`✗ deleted R2 ${d.r2Key}`);
+        } catch (err) {
+          deleteFailed++;
+          console.warn(`! could not delete R2 ${d.r2Key}  ${err.name}: ${err.message}`);
+        }
+      });
+    }
+  }
+
   console.log(
-    `\nDone${DRY ? ' (dry)' : ''}: ${uploaded} uploaded, ${skipped} unchanged, ${pruned} pruned, ${failed} failed. ` +
-    `Total ${fmt(totalBytes)}.`
+    `\nDone${DRY ? ' (dry)' : ''}: ${uploaded} uploaded, ${skipped} unchanged, ${pruned} pruned, ` +
+    `${deleted} R2-deleted, ${failed} failed. Total ${fmt(totalBytes)}.`
   );
+
+  if (deleteFailed > 0) {
+    console.warn(
+      `\n⚠ ${deleteFailed} object(s) could NOT be deleted from R2. The old (possibly guessable) ` +
+      `URLs may still serve — check the R2 token has DeleteObject permission, then re-run.`
+    );
+  }
 
   if (failed > 0) process.exit(1);
 }

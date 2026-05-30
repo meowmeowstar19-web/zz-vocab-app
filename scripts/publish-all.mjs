@@ -63,14 +63,6 @@ function run(cmd, args) {
   if (r.status !== 0) { console.error(`\n✗ 失败: ${cmd} ${args.join(' ')}`); process.exit(r.status || 1); }
 }
 
-// 非致命运行:失败只告警、不中断流程。用于 Supabase 推送——App 目前读打包的
-// words.js(Phase 4 才翻转读 Supabase),所以即使数据库没更新也不该挡住内容上线。
-// 返回 true=成功。
-function runSoft(cmd, args) {
-  const r = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: false });
-  return r.status === 0;
-}
-
 function ask(q) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((res) => rl.question(q, (a) => { rl.close(); res(a.trim()); }));
@@ -205,14 +197,12 @@ async function main() {
 
     // ②.5 数据有变 → 推 Supabase(反爬 Phase 1 的库,语言无关 schema)
     // 读刚生成的 src/data/*.js,upsert + prune(护栏:incoming <50% 时跳过删除)。
-    // 非致命:失败只告警(需 .env.local 有 SUPABASE_SERVICE_ROLE_KEY);App 还读 bundle,不挡上线。
+    // 致命步骤:Phase 4 之后 App 读 Supabase 的 image_path,Phase 5 之后图片是乱码名。
+    // 若这步失败、却继续到 ⑤ upload:assets(会删 R2 旧图),线上图片会全 404。
+    // 所以失败必须停在删图之前——run() 内部 status≠0 即 exit。
     console.log('\n' + C.b('②.5 数据有变 → 同步到 Supabase (push:supabase)'));
-    if (runSoft('npm', ['run', 'push:supabase'])) {
-      did.push('supabase');
-    } else {
-      console.log(C.y('   ⚠ Supabase 同步失败(检查 .env.local 的 SUPABASE_SERVICE_ROLE_KEY 或网络)。'));
-      console.log(C.y('     内容仍会照常上线(App 现在读打包数据,不读 Supabase)。修好后手动:npm run push:supabase'));
-    }
+    run('npm', ['run', 'push:supabase']);
+    did.push('supabase');
   } else console.log(C.dim('② Excel/单词图/音频无变化,跳过数据重建'));
 
   // ③ 非单词图缩放

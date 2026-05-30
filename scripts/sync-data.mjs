@@ -11,14 +11,15 @@
 import XLSX from 'xlsx';
 import sharp from 'sharp';
 import {
-  readdirSync, writeFileSync, mkdirSync, renameSync,
+  readdirSync, readFileSync, writeFileSync, mkdirSync, renameSync,
   existsSync,
 } from 'node:fs';
 import { join, dirname, basename, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import readline from 'node:readline';
 import { audioKey } from '../src/utils/audioKey.js';
+import { hashedImageName, slugifyEn } from './imageName.mjs';
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,46 @@ const AUDIO_OUT = join(ROOT, 'public', 'assets', 'audio');
 const PROCESSED_DIR = join(DATA_DIR, '_processed_images');
 const DELETED_DIR = join(DATA_DIR, 'deleted_image');
 const SRC_DATA = join(ROOT, 'src', 'data');
+
+// Phase 5: secret salt for hashed image filenames (read from .env.local, never
+// shipped to the client). Set in main() before any word is read so readVocab,
+// processImages and the cover map all produce the same hashed names.
+let IMAGE_HASH_SALT = '';
+
+// The salt is read in this priority order so the project folder can be freely
+// renamed/moved/deleted without losing it:
+//   1. IMAGE_HASH_SALT env var  (explicit override)
+//   2. macOS Keychain           (primary store — lives outside the repo, iCloud-synced)
+//   3. .env.local               (legacy fallback)
+const KEYCHAIN_SALT_SERVICE = 'plushieword-image-hash-salt';
+
+function readSaltFromKeychain() {
+  if (process.platform !== 'darwin') return '';
+  try {
+    const out = execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SALT_SERVICE, '-w'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim();
+  } catch {
+    return ''; // not found in keychain
+  }
+}
+
+function loadImageHashSalt() {
+  if (process.env.IMAGE_HASH_SALT) return process.env.IMAGE_HASH_SALT;
+  const fromKeychain = readSaltFromKeychain();
+  if (fromKeychain) return fromKeychain;
+  const envPath = join(ROOT, '.env.local');
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+      const m = line.match(/^IMAGE_HASH_SALT=(.*)$/);
+      if (m) return m[1].replace(/^["']|["']$/g, '').trim();
+    }
+  }
+  return '';
+}
+
+const imgName = (en) => hashedImageName(slugifyEn(en), IMAGE_HASH_SALT);
 
 // Required content columns. A row must have every one of these filled to be
 // emitted into the generated data files. Optional/legacy columns ("Image
@@ -305,7 +346,7 @@ function readVocab() {
       level:       lvl,
       sentence,
       sentenceZh:  String(row['例句中文翻译'] || row['Example CN (例句中文)'] || '').trim(),
-      img:         `${en.toLowerCase()}.jpg`,
+      img:         imgName(en),
       ja:          String(row['单词日语翻译'] || row['Japanese (日本語)'] || '').trim(),
       jaReading:   String(row['日语音标'] || row['Japanese Reading (日语音标)'] || '').trim(),
       jaSentence:  String(row['例句日语翻译'] || row['Example JP (例句日語)'] || '').trim(),
@@ -513,11 +554,11 @@ function ensureCategoryXlsx(words, phrases) {
   // Build final covers map + ordered category lists for consumers
   const covers = { vocab: {}, oral: {}, vocabOrder: [], oralOrder: [] };
   for (const { cat, word } of vocabOut) {
-    covers.vocab[cat] = word ? `${word}.jpg` : null;
+    covers.vocab[cat] = word ? imgName(word) : null;
     covers.vocabOrder.push(cat);
   }
   for (const { cat, word } of oralOut) {
-    covers.oral[cat] = word ? `${word}.jpg` : null;
+    covers.oral[cat] = word ? imgName(word) : null;
     covers.oralOrder.push(cat);
   }
   return covers;
@@ -651,6 +692,8 @@ function writeWordsJs(words, catOrder) {
   out += `};\n\n`;
 
   out += `// Format: [img, en, zh, category, level, sentence, sentenceZh]\n`;
+  out += `// img is a hashed, unguessable filename (Phase 5); the stable word id is\n`;
+  out += `// derived from \`en\`, NOT from img, so renaming images never changes ids.\n`;
   out += `const raw = [\n`;
   let lastCat = null;
   for (const w of orderedWords) {
@@ -673,7 +716,7 @@ function writeWordsJs(words, catOrder) {
 
   out += `// Process raw data into word objects\n`;
   out += `const wordsOrdered = raw.map(([img, en, zh, category, level, sentence, sentenceZh]) => ({\n`;
-  out += `  id: img.replace(/\\.jpg$/i, '').toLowerCase().replace(/[\\s']+/g, '-').replace(/[^a-z0-9-]/g, ''),\n`;
+  out += `  id: en.toLowerCase().replace(/[\\s']+/g, '-').replace(/[^a-z0-9-]/g, ''),\n`;
   out += `  en, zh, category, level, sentence, sentenceZh, img,\n`;
   out += `}));\n\n`;
 
@@ -942,7 +985,7 @@ async function processImages(words) {
     }
 
     const inputPath = join(IMG_IN, file);
-    const outputPath = join(IMG_OUT, `${word.en.toLowerCase()}.jpg`);
+    const outputPath = join(IMG_OUT, word.img); // hashed filename (Phase 5)
 
     try {
       ensureDir(IMG_OUT);
@@ -955,7 +998,7 @@ async function processImages(words) {
       ensureDir(archiveDir);
       renameSync(inputPath, join(archiveDir, file));
       processed++;
-      log.ok(`${file.padEnd(32)} → ${word.en}.jpg`);
+      log.ok(`${file.padEnd(32)} → ${word.en} (${word.img})`);
     } catch (e) {
       log.err(`Failed to process ${file}: ${e.message}`);
     }
@@ -967,6 +1010,33 @@ async function processImages(words) {
   }
 
   return { processed, unmatched: unmatchedList.length };
+}
+
+// ── Migrate legacy en-named images → hashed names (Phase 5) ─────────────────
+// Self-healing: on every run, any image still stored under its old English
+// filename (apple.jpg, "ice cream.jpg") is renamed to its hashed name. Runs
+// once for real at rollout, then is a no-op (targets already exist). Keeps the
+// pipeline correct forever without a separate one-shot script.
+function migrateImageNames(words) {
+  if (!existsSync(IMG_OUT)) return { renamed: 0 };
+  let renamed = 0;
+  for (const w of words) {
+    const target = join(IMG_OUT, w.img);
+    if (existsSync(target)) continue; // already hashed
+    const legacy = join(IMG_OUT, `${w.en.toLowerCase()}.jpg`);
+    if (!existsSync(legacy)) continue; // no image (filtered out later)
+    try {
+      renameSync(legacy, target);
+      renamed++;
+    } catch (e) {
+      log.err(`Failed to rename ${w.en.toLowerCase()}.jpg → ${w.img}: ${e.message}`);
+    }
+  }
+  if (renamed > 0) {
+    log.section('Migrating image filenames → hashed (Phase 5)');
+    log.ok(`Renamed ${renamed} legacy image(s) to hashed names`);
+  }
+  return { renamed };
 }
 
 // ── Archive orphan images (words deleted from Excel) ───────────────────────
@@ -988,15 +1058,15 @@ function archiveDeletedImages(words) {
     return { archived: 0 };
   }
 
-  const validStems = new Set(words.map(w => w.en.toLowerCase()));
+  // Phase 5: filenames are hashed, so match by full filename (w.img), not by
+  // English stem. Anything in public/images/ that isn't a current word's hashed
+  // image is an orphan — a deleted word, or a stale legacy en-named file.
+  const validFiles = new Set(words.map(w => w.img));
   const files = readdirSync(IMG_OUT).filter(f =>
     !f.startsWith('.') && extname(f).toLowerCase() === '.jpg'
   );
 
-  const orphans = files.filter(f => {
-    const stem = basename(f, extname(f)).toLowerCase();
-    return !validStems.has(stem);
-  });
+  const orphans = files.filter(f => !validFiles.has(f));
 
   if (orphans.length === 0) {
     log.ok('No orphan images — everything in public/images/ is still in Excel');
@@ -1053,6 +1123,15 @@ function gitCommitAndPush(summary) {
 async function main() {
   console.log('\n\x1b[1m🔄 VocabWorkspace Data Sync\x1b[0m');
 
+  // Phase 5: hashed image names need the secret salt before any word is read.
+  IMAGE_HASH_SALT = loadImageHashSalt();
+  if (!IMAGE_HASH_SALT) {
+    log.err('IMAGE_HASH_SALT not found — required for hashed image filenames (anti-scraping Phase 5).');
+    log.info(`Store it in the macOS Keychain:  security add-generic-password -a "$USER" -s ${KEYCHAIN_SALT_SERVICE} -w <random hex> -U`);
+    log.info('(or set IMAGE_HASH_SALT in .env.local). It must never change once set.');
+    process.exit(1);
+  }
+
   // Interactive dedup pass: catches duplicate entries in the source xlsx files
   // before they're parsed. Same key → same generated id → React rendering chaos.
   await dedupCheck(VOCAB_XLSX, 'English', 'WordList.xlsx');
@@ -1068,6 +1147,9 @@ async function main() {
 
   // Process images first so new images are available for the filter below
   const { processed, unmatched } = await processImages(allWords);
+
+  // Rename any legacy en-named images to their hashed names (no-op after rollout)
+  migrateImageNames(allWords);
 
   // Only include words that have an image in public/images/
   const words = allWords.filter(w => existsSync(join(IMG_OUT, w.img)));
