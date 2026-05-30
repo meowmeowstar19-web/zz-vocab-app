@@ -88,6 +88,7 @@ export function initVpLogger() {
       vH: Math.round(vv.height || 0),
       rT: root ? Math.round(root.getBoundingClientRect().top) : null,
       rH: root ? root.offsetHeight : null,
+      vp: typeof window.__vpH === 'number' ? window.__vpH : null,
     };
     log.push(entry);
     if (log.length > MAX) log = log.slice(-MAX);
@@ -118,7 +119,11 @@ export function initVpLogger() {
   const bCopy = mk('复制');
   const bClose = mk('关闭');
   const title = document.createElement('span');
-  title.textContent = '视口日志';
+  let fixOn = false;
+  try {
+    fixOn = localStorage.getItem('__vpfix') === '1';
+  } catch {}
+  title.textContent = `视口日志 ${fixOn ? '[修:开✅]' : '[修:关]'}`;
   title.style.cssText = 'font-weight:700;margin-right:auto';
   bar.append(title, bClear, bCopy, bClose);
 
@@ -135,7 +140,7 @@ export function initVpLogger() {
     const text = log
       .map(
         (e) =>
-          `${String(e.ms).padStart(6)}ms ${EVENT_CN[e.ev] || e.ev} 高=${e.iH} lvh=${e.lvh} 卷Y=${e.sY} 文顶=${e.dT} 视顶=${e.vT} 视高=${e.vH} 根顶=${e.rT} 根高=${e.rH}`
+          `${String(e.ms).padStart(6)}ms ${EVENT_CN[e.ev] || e.ev} 高=${e.iH} lvh=${e.lvh} 卷Y=${e.sY} 文顶=${e.dT} 视顶=${e.vT} 视高=${e.vH} 根顶=${e.rT} 根高=${e.rH} 修=${e.vp}`
       )
       .join('\n');
     try {
@@ -161,7 +166,7 @@ export function initVpLogger() {
       .reverse()
       .map((e) => {
         const cn = EVENT_CN[e.ev] || e.ev;
-        return `${String(e.ms).padStart(6)}  ${cn.padEnd(5, '　')} 高${e.iH} lvh${e.lvh} 卷Y${e.sY} 文顶${e.dT} 视顶${e.vT} 根顶${e.rT}`;
+        return `${String(e.ms).padStart(6)}  ${cn.padEnd(5, '　')} 高${e.iH} lvh${e.lvh} 卷Y${e.sY} 文顶${e.dT} 根顶${e.rT} 修${e.vp}`;
       })
       .join('\n');
   }

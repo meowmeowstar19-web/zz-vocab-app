@@ -459,36 +459,22 @@ export default function App() {
         return h;
       } catch { return 0; }
     };
-    // EXPERIMENT (flag-gated, __vpfix=1): on iOS 26.5 device logs, lvh itself
-    // collapses with the viewport (793→768) after an OAuth round-trip, so it
-    // can't be the stable reference the original fix assumed. Floor instead to
-    // the tallest viewport observed this session. Default path (flag off) is
-    // byte-for-byte unchanged.
-    let maxSeen = 0;
-    const vpfix = (() => {
-      try { return localStorage.getItem('__vpfix') === '1'; }
-      catch { return false; }
-    })();
     const update = () => {
       let h = window.innerHeight;
       if (isStandalone) {
         const lvh = readLvh();
-        if (vpfix) {
-          maxSeen = Math.max(maxSeen, h, lvh);
-          if (maxSeen > 0 && h < maxSeen && h >= maxSeen * 0.7) {
-            h = maxSeen;
-          }
-          if (window.scrollY !== 0) window.scrollTo(0, 0);
-        } else if (lvh > 0 && h < lvh && h >= lvh * 0.7) {
-          // Original fix: correct only the spurious OAuth-return collapse —
-          // innerHeight dips a little below lvh (657 vs 768). A big shrink
-          // (≥30%, e.g. keyboard) is a genuine change. lvh===0 → no-op.
+        // Correct only the spurious OAuth-return collapse: innerHeight dips a
+        // little below lvh (657 vs 768). A big shrink (≥30%, e.g. keyboard) is
+        // a genuine layout change — leave it. lvh===0 (unsupported) → no-op.
+        if (lvh > 0 && h < lvh && h >= lvh * 0.7) {
           h = lvh;
           if (window.scrollY !== 0) window.scrollTo(0, 0);
         }
       }
       setNavH(h < 833 ? 52 : 57);
       setVpH(h);
+      // Expose the computed shell height so the debug logger can show it.
+      try { window.__vpH = h; } catch {}
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
