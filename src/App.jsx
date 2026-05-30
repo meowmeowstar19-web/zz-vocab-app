@@ -486,6 +486,39 @@ export default function App() {
     };
   }, []);
 
+  // iOS standalone PWA ONLY: when the user launches an OAuth provider and then
+  // taps "back" WITHOUT logging in, iOS restores the PWA from bfcache with a
+  // permanently-collapsed viewport (793 → 768), shoving the shell up ~25px with
+  // no web API to reclaim it. A fresh load recomputes the full 793, so on that
+  // exact return — bfcache restore (`persisted`) while an OAuth round-trip is
+  // still pending — force a one-time reload. The pending flag is cleared by the
+  // fresh mount's no-session branch, so no loop (a reload is never a bfcache
+  // restore). Flag-gated for on-device verification before going live.
+  useEffect(() => {
+    let enabled = false;
+    try { enabled = localStorage.getItem('__oauthreload') === '1'; } catch {}
+    if (!enabled) return;
+    const isStandalone = (() => {
+      try {
+        if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+        if (window.navigator.standalone === true) return true;
+      } catch {}
+      return false;
+    })();
+    if (!isStandalone) return;
+    const onShow = (e) => {
+      if (!e.persisted) return;
+      let pending = false;
+      try {
+        pending = localStorage.getItem('gate_oauth_pending') === '1'
+          || localStorage.getItem('bind_oauth_pending') === '1';
+      } catch {}
+      if (pending) window.location.reload();
+    };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
+
   // Sync entry point — wraps syncOnLogin so the OAuth bind path can detect
   // "this account already has progress" and refuse to merge. Soft signOut
   // (keeps guest mode + local data intact) on rejection.
