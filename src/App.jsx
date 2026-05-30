@@ -46,21 +46,6 @@ if (IS_WECHAT) {
   try { document.documentElement.classList.add('wechat-bg'); } catch {}
 }
 
-// iOS Safari's window.innerHeight can momentarily under-report after a bfcache
-// restore (e.g. pressing Back from an OAuth provider page) while the URL bar is
-// still animating — the layout then sizes to a too-short viewport, leaving the
-// phone shell shifted up with white space below the nav. visualViewport.height
-// stays accurate in that case; taking the max of the two also stops the
-// on-screen keyboard (which shrinks visualViewport but NOT innerHeight) from
-// collapsing the layout. Both values are bounded by the screen, so the max can
-// never overflow. WeChat stays on pure innerHeight — its separate under-report
-// is masked by the .wechat-bg tint above, so we don't change that behavior.
-function measureViewportH() {
-  if (IS_WECHAT) return window.innerHeight;
-  const vv = window.visualViewport;
-  return vv ? Math.max(window.innerHeight, Math.round(vv.height)) : window.innerHeight;
-}
-
 const TAB_ACTIVE_COLORS = { learn: '#ffd3be', wordlist: '#a7e4fe', settings: '#e0feb1' };
 
 function TabIcon({ type, active }) {
@@ -362,8 +347,8 @@ export default function App() {
     if (targetLang) preloadAudioManifest(targetLang);
   }, [nativeLang, targetLang]);
 
-  const [navH, setNavH] = useState(() => measureViewportH() < 833 ? 52 : 57);
-  const [vpH, setVpH] = useState(() => measureViewportH());
+  const [navH, setNavH] = useState(() => window.innerHeight < 833 ? 52 : 57);
+  const [vpH, setVpH] = useState(() => window.innerHeight);
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
   // Shown when the user tried to bind from guest mode onto an account that
@@ -450,24 +435,18 @@ export default function App() {
 
   useEffect(() => {
     const update = () => {
-      const h = measureViewportH();
-      setNavH(h < 833 ? 52 : 57);
-      setVpH(h);
+      setNavH(window.innerHeight < 833 ? 52 : 57);
+      setVpH(window.innerHeight);
     };
     window.addEventListener('resize', update);
     // BFCache restore on mobile browsers doesn't fire `resize`, but the
-    // viewport may have changed while the tab was backgrounded — re-read on
-    // every pageshow (incl. `persisted=true` restores) so the saved state
-    // doesn't drive the layout off the new viewport.
+    // viewport may have changed while the tab was backgrounded — re-read
+    // window.innerHeight on every pageshow (incl. `persisted=true` restores)
+    // so the saved state doesn't drive the layout off the new viewport.
     window.addEventListener('pageshow', update);
-    // visualViewport.resize fires when the URL bar shows/hides — the reliable
-    // signal for the post-bfcache settle that `resize` can miss on iOS.
-    const vv = window.visualViewport;
-    if (vv) vv.addEventListener('resize', update);
     return () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('pageshow', update);
-      if (vv) vv.removeEventListener('resize', update);
     };
   }, []);
 
@@ -1206,8 +1185,8 @@ export default function App() {
   // drop straight into Learn (no Welcome page).
   if (needsLangSetup) {
     return (
-      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden app-vp-h">
-        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative app-vp-maxh">
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
         </div>
       </div>
@@ -1239,8 +1218,8 @@ export default function App() {
     // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
     // against the beige polka-dot LearningPage background.
     return (
-      <div className="w-screen flex items-center justify-center font-cute overflow-hidden app-vp-h" style={{ backgroundColor: '#ffffff' }}>
-        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative app-vp-maxh">
+      <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <img
             src={getFigmaAssetUrl('study_background.jpg')}
             alt=""
@@ -1257,8 +1236,8 @@ export default function App() {
   // the Google / Discord / Email / Guest-mode picker.
   if (!isLoggedIn) {
     return (
-      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden app-vp-h">
-        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative app-vp-maxh">
+      <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
+        <div className="w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <WelcomePage onLogin={handleLogin} onTestMode={handleLogin} nativeLang={nativeLang} />
         </div>
       </div>
@@ -1266,8 +1245,8 @@ export default function App() {
   }
 
   return (
-    <div className="w-screen flex items-center justify-center font-cute overflow-hidden app-vp-h" style={{ backgroundColor: '#ffffff' }}>
-      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg app-vp-maxh">
+    <div className="w-screen flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH, backgroundColor: '#ffffff' }}>
+      <div className="w-[402px] h-[841px] flex flex-col overflow-hidden sm:rounded-[2rem] relative bg-warm-bg" style={{ maxHeight: vpH }}>
 
         {/* Main content — all pages stay mounted to preserve state; display:none hides inactive ones */}
         <div className="flex-1 min-h-0 overflow-visible">
