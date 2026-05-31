@@ -1,10 +1,7 @@
+import { jaData } from '../data/jaData';
+import { phoneticMap } from '../data/phonetics';
+import { pinyinMap } from '../data/pinyin';
 import { CATEGORY_LABELS } from '../data/categoryLabels';
-
-// Anti-scraping Phase 4: the full jaData / phonetics / pinyin maps are no longer
-// bundled. Every word object now carries its own per-language fields (ja,
-// jaReading, jaSentence, ipa, pinyin) — from the seed pack, the Edge API, or the
-// learned-word cache — so these helpers read those fields directly. English IPA
-// still falls back to the dictionary API when a word lacks `ipa`.
 
 export { CATEGORY_LABELS };
 
@@ -20,7 +17,7 @@ export function getWordText(word, lang) {
   if (!word) return '';
   if (lang === 'en') return word.en;
   if (lang === 'zh') return word.zh;
-  if (lang === 'ja') return word.ja || '';
+  if (lang === 'ja') return word.ja || jaData[word.en]?.ja || '';
   return word.en;
 }
 
@@ -29,7 +26,7 @@ export function getWordText(word, lang) {
 export function getSentence(word, lang) {
   if (!word) return '';
   if (lang === 'en') return word.sentence || '';
-  if (lang === 'ja') return word.jaSentence || '';
+  if (lang === 'ja') return word.jaSentence || jaData[word.en]?.sentence || '';
   if (lang === 'zh') return word.sentenceZh || '';
   return '';
 }
@@ -47,17 +44,20 @@ export function getPhonetic(word, targetLang) {
   if (!word) return '';
   if (targetLang === 'en') {
     if (word.ipa) return word.ipa;
-    return null; // null → trigger API fetch
+    const local = phoneticMap[word.en];
+    return local || null; // null → trigger API fetch
   }
   if (targetLang === 'ja') {
     if (word.jaReading) return word.jaReading;
-    // Auto-convert katakana → hiragana from the word's own ja field
-    if (word.ja) return katakanaToHiragana(word.ja);
-    return '';
+    const entry = jaData[word.en];
+    if (!entry) return '';
+    // Use explicit reading if available; otherwise auto-convert katakana → hiragana
+    if (entry.reading) return entry.reading;
+    return katakanaToHiragana(entry.ja);
   }
   if (targetLang === 'zh') {
     if (word.pinyin) return word.pinyin;
-    return '';
+    return pinyinMap[word.zh] || '';
   }
   return '';
 }

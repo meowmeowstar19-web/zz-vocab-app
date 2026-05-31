@@ -1,10 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { categories, oralCategories, ORAL_CATEGORY_LABELS } from '../data/contentMeta';
-import { seedWords, seedPhrases } from '../data/seed';
+import { words, wordsShuffled, categories } from '../data/words';
+import { jaData } from '../data/jaData';
+import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
-import { getWords, getPhrases } from '../data/wordsRepo';
-import { cacheLearnedWords, getAllLearnedWords } from '../data/learnedCache';
-import { readQueueSync, persistQueue } from '../data/prefetchQueue';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
@@ -26,19 +24,6 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-// Merge the Edge pool into the local bundle by id WITHOUT ever shrinking below
-// the bundle. The Edge copy may be incomplete (Supabase not yet re-synced after
-// new words were added, or a pair missing some translations); replacing the
-// full bundle with that smaller set would hide words the user hasn't learned and
-// falsely trip the "已学完 / all-done" screen. So Edge entries override matching
-// bundle entries (fresher content wins) but bundle-only words always survive.
-function mergeById(base, incoming) {
-  if (!incoming || incoming.length === 0) return base;
-  const byId = new Map(base.map((w) => [w.id, w]));
-  for (const w of incoming) byId.set(w.id, { ...byId.get(w.id), ...w });
-  return Array.from(byId.values());
 }
 
 function getOptions(correctWord, wordPool, nativeLang) {
@@ -163,101 +148,9 @@ export default function LearningPage({
   const catLabels = isOralMode
     ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
     : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-  // Anti-scraping Phase 4 — the full word/phrase list lives ONLY in Supabase now
-  // (no longer in the JS bundle). Content arrives from the async Edge API
-  // (wordsRepo) into these buffers, but the network is NEVER on the critical
-  // path: the buffers are ALWAYS seeded with valid LOCAL data first, and the
-  // Edge refresh only swaps in underneath, in the background.
-  //
-  // ⚡ HARD RULE (feedback_never_block_on_network): no user — new OR returning —
-  // ever waits on the network to see a word. The synchronous local seed is:
-  //   • the rolling prefetch queue (next unlearned words from last session,
-  //     persisted to localStorage) when present → returning users get real new
-  //     words at 0ms, no "all learned" flash; else
-  //   • the tiny static seed pack (seed.js, ~30 starter words, all languages) →
-  //     brand-new users render at 0ms before the Edge pool arrives.
-  // On mount AND on every language-pair switch we re-seed SYNCHRONOUSLY from
-  // that local source, then stream the Edge copy in on top.
-  const localWordSeed = () => {
-    const q = readQueueSync('w', nativeLang, targetLang);
-    return q.length ? q : seedWords;
-  };
-  const localPhraseSeed = () => {
-    const q = readQueueSync('p', nativeLang, targetLang);
-    return q.length ? q : seedPhrases;
-  };
-  const [wordSource, setWordSource] = useState(localWordSeed);
-  const [phraseSource, setPhraseSource] = useState(localPhraseSeed);
-  // True whenever we have ANY local data to paint. The seed pack is always
-  // non-empty, so this stays true and the screen is never gated on the network;
-  // the spinner below is only a safety net for the (impossible-in-practice)
-  // case of zero local data.
-  const [bufferReady, setBufferReady] = useState(() => localWordSeed().length > 0);
-  // Flips true once the background Edge refresh has fully completed. Used to
-  // rebuild the SRS session with the freshest pool — but only if the user hasn't
-  // started yet (see the rebuild effect below), so nothing ever swaps mid-use.
-  const [bufferComplete, setBufferComplete] = useState(false);
-  const activeWords = isOralMode ? phraseSource : wordSource;
-  const activeWordsShuffled = useMemo(() => shuffle(activeWords), [activeWords]);
+  const activeWords = isOralMode ? oralPhrases : words;
+  const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsShuffled;
   const activeCategories = isOralMode ? oralCategories : categories;
-
-  // Background-refresh the buffers from the Edge API for this language pair.
-  // The buffers are re-seeded from the bundle FIRST (synchronously, below) so
-  // the screen is painted instantly; this effect only swaps the Edge copy in on
-  // top. On any failure (dev without Supabase, offline, not-logged-in) the
-  // already-seeded bundle stays, augmented with locally-cached learned words so
-  // review still works offline. NOTE: it still walks every page — bounded
-  // drip-feed serving is Phase 6's job; Phase 3 only moves the SOURCE.
-  useEffect(() => {
-    let cancelled = false;
-    // ⚡ Re-seed from the local source (queue → seed pack) synchronously so the
-    // NEW pair has valid local data to paint at 0ms (previous Edge data may lack
-    // this pair's fields). bufferReady stays true — never blank for the net.
-    setWordSource(localWordSeed());
-    setPhraseSource(localPhraseSeed());
-    setBufferComplete(false);
-    (async () => {
-      try {
-        const [allW, allP] = await Promise.all([
-          getWords({ native: nativeLang, target: targetLang }, (acc) => {
-            // Merge Edge content into the CURRENT local source (queue → seed),
-            // never shrinking below it — preserves the "已学完" fix now that the
-            // full `words` bundle is gone (Phase 4).
-            if (!cancelled && acc.length) setWordSource((prev) => mergeById(prev, acc));
-          }),
-          getPhrases({ native: nativeLang, target: targetLang }, (acc) => {
-            if (!cancelled && acc.length) setPhraseSource((prev) => mergeById(prev, acc));
-          }),
-        ]);
-        if (cancelled) return;
-        // Refresh the rolling prefetch queue: stash the next UNLEARNED words so
-        // the NEXT open of this pair lands on real new material at 0ms (no
-        // "all learned" flash) without waiting on the Edge pool again.
-        try {
-          const prog = getProgress(storageKey);
-          persistQueue('w', nativeLang, targetLang, allW.filter((w) => !prog[w.id]?.timestamp));
-          persistQueue('p', nativeLang, targetLang, allP.filter((p) => !prog[p.id]?.timestamp));
-        } catch {}
-        setBufferComplete(true); // full pool in → allow a one-time session rebuild
-      } catch {
-        if (cancelled) return;
-        // Edge unreachable: keep the bundle seed; if the bundle is ever empty
-        // (Phase 4), fall back to locally-cached learned words for offline review.
-        let cw = [], cp = [];
-        try {
-          const cached = await getAllLearnedWords();
-          for (const [id, obj] of cached) (id.startsWith('oral-') ? cp : cw).push(obj);
-        } catch {}
-        if (cancelled) return;
-        setWordSource((prev) => (prev.length ? prev : cw));
-        setPhraseSource((prev) => (prev.length ? prev : cp));
-        setBufferComplete(true);
-      } finally {
-        if (!cancelled) setBufferReady(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [nativeLang, targetLang]);
 
   const [showCategories, _setShowCategories] = useState(false);
   const setShowCategories = useCallback((val) => {
@@ -322,7 +215,6 @@ export default function LearningPage({
 
   // ── SRS Session State ──
   const [srsCard, setSrsCard] = useState(null); // current card from SRS queue
-  const liveSrsCardRef = useRef(null); // mirrors srsCard so effects can read it without depending on it
   const [sessionKey, setSessionKey] = useState(0); // increment to force session rebuild
   const [categoryDoneVisible, setCategoryDoneVisible] = useState(false);
   // Shown after one complete pass of a categoryReviewMode cycle (a small category
@@ -336,8 +228,6 @@ export default function LearningPage({
   const totalShownRef = useRef(0); // total cards shown in this session
   const sessionInitKey = useRef(''); // to detect when session should rebuild
   const sessionLoadingRef = useRef(false); // true while session is being (re)built — blocks category-done false-positive
-  const preserveCardRef = useRef(null); // card to pin to queue[0] on the post-streaming rebuild (so the visible word/image never swaps)
-  liveSrsCardRef.current = srsCard;
 
   // ── Review Queue State ──
   const reviewQueueRef = useRef([]);       // [{word}] current cycle's queue
@@ -367,13 +257,10 @@ export default function LearningPage({
   // Current step: 0 = first encounter (new), 1+ = session review
   const currentStep = effectiveIsReview ? null : (srsCard?.step ?? 0);
 
-  // All words available for this language pair (for reviews & option generation).
-  // `activeWords` is now an async-filled buffer (Phase 3), so it MUST be a dep —
-  // otherwise this memo keeps the empty initial result and reviews/category-done
-  // never see the loaded words.
+  // All words available for this language pair (for reviews & option generation)
   const allWordsFiltered = useMemo(() => {
     return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [activeWords, nativeLang, targetLang, isOralMode]);
+  }, [nativeLang, targetLang, isOralMode]);
 
   // ── Review Queue Initialization & helpers ──
   const showNextReviewCard = useCallback((queue, pointer, wordStates) => {
@@ -397,9 +284,6 @@ export default function LearningPage({
     // A redirect is in-flight (e.g. the category change just triggered this re-run).
     // Skip rebuild — the upcoming category prop change will re-run this effect cleanly.
     if (reviewRedirect) return;
-    // Wait until the async word/phrase buffer has loaded — building a review
-    // queue against an empty buffer would falsely report "nothing to review".
-    if (!bufferReady) return;
     const prog = getProgress(storageKey);
     // Restrict the review pool to the selected sub-category (and level, when applicable)
     // for both global review (isReview) and categoryReviewMode. The eligible filter
@@ -448,7 +332,7 @@ export default function LearningPage({
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
     showNextReviewCard(queue, 0, reviewWordStatesRef.current);
-  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey, reviewRedirect, bufferReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey, reviewRedirect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cancel a pending redirect timer on unmount so it can't fire after we're gone.
   useEffect(() => () => {
@@ -580,7 +464,6 @@ export default function LearningPage({
   useEffect(() => {
     if (isReview) { setCategoryReviewMode(false); return; }
     if (selectedCategory === 'all') { setCategoryReviewMode(false); return; }
-    if (!bufferReady) return; // can't judge "fully learned" against an empty buffer
     const prog = getProgress(storageKey);
     let pool = activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === selectedCategory);
     if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
@@ -588,7 +471,7 @@ export default function LearningPage({
     }
     const fullyDone = pool.length > 0 && pool.every(w => prog[w.id]?.timestamp);
     setCategoryReviewMode(fullyDone);
-  }, [isReview, selectedCategory, selectedLevel, isOralMode, nativeLang, targetLang, langKey, sessionKey, bufferReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isReview, selectedCategory, selectedLevel, isOralMode, nativeLang, targetLang, langKey, sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Review mode: wordPool (unchanged) ──
   const wordPool = useMemo(() => {
@@ -598,7 +481,7 @@ export default function LearningPage({
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
     if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
     return shuffle(pool.filter(w => prog[w.id] && !prog[w.id].mastered));
-  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode, activeWords, activeWordsShuffled]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
 
   // ── Has the user ever learned ANY word in the current scope? ──
   // Used to differentiate "review complete" from "nothing to review yet": when
@@ -611,7 +494,7 @@ export default function LearningPage({
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
     if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
     return pool.some(w => prog[w.id]);
-  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode, activeWords, activeWordsShuffled]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
 
   // ── SRS Session Initialization (learning mode only) ──
   const showNextCard = useCallback(() => {
@@ -668,12 +551,6 @@ export default function LearningPage({
       return;
     }
 
-    // Hold off building the SRS session until the async buffer has loaded.
-    // Building against an empty buffer would yield an empty queue and wrongly
-    // trip the "all done" / category-done screens. sessionInitKey stays unset
-    // so the real build runs once bufferReady flips true.
-    if (!bufferReady) { sessionLoadingRef.current = true; return; }
-
     // storageKey is included so an account switch (different userScope, same
     // langs) forces a full SRS session rebuild — otherwise the in-memory
     // queue would keep showing the previous account's cards.
@@ -729,19 +606,6 @@ export default function LearningPage({
       ),
     });
 
-    // Post-streaming rebuild: keep the word the user is currently looking at
-    // pinned to the front so the full pool merges in WITHOUT swapping the
-    // visible card/image out from under them.
-    if (preserveCardRef.current) {
-      const keep = preserveCardRef.current;
-      preserveCardRef.current = null;
-      const idx = queue.findIndex(c => c.word.id === keep.word.id);
-      if (idx >= 0) {
-        queue.splice(idx, 1);
-        queue.unshift(keep);
-      }
-    }
-
     baseQueueRef.current = queue;
     baseIdxRef.current = 0;
     pendingRef.current = [];
@@ -754,7 +618,7 @@ export default function LearningPage({
     } else {
       setSrsCard(null);
     }
-  }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey, bufferReady]);
+  }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
@@ -762,25 +626,11 @@ export default function LearningPage({
     setSessionKey(k => k + 1);
   }, []);
 
-  // The first SRS session may have been built from only the initial streamed
-  // batch (so the first word paints fast). Once the FULL pool has finished
-  // streaming in, rebuild the session ONCE — but only while the user hasn't
-  // interacted yet (totalShownRef === 0), so the visible card is never swapped
-  // out from under them. If they already started, the running queue extends
-  // naturally via the category-done "学习新的" path instead.
-  useEffect(() => {
-    if (!bufferComplete || effectiveIsReview) return;
-    if (totalShownRef.current === 0) {
-      preserveCardRef.current = liveSrsCardRef.current; // keep the visible card after the rebuild
-      resetSrsSession();
-    }
-  }, [bufferComplete, effectiveIsReview, resetSrsSession]);
-
   // ── Category-done detection (SRS learning path) ──
   // Fires when the SRS session runs out of cards but more words exist globally.
   // Shows a popup with 2 actions ("重新复习" vs "学习新的") — no auto-switch.
   useEffect(() => {
-    if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current || !bufferReady) return;
+    if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
 
     const prog = getProgress(storageKey);
     const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
@@ -788,7 +638,7 @@ export default function LearningPage({
 
     completedCatNameRef.current = catLabels[selectedCategory] || '';
     setCategoryDoneVisible(true);
-  }, [srsCard, effectiveIsReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel, bufferReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [srsCard, effectiveIsReview, isVisible, langKey, allWordsFiltered, nativeLang, selectedCategory, selectedLevel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Unified currentWord ──
   const currentWord = effectiveIsReview ? (reviewCard?.word || null) : (srsCard?.word || null);
@@ -816,7 +666,7 @@ export default function LearningPage({
     if (!currentWord) return activeWords;
     const base = activeWords.filter(w => w.category === currentWord.category);
     return base.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [currentWord, nativeLang, targetLang, isOralMode, activeWords]);
+  }, [currentWord, nativeLang, targetLang, isOralMode]);
 
   const tagColorMap = useMemo(() => {
     const cats = activeCategories.filter(c => c !== 'all');
@@ -897,7 +747,7 @@ export default function LearningPage({
       return;
     }
     if (translationLang === 'ja') {
-      const jaSentence = currentWord.jaSentence;
+      const jaSentence = currentWord.jaSentence || jaData[currentWord.en]?.sentence;
       if (jaSentence) { setSentenceTranslation(jaSentence); return; }
     }
     // Fallback to API for any missing translations
@@ -1052,9 +902,6 @@ export default function LearningPage({
     if (card.type === 'new') {
       // Just learned a new word → schedule B review
       markWordLearned(card.word.id, storageKey);
-      // Persist the word object to the local learned cache (IndexedDB) so the
-      // word list & reviews can render it offline once the bundle is gone.
-      cacheLearnedWords([card.word]);
       updateWordSRS(card.word.id, { srsLevel: 0, lastReviewedAt: now }, storageKey);
 
       pendingRef.current.push({
@@ -1173,7 +1020,6 @@ export default function LearningPage({
       // delay sees this word in storage (wordlist counter otherwise stays at 0).
       if (!effectiveIsReview && srsCard?.type === 'new') {
         markWordLearned(srsCard.word.id, storageKey);
-        cacheLearnedWords([srsCard.word]);
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
@@ -1196,7 +1042,6 @@ export default function LearningPage({
       playCorrectSound();
       if (!effectiveIsReview && srsCard?.type === 'new') {
         markWordLearned(srsCard.word.id, storageKey);
-        cacheLearnedWords([srsCard.word]);
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
@@ -1244,7 +1089,6 @@ export default function LearningPage({
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();
     if (!effectiveIsReview) markWordLearned(currentWord.id, storageKey);
-    cacheLearnedWords([currentWord]);
     toggleMastered(currentWord.id, true, storageKey);
     if (effectiveIsReview) {
       const skippedId = currentWord.id;
@@ -1326,7 +1170,7 @@ export default function LearningPage({
     const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
     return `${learned}/${total}`;
-  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress, activeWords]);
+  }, [effectiveIsReview, reviewCard, currentWord, selectedCategory, selectedLevel, nativeLang, targetLang, progress]);
 
   const handleOpenCategories = useCallback(() => {
     setPendingCategory(selectedCategory);
@@ -1409,29 +1253,6 @@ export default function LearningPage({
     : pendingLevel === 'oral'
       ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh)
       : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
-
-  // ── Loading state (Phase 3) ──
-  // The word/phrase buffer is fetched asynchronously from the Edge API. Until
-  // it resolves we hold the screen so the SRS/review init doesn't run against
-  // an empty buffer and flash an erroneous "all done" / empty-review state.
-  if (!bufferReady) {
-    return (
-      <div className="flex flex-col h-full relative">
-        <div className="absolute inset-0 z-0">
-          <img
-            src={getFigmaAssetUrl(isReview ? 'vocablist-study-background.jpg' : 'study_background.jpg')}
-            alt="" className="w-full h-full object-cover"
-          />
-        </div>
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center">
-          <div
-            className="rounded-full border-[3px] border-[#2b2a26] border-t-transparent animate-spin"
-            style={{ width: 36, height: 36 }}
-          />
-        </div>
-      </div>
-    );
-  }
 
   // ── Auto-redirect banner (review only) ──
   // Shown for 1.5s when the user is in review on a specific category and either
@@ -2054,9 +1875,8 @@ export default function LearningPage({
         const detailCatLabels = CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh;
         const oralCatLabels = ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh;
 
-        // BUG FIX: Use vocab words pool for level/detail tabs regardless of current mode.
-        // Sourced from the async word buffer (Phase 3) — bundle is dev/offline fallback.
-        const vocabPool = wordSource.filter(w => isWordAvailable(w, nativeLang, targetLang));
+        // BUG FIX: Use vocab words pool for level/detail tabs regardless of current mode
+        const vocabPool = words.filter(w => isWordAvailable(w, nativeLang, targetLang));
 
         const allLevelDefs = [
           { key: 'beginner', label: 'Level 1', num: '1' },
@@ -2290,14 +2110,14 @@ export default function LearningPage({
                   {categoryTab === 'oral' && (() => {
                     // Build items: "all" card first, followed by each concrete oral category
                     const oralItems = [
-                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: phraseSource },
+                      { key: 'all', label: oralCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: oralPhrases },
                       ...oralCats.map(cat => {
                         const imgFile = oralCategoryCovers[cat];
                         return {
                           key: cat,
                           label: oralCatLabels[cat],
                           imgSrc: imgFile ? getImageUrl(imgFile) : null,
-                          pool: phraseSource.filter(w => w.category === cat),
+                          pool: oralPhrases.filter(w => w.category === cat),
                         };
                       }),
                     ];

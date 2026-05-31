@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { categories as wordCategories, oralCategories, ORAL_CATEGORY_LABELS } from '../data/contentMeta';
-import { seedWords, seedPhrases } from '../data/seed';
-import { getMeta } from '../data/wordsRepo';
-import { getAllLearnedWords, cacheLearnedWords } from '../data/learnedCache';
+import { words, categories as wordCategories } from '../data/words';
+import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { jaData } from '../data/jaData';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
+import { phoneticMap } from '../data/phonetics';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
@@ -14,14 +14,12 @@ import {
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 
-// Look up a sentence in `lang` from the word object's own fields. (Every word
-// object — seed pack, Edge API, or learned cache — carries its per-language
-// fields, so no bundle-wide jaData lookup is needed.)
+// Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
   if (!word) return '';
   if (lang === 'zh') return word.sentenceZh || '';
   if (lang === 'en') return word.sentence || '';
-  if (lang === 'ja') return word.jaSentence || '';
+  if (lang === 'ja') return word.jaSentence || jaData[word.en]?.sentence || '';
   return '';
 }
 
@@ -58,16 +56,15 @@ function prefetchTranslation(word, targetLang, nativeLang, onDone) {
     .catch(() => {});
 }
 
-function usePhonetic(word, targetLang) {
+function usePhonetic(wordEn, targetLang) {
   const [phonetic, setPhonetic] = useState('');
-  const wordEn = word?.en || '';
-  const ipa = word?.ipa;
   useEffect(() => {
     if (!wordEn) { setPhonetic(''); return; }
-    // getPhonetic reads the object's own ipa/jaReading/pinyin first; it only
-    // returns null for English words lacking ipa → those fall through to the API.
+    const word = { en: wordEn };
     const staticP = getPhonetic(word, targetLang);
     if (staticP !== null) { setPhonetic(staticP); return; }
+    const local = phoneticMap[wordEn];
+    if (local) { setPhonetic(local); return; }
     setPhonetic('');
     let cancelled = false;
     const parts = wordEn.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
@@ -84,7 +81,7 @@ function usePhonetic(word, targetLang) {
       }
     })();
     return () => { cancelled = true; };
-  }, [wordEn, ipa, targetLang]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wordEn, targetLang]);
   return phonetic;
 }
 
@@ -114,61 +111,12 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [leavingWords, setLeavingWords] = useState(new Set());
   const [pendingMasteredWords, setPendingMasteredWords] = useState(new Map()); // wordId → newMasteredState
   const [randomKey, setRandomKey] = useState(0);
-  const [cachedWords, setCachedWords] = useState(() => new Map()); // id → learned word object (IndexedDB)
-  const [meta, setMeta] = useState(null); // { languages, wordCategories, phraseCategories } — counts only
 
   useEffect(() => {
     setProgress(getProgress(langKey));
     setRevealedWords(new Set());
     setPopupWord(null);
   }, [langKey]);
-
-  // Resolve a learned id to its object from the small seed pack when the
-  // IndexedDB cache doesn't have it yet. (The full library is no longer in the
-  // bundle — Phase 4 — so only the ~30 seed words resolve this way; everything
-  // else comes from the learned-word cache, populated as the user meets words.)
-  const seedById = useMemo(() => {
-    const m = new Map();
-    for (const w of seedWords) m.set(w.id, w);
-    for (const p of seedPhrases) m.set(p.id, p);
-    return m;
-  }, []);
-
-  // Load the learned-word cache, then backfill it from the seed pack for any
-  // already-learned seed id not yet stored — so a seed word learned before the
-  // cache existed still renders.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const cache = await getAllLearnedWords();
-      if (cancelled) return;
-      const prog = getProgress(langKey);
-      const missing = [];
-      for (const id of Object.keys(prog)) {
-        if (!cache.has(id) && seedById.has(id)) missing.push(seedById.get(id));
-      }
-      if (missing.length) {
-        cacheLearnedWords(missing);
-        for (const w of missing) cache.set(w.id, w);
-      }
-      setCachedWords(cache);
-    })();
-    return () => { cancelled = true; };
-  }, [langKey, refreshKey, seedById]);
-
-  // Per-category totals come from get_meta — numbers only, never content.
-  useEffect(() => {
-    let cancelled = false;
-    getMeta({ native: nativeLang, target: targetLang })
-      .then(m => { if (!cancelled) setMeta(m); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [nativeLang, targetLang]);
-
-  const resolveWord = useCallback(
-    (id) => cachedWords.get(id) || seedById.get(id) || null,
-    [cachedWords, seedById],
-  );
 
   useEffect(() => {
     setProgress(getProgress(langKey));
@@ -178,63 +126,52 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setRevealedWords(new Set());
   }, [filter]);
 
-  // The user's learned/mastered words, enumerated from PROGRESS (not the full
-  // library) and resolved to objects via the cache (bundle as dev fallback).
-  // This is why the word-list page never needs to pull the full set.
-  const learnedObjs = useMemo(() => {
-    const prog = progress;
-    const out = [];
-    for (const id of Object.keys(prog)) {
-      const p = prog[id];
-      if (!p || (!p.timestamp && !p.mastered)) continue;
-      const w = resolveWord(id);
-      if (w && isWordAvailable(w, nativeLang, targetLang)) out.push(w);
-    }
-    return out;
-  }, [progress, resolveWord, nativeLang, targetLang]);
+  // Full pool — words + oral phrases.
+  const allWords = useMemo(() => {
+    return [...words, ...oralPhrases];
+  }, []);
+
+  const eligibleWords = useMemo(() => {
+    return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
+  }, [nativeLang, targetLang, allWords]);
 
   // Pool filtered by 单词/短语 sub-tab (used by non-gallery filters)
   const subTabPool = useMemo(() => {
-    if (subTab === 'phrases') return learnedObjs.filter(w => w.level === 'oral');
-    return learnedObjs.filter(w => w.level !== 'oral');
-  }, [learnedObjs, subTab]);
+    if (subTab === 'phrases') return eligibleWords.filter(w => w.level === 'oral');
+    return eligibleWords.filter(w => w.level !== 'oral');
+  }, [eligibleWords, subTab]);
 
   const totalLearning = useMemo(() => {
     const prog = progress;
-    return learnedObjs.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
-  }, [progress, learnedObjs]);
+    return eligibleWords.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered).length;
+  }, [progress, eligibleWords]);
 
-  // Word categories available for gallery ("all" + each category). Category
-  // KEYS/order are UI metadata (not scrapeable content), so they stay bundled.
+  // Word categories available for gallery ("all" + each category).
   const galleryCategoryList = useMemo(() => {
     return ['all', ...wordCategories.filter(c => c !== 'all')];
   }, []);
 
-  // Gallery view: learned OR mastered words (vocab only) in the selected
-  // category. Order reshuffles each time the user taps a category.
+  // Gallery view: learned OR mastered words in the selected category.
+  // Order reshuffles each time the user taps a category (galleryShuffleKey).
   const galleryWords = useMemo(() => {
-    const list = learnedObjs
-      .filter(w => w.level !== 'oral')
-      .filter(w => galleryCat === 'all' || w.category === galleryCat);
+    const prog = progress;
+    const list = words
+      .filter(w => isWordAvailable(w, nativeLang, targetLang))
+      .filter(w => galleryCat === 'all' || w.category === galleryCat)
+      .filter(w => !!prog[w.id]?.timestamp || !!prog[w.id]?.mastered);
     for (let i = list.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [list[i], list[j]] = [list[j], list[i]];
     }
     return list;
-  }, [learnedObjs, galleryCat, galleryShuffleKey]);
+  }, [progress, nativeLang, targetLang, galleryCat, galleryShuffleKey]);
 
   const galleryCategoryTotal = useMemo(() => {
-    if (meta && meta.wordCategories) {
-      if (galleryCat === 'all') return Object.values(meta.wordCategories).reduce((a, b) => a + b, 0);
-      return meta.wordCategories[galleryCat] || 0;
-    }
-    // Transient/offline fallback before get_meta arrives — the full count lives
-    // in Supabase now, so this only approximates from the small seed pack.
-    return seedWords.filter(w =>
+    return words.filter(w =>
       isWordAvailable(w, nativeLang, targetLang) &&
       (galleryCat === 'all' || w.category === galleryCat)
     ).length;
-  }, [meta, galleryCat, nativeLang, targetLang]);
+  }, [nativeLang, targetLang, galleryCat]);
 
   const wordList = useMemo(() => {
     const prog = progress;
@@ -686,7 +623,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     : '';
   const translatedSentence = staticTranslation || cachedTranslation;
 
-  const phonetic = usePhonetic(word, targetLang);
+  const phonetic = usePhonetic(word.en, targetLang);
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
