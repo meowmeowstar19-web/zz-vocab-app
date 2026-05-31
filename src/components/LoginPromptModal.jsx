@@ -335,8 +335,9 @@ export default function LoginPromptModal({
         style={{
           // Popups in this app should be at least square — width 353,
           // minHeight 353 (height ≥ width). Doc viewer gets the extra room
-          // when reading TOS / Privacy.
-          width: 353,
+          // when reading TOS / Privacy. Width clamps to the viewport on
+          // narrow phones so the card never touches the screen edges.
+          width: 'min(353px, calc(100vw - 24px))',
           minHeight: 353,
           backgroundColor: '#fff',
           border: '2px solid #000',

@@ -572,7 +572,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           onClick={() => openPicker('native')}
           className="flex items-center active:scale-[0.98]"
           style={{
-            width: 357, height: 50, flexShrink: 0,
+            width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -593,7 +593,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           onClick={() => openPicker('target')}
           className="flex items-center active:scale-[0.98]"
           style={{
-            width: 357, height: 50, flexShrink: 0,
+            width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -617,7 +617,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           disabled={pwaInstalled}
           className={'flex items-center' + (pwaInstalled ? '' : ' active:scale-[0.98]')}
           style={{
-            width: 357, height: 50, flexShrink: 0,
+            width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -644,7 +644,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           onClick={openFeedbackModal}
           className="flex items-center active:scale-[0.98]"
           style={{
-            width: 357, height: 50, flexShrink: 0,
+            width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
@@ -667,7 +667,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         <div
           className="flex items-center"
           style={{
-            width: 357, height: 50, flexShrink: 0,
+            width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
             border: '2px solid #000',
             borderRadius: 100,
