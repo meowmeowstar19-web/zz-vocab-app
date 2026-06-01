@@ -7,18 +7,30 @@ import { syncOnLogin } from '../utils/progressSync';
 import { primeAudio } from '../hooks/useAudio';
 import { getFigmaAssetUrl } from '../utils/assetUrl';
 
-// Email-only OTP login. No password — the same flow covers both first-time
-// signup and returning sign-in (Supabase's signInWithOtp with
-// shouldCreateUser:true sends an OTP regardless of whether the account exists).
+// Email OTP login with two distinct paths, selected by `bindFlow`:
 //
-// `bindFlow` (passed in from LoginPromptModal) flips this page from "normal
-// first-time login" to "guest is binding onto a real account". In bind mode,
-// we route through updateUser({ email }) on the anonymous session, then verify
-// with type='email_change'. After auth succeeds we run syncOnLogin *inline* —
-// if the target account already has cloud progress, we sign out, keep the
-// user on this form, and surface an in-form error so they can change the
-// email and retry. Without this, App.jsx's global onAuthStateChange listener
-// would catch the rejection after the modal has already closed.
+//  - LOGIN (bindFlow=false): a fresh sign-in / first-time signup. We sign out
+//    any anon session and call signInWithOtp({ shouldCreateUser:true }), which
+//    mints a brand-new user (new UID) and emails an OTP under the
+//    "Confirm signup" template. Verified with type='email'.
+//
+//  - BIND (bindFlow=true): a guest is converting their anonymous account into
+//    a real email-backed one. We call updateUser({ email }) on the LIVE anon
+//    session, which PRESERVES the anon UID, then verify with
+//    type='email_change'. Because the UID is unchanged, syncOnLogin's bind
+//    branch merges progress in place (fromScope === toScope) — there is no
+//    scope migration and no signout machinery to coordinate.
+//
+//    Dashboard prerequisite: updateUser({ email }) triggers Supabase's
+//    "Change Email Address" template, NOT "Confirm signup". Copy the
+//    Confirm-signup body into the Change-Email slot (keep {{ .Token }}) so the
+//    OTP still arrives.
+//
+// After bind auth succeeds we run syncOnLogin *inline* — if the target account
+// already has cloud progress, we sign out, keep the user on this form, and
+// surface an in-form error so they can change the email and retry. Without
+// this, App.jsx's global onAuthStateChange listener would catch the rejection
+// after the modal has already closed.
 export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bindFlow = false }) {
   const posthog = usePostHog();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
@@ -67,15 +79,28 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     }
     setLoading(true);
     try {
-      // Unified flow for both login and bind: signInWithOtp uses the standard
-      // "Your PlushieWord verification code" template. updateUser({ email })
-      // would trigger the "Change Email Address" template instead — wrong.
+      // BIND: convert the live anonymous session in place. updateUser({ email })
+      // keeps the same UID, so no signout, no scope migration, no migration
+      // flags. updateUser needs an active session (Rule A) — if somehow signed
+      // out, mint a fresh anon first.
+      if (bindFlow) {
+        const { data: { session: cur } } = await supabase.auth.getSession();
+        if (!cur) await supabase.auth.signInAnonymously();
+        const { error } = await supabase.auth.updateUser({ email: emailVal });
+        if (error) throw error;
+        setStep('verify');
+        setCode('');
+        return;
+      }
+
+      // LOGIN: signInWithOtp uses the standard "Confirm signup" verification
+      // code template (shouldCreateUser:true always mints a new email).
       //
       // BUT: signInWithOtp silently no-ops (returns success with no email
       // actually sent) when an authenticated session is already active. App.jsx
-      // mints an anonymous session for every guest, so we hit that case on both
-      // entry points. Sign out the anon session first, then call the OTP API
-      // on a clean (unauthenticated) state.
+      // mints an anonymous session for every guest, so we hit that case on the
+      // login entry point too. Sign out the anon session first, then call the
+      // OTP API on a clean (unauthenticated) state.
       //
       // While signed out we set `app_logged_out=1` so App.jsx's anon-creation
       // useEffect doesn't immediately re-mint a new anon between signOut and
@@ -87,6 +112,14 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
       if (cur && cur.user.is_anonymous) {
         try { localStorage.setItem('app_anon_data_to_migrate', `u_${cur.user.id}`); } catch {}
         try { localStorage.setItem('app_logged_out', '1'); } catch {}
+        // app_logged_out alone does NOT stop App's anon re-mint for returning
+        // users: that guard also checks `app_had_account !== '1'`, which is
+        // sticky-true once the device has ever held a real account. Without a
+        // dedicated flag, App mints a fresh anon between this signOut and
+        // verifyOtp — and that late anon sign-in can clobber the just-verified
+        // email session (dropping the user into an empty guest scope) or
+        // shuffle the guest-scope pointer so syncOnLogin reads the wrong slot.
+        try { localStorage.setItem('app_email_auth_pending', '1'); } catch {}
         await intentionalSignOut();
       }
       const { error } = await supabase.auth.signInWithOtp({
@@ -100,6 +133,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
         // Restore guest-able state so back-button drops the user into anon
         // mode with their progress intact.
         try { localStorage.removeItem('app_logged_out'); } catch {}
+        try { localStorage.removeItem('app_email_auth_pending'); } catch {}
         throw error;
       }
       setStep('verify');
@@ -123,14 +157,13 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
       try { localStorage.setItem('bind_inline_active', '1'); } catch {}
     }
     try {
-      // Both flows now go through signInWithOtp, so verifyOtp always uses
-      // type='email' — type='email_change' would be wrong here (no email
-      // change was initiated; the prior anon session is simply replaced
-      // by the verified user's session).
+      // BIND went through updateUser({ email }), which is an email-change on the
+      // anon session → type='email_change'. LOGIN went through signInWithOtp →
+      // type='email'.
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: trimmed,
-        type: 'email',
+        type: bindFlow ? 'email_change' : 'email',
       });
       if (error) {
         if (/expired|invalid|incorrect/i.test(error.message)) {
@@ -156,12 +189,14 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     resetMessages();
     setLoading(true);
     try {
-      // Same unified path as initial send — re-issuing signInWithOtp produces
-      // a fresh code under the standard verification-code template.
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: true },
-      });
+      // Mirror the send path: bind re-issues the email-change OTP, login
+      // re-issues the signup OTP.
+      const { error } = bindFlow
+        ? await supabase.auth.resend({ type: 'email_change', email })
+        : await supabase.auth.signInWithOtp({
+            email,
+            options: { shouldCreateUser: true },
+          });
       if (error) throw error;
       setInfo(t.codeResent);
     } catch (err) {
@@ -194,6 +229,7 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
   // (white background + tiny phone shell — looks like a white screen).
   const handleBack = () => {
     try { localStorage.removeItem('app_logged_out'); } catch {}
+    try { localStorage.removeItem('app_email_auth_pending'); } catch {}
     (async () => {
       try {
         const { data: { session: cur } } = await supabase.auth.getSession();

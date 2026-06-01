@@ -229,6 +229,19 @@ export default function LearningPage({
   const sessionInitKey = useRef(''); // to detect when session should rebuild
   const sessionLoadingRef = useRef(false); // true while session is being (re)built — blocks category-done false-positive
 
+  // Always call the LATEST requestNextWord. The click handlers below are
+  // useCallbacks keyed on storageKey (among others); after a UID-preserving
+  // bind (guest → email account via updateUser), storageKey does NOT change,
+  // so those handlers are never recreated and would otherwise keep calling the
+  // stale requestNextWord closure captured while the session was still
+  // anonymous. That stale closure sees is_anonymous + the freshly-set
+  // app_had_account flag and re-opens the gate on every click (which the gate
+  // auto-close effect instantly dismisses) — clicks silently no-op until a
+  // refresh remounts the page. Routing through a ref keeps the closure live.
+  const requestNextWordRef = useRef(requestNextWord);
+  useEffect(() => { requestNextWordRef.current = requestNextWord; });
+  const guardNextWord = () => requestNextWordRef.current && requestNextWordRef.current() === false;
+
   // ── Review Queue State ──
   const reviewQueueRef = useRef([]);       // [{word}] current cycle's queue
   const reviewPointerRef = useRef(0);      // current position in queue
@@ -1008,7 +1021,7 @@ export default function LearningPage({
     if (isCorrect) return;
     // Guest past today's limit: pop the gate, drop the click. The current
     // word stays visible behind the modal — no answer registers, no advance.
-    if (requestNextWord && requestNextWord() === false) return;
+    if (guardNextWord()) return;
     triggerAnim(option);
     const correctAnswer = getWordText(currentWord, nativeLang);
     if (option === correctAnswer) {
@@ -1034,7 +1047,7 @@ export default function LearningPage({
 
   const handleImageClick = useCallback((optWord) => {
     if (isCorrect) return;
-    if (requestNextWord && requestNextWord() === false) return;
+    if (guardNextWord()) return;
     triggerAnim(`img-${optWord.id}`);
     if (optWord.id === currentWord.id) {
       posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
@@ -1056,7 +1069,7 @@ export default function LearningPage({
   // ── D mode handlers ──
   const handleDKnow = useCallback(() => {
     if (!currentWord) return;
-    if (requestNextWord && requestNextWord() === false) return;
+    if (guardNextWord()) return;
     posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dKnow');
     playCorrectSound();
@@ -1066,7 +1079,7 @@ export default function LearningPage({
 
   const handleDDontKnow = useCallback(() => {
     if (!currentWord) return;
-    if (requestNextWord && requestNextWord() === false) return;
+    if (guardNextWord()) return;
     posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dDontKnow');
     playWrongSound();
@@ -1083,7 +1096,7 @@ export default function LearningPage({
 
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
-    if (requestNextWord && requestNextWord() === false) return;
+    if (guardNextWord()) return;
     posthog?.capture('word_skipped', { word: currentWord?.en, is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);

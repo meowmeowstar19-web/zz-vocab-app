@@ -351,9 +351,6 @@ export default function App() {
   const [vpH, setVpH] = useState(() => window.innerHeight);
   // Daily check-in popup: null when hidden, number = login-day count when shown
   const [checkinDay, setCheckinDay] = useState(null);
-  // Shown when the user tried to bind from guest mode onto an account that
-  // already has cloud progress. Toast message; null = hidden.
-  const [bindToast, setBindToast] = useState(null);
   // Whether the PWA is already installed — hides the "add to home screen" hint
   // inside the check-in popup. Initial sync check covers all browsers when
   // running in standalone mode; the async getInstalledRelatedApps probe below
@@ -570,11 +567,6 @@ export default function App() {
         // are global, not per-user), so we don't need to re-prompt them with
         // the LangSetup wizard. Mark this account as onboarded.
         try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
-        // Surface a brief congrats toast — covers all bind-success paths
-        // (linkIdentity OAuth return, updateUser email signup, email-code
-        // verify) since runSyncOrReject is the single funnel for them all.
-        setBindToast((UI_TEXT[nativeLang] || UI_TEXT.en).bindSuccessToast
-          || 'Account created!');
         posthog?.capture('bind_account_success');
       }
     } finally {
@@ -722,6 +714,8 @@ export default function App() {
         // logout. Only a real sign-in should clear it.
         if (!s.user.is_anonymous) {
           try { localStorage.removeItem('app_logged_out'); } catch {}
+          // OTP verify landed a real session — the email-auth window is over.
+          try { localStorage.removeItem('app_email_auth_pending'); } catch {}
           // Sticky marker: once this device has ever held a real (non-anon)
           // session, remember it forever. Drives the gate modal to open in
           // "Sign in" mode with a "welcome back" subtitle on subsequent
@@ -788,6 +782,17 @@ export default function App() {
       if (localStorage.getItem('app_logged_out') === '1'
           && localStorage.getItem('app_had_account') !== '1') return;
     } catch {}
+    // EmailLoginPage signs out the anon session before signInWithOtp and sets
+    // this flag for the duration of the OTP send→verify window. We MUST NOT
+    // mint a replacement anon here: a late anon sign-in would race verifyOtp
+    // and either clobber the freshly-verified email session or move the
+    // guest-scope data out from under syncOnLogin. The guard above is not
+    // enough — returning users have app_had_account=1, which bypasses it.
+    // Cleared on verify success (onAuthStateChange real login), on back, and
+    // on modal close.
+    try {
+      if (localStorage.getItem('app_email_auth_pending') === '1') return;
+    } catch {}
     if (anonInFlight.current) return;
     anonInFlight.current = true;
     setAnonAttemptFailed(false);
@@ -829,13 +834,6 @@ export default function App() {
       dispatchLoginModal({ type: 'close' });
     }
   }, [session, loginModal.open, loginModal.surface, loginModal.error, loginModal.pending]);
-
-  // Auto-dismiss the bind-rejected toast after a few seconds.
-  useEffect(() => {
-    if (!bindToast) return;
-    const id = setTimeout(() => setBindToast(null), 4200);
-    return () => clearTimeout(id);
-  }, [bindToast]);
 
   // Background sync: while signed in (NON-anon), pull-merge-push the local
   // snapshot against the cloud row on relevant lifecycle events. Anon users
@@ -1496,6 +1494,10 @@ export default function App() {
               // Gate surface uses handleGateDismiss semantics; Settings just
               // closes. Both end up in the same 'close' dispatch.
               dispatchLoginModal({ type: 'close' });
+              // Safety net: if the user dismisses mid email-OTP flow (e.g.
+              // after a bind rejection) without using the in-form back button,
+              // clear the suppression flag so the anon session can re-mint.
+              try { localStorage.removeItem('app_email_auth_pending'); } catch {}
             }}
             onLoggedIn={() => dispatchLoginModal({ type: 'close' })}
             // linkIdentity errors synchronously when there's no session or
@@ -1511,16 +1513,6 @@ export default function App() {
           />
         )}
 
-        {/* Bind-rejected toast (account already has cloud progress). Surfaces
-            above every page so it's visible whether the user lands back on
-            Settings, Welcome, or anywhere else after the soft signOut. */}
-        {bindToast && (
-          <div
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[70] max-w-[340px] px-[18px] py-[12px] rounded-[14px] bg-black/85 text-white text-[13px] text-center leading-snug shadow-lg pointer-events-none"
-          >
-            {bindToast}
-          </div>
-        )}
       </div>
       <Analytics />
     </div>
