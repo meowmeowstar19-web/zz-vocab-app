@@ -1025,7 +1025,7 @@ export default function LearningPage({
     triggerAnim(option);
     const correctAnswer = getWordText(currentWord, nativeLang);
     if (option === correctAnswer) {
-      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'choice', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'choice', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(true);
       playCorrectSound();
@@ -1036,7 +1036,7 @@ export default function LearningPage({
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
-      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(false);
       playWrongSound();
@@ -1050,7 +1050,7 @@ export default function LearningPage({
     if (guardNextWord()) return;
     triggerAnim(`img-${optWord.id}`);
     if (optWord.id === currentWord.id) {
-      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(true);
       playCorrectSound();
       if (!effectiveIsReview && srsCard?.type === 'new') {
@@ -1058,7 +1058,7 @@ export default function LearningPage({
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
-      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(false);
       playWrongSound();
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
@@ -1070,7 +1070,7 @@ export default function LearningPage({
   const handleDKnow = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dKnow');
     playCorrectSound();
     dModeResultRef.current = 'know';
@@ -1080,7 +1080,7 @@ export default function LearningPage({
   const handleDDontKnow = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dDontKnow');
     playWrongSound();
     dModeResultRef.current = 'dontknow';
@@ -1097,7 +1097,7 @@ export default function LearningPage({
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_skipped', { word: currentWord?.en, is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_skipped', { word: currentWord?.en, content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();

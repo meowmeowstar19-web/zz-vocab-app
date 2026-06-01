@@ -198,7 +198,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
     const newMastered = !currentMastered;
-    posthog?.capture('word_mastered_toggled', { word_id: wordId, mastered: newMastered, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_mastered_toggled', { word_id: wordId, mastered: newMastered, content_type: subTab === 'phrases' ? 'phrase' : 'word', native_lang: nativeLang, target_lang: targetLang });
 
     // Step 1: show new check state visually (word stays in list, no storage update yet)
     setPendingMasteredWords(prev => new Map(prev).set(wordId, newMastered));
@@ -215,7 +215,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         setProgress(getProgress(langKey));
       }, 400);
     }, 300);
-  }, [progress, langKey]);
+  }, [progress, langKey, subTab]);
 
   const handleTapWord = useCallback((word) => {
     if (!revealedWords.has(word.id)) {
