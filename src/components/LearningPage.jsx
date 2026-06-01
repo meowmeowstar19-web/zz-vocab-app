@@ -1938,13 +1938,13 @@ export default function LearningPage({
           <button key={key} ref={isSelected ? selectedCatCardRef : null} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
               position: 'relative',
-              width: 102, boxSizing: 'border-box', backgroundColor: '#fbf2e2',
+              width: '100%', boxSizing: 'border-box', backgroundColor: '#fbf2e2',
               border: `2px solid ${isSelected ? '#FFDF4E' : '#000'}`,
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '4px 6px 8px',
             }}>
               {/* Category image */}
-              <div style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', backgroundColor: imageContain ? '#fff' : '#e8dcc8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: 10, overflow: 'hidden', backgroundColor: imageContain ? '#fff' : '#e8dcc8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {imgSrc ? (
                   imageContain ? (
                     <img src={imgSrc} alt={label} style={{ width: '55%', height: '68%', objectFit: 'contain' }} />
@@ -2057,7 +2057,7 @@ export default function LearningPage({
 
                   {/* === LEVEL TAB === */}
                   {categoryTab === 'level' && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 332, margin: '0 auto' }}>
                       {levelItems.map((lv, idx) => {
                         const isSelected = pendingLevel === lv.key && categoryTab === 'level';
                         const pool = vocabPool.filter(w => w.level === lv.key);
@@ -2095,7 +2095,7 @@ export default function LearningPage({
                       }),
                     ];
                     return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 332, margin: '0 auto' }}>
                         {detailItems.map((item, idx) => {
                           const isSelected = pendingCategory === item.key && categoryTab === 'detail';
                           const prog = getCatProgress(item.pool);
@@ -2135,7 +2135,7 @@ export default function LearningPage({
                       }),
                     ];
                     return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'flex-start', maxWidth: 332, margin: '0 auto' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 332, margin: '0 auto' }}>
                         {oralItems.map((item, idx) => {
                           const isSelected = pendingCategory === item.key && categoryTab === 'oral';
                           const prog = getCatProgress(item.pool);
