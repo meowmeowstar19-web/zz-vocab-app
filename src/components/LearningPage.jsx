@@ -156,7 +156,8 @@ export default function LearningPage({
   const setShowCategories = useCallback((val) => {
     _setShowCategories(val);
     onCategoryModalChange?.(val);
-  }, [onCategoryModalChange]);
+    if (val) posthog?.capture('category_opened', { content_type: isOralMode ? 'phrase' : 'word', native_lang: nativeLang, target_lang: targetLang });
+  }, [onCategoryModalChange, posthog, isOralMode, nativeLang, targetLang]);
   const [categoryTab, setCategoryTab] = useState('detail'); // 'detail' | 'oral' (level tab hidden)
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
