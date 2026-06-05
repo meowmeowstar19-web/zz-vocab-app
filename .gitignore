@@ -14,20 +14,12 @@ dist
 .~lock.*#
 ~$*
 
-# Archived originals from sync-data.mjs (we keep the compressed versions in public/images/)
-update_data_folder/_processed_images/
+# Images of words deleted from WordList.xlsx (kept locally for recovery, not a published final)
+_deleted-images/
 
-# Images of words deleted from WordList.xlsx (kept locally for recovery)
-update_data_folder/deleted_image/
-
-# Source audio files (we keep the compressed versions in public/assets/audio/)
-update_data_folder/audio/
-
-# Drop zone for new audio recordings; consumed by scripts/sync-updated-audio.mjs
-update_data_folder/updated_audio/
-
-# Canonical uncompressed audio archive (compressed copies live in public/assets/audio/)
-audio-未压缩-原版/
+# Retired: update_data_folder/ is gone — content/ holds the canonical xlsx now.
+# (Big marketing video pipeline lives outside the app; never commit it.)
+social-video/
 
 # Local scratch / work-in-progress files (not used by the app)
 confirmed_images/
