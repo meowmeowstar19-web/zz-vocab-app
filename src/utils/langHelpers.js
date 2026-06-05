@@ -63,7 +63,15 @@ export function getPhonetic(word, targetLang) {
 }
 
 // ── Check if a word has valid data for both languages ──
+// Phase 4: availability is PER-LANGUAGE. `word.langs` lists the languages whose
+// full 3-piece set (word + phonetic + example) is present; a pair can show the
+// word only if BOTH sides are in that list. Words without `langs` (e.g. oral
+// phrases) fall back to a plain word-text check.
 export function isWordAvailable(word, nativeLang, targetLang) {
+  if (!word) return false;
+  if (Array.isArray(word.langs)) {
+    return word.langs.includes(nativeLang) && word.langs.includes(targetLang);
+  }
   return !!(getWordText(word, nativeLang) && getWordText(word, targetLang));
 }
 
@@ -223,7 +231,6 @@ export const UI_TEXT = {
     loginTitle: '登录已有账号',
     loginWelcomeBackSubtitle: '欢迎回来呀！小伙伴们都在等你呢～',
     bindAccountTakenToast: '该账号已存在，请换一个全新账号来绑定哦',
-    bindSuccessToast: '恭喜成功创建新账号 :D',
     sessionExpiredTitle: '会话已过期',
     sessionExpiredBody: '为了你的账号安全，请重新登录一下',
     sessionExpiredBtn: '确认',
@@ -355,7 +362,6 @@ export const UI_TEXT = {
     loginTitle: 'Sign in to your existing account',
     loginWelcomeBackSubtitle: "Welcome back — we've missed you!",
     bindAccountTakenToast: 'This account is already registered. Please link a brand-new account.',
-    bindSuccessToast: 'Account created! :D',
     sessionExpiredTitle: 'Session Expired',
     sessionExpiredBody: 'For your account security, please log in again.',
     sessionExpiredBtn: 'OK',
@@ -487,7 +493,6 @@ export const UI_TEXT = {
     loginTitle: '既存のアカウントにログイン',
     loginWelcomeBackSubtitle: 'おかえりなさい〜 みんな待ってたよ！',
     bindAccountTakenToast: 'このアカウントは既に登録されています。新しいアカウントで連携してください。',
-    bindSuccessToast: 'アカウント作成完了 :D',
     sessionExpiredTitle: 'セッションの有効期限切れ',
     sessionExpiredBody: 'アカウントの安全のため、再度ログインしてください',
     sessionExpiredBtn: 'OK',

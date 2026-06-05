@@ -2,9 +2,10 @@
 // ============================================================================
 // VocabWorkspace Data Sync
 // ----------------------------------------------------------------------------
-// Reads update_data_folder/{WordList,PhraseList}.xlsx,
-// regenerates src/data/{words,jaData,oralPhrases,categoryCovers}.js,
-// compresses and moves images from updated_image/ to public/images/,
+// Reads the 工厂 (data_prep) {WordList,PhraseList,category}.xlsx via the shared
+// path key (Phase 3), regenerates src/data/{words,jaData,oralPhrases,categoryCovers}.js,
+// compresses and moves images from updated_image/ to public/images/ (image wiring
+// to the factory is reworked in publish-all, Phase 3C),
 // archives processed originals, and (with --auto) git commits + pushes.
 // ============================================================================
 
@@ -20,18 +21,30 @@ import { execSync, execFileSync } from 'node:child_process';
 import readline from 'node:readline';
 import { audioKey } from '../src/utils/audioKey.js';
 import { hashedImageName, slugifyEn } from './imageName.mjs';
+// 内容工厂 Phase 3：数据源从 update_data_folder 中转站改为「工厂」(data_prep)。
+// 路径走共享路径钥匙，搬文件夹时一处改、全局生效。
+import {
+  WORDLIST_FILE, PHRASELIST_FILE, CATEGORY_FILE, IMAGES_WORD_DIR, EAGLE_INBOX_DIR,
+} from '../../data_prep/scripts/paths.mjs';
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const DATA_DIR = join(ROOT, 'update_data_folder');
-const VOCAB_XLSX = join(DATA_DIR, 'WordList.xlsx');
-const ORAL_XLSX = join(DATA_DIR, 'PhraseList.xlsx');
-const CATEGORY_XLSX = join(DATA_DIR, 'category.xlsx');
-const IMG_IN = join(DATA_DIR, 'updated_image');
+// Phase 3：三个数据源 xlsx 直接读工厂（按表头名读，列顺序无所谓）。
+const VOCAB_XLSX = WORDLIST_FILE;
+const ORAL_XLSX = PHRASELIST_FILE;
+const CATEGORY_XLSX = CATEGORY_FILE;
+// Phase 3：单词图只从工厂的「已确认」桶 Confirmed 取（用户拍板：以 Confirmed 为准）。
+// 发布后原版图挪进工厂 eagle-inbox（待用户整批拖进 Eagle 存档）。
+// 要加别的桶（如 新_Confirmed）只需往这个数组里加一行。
+const IMG_IN_DIRS = [
+  join(IMAGES_WORD_DIR, 'Confirmed'),
+];
 const IMG_OUT = join(ROOT, 'public', 'images');
 const AUDIO_OUT = join(ROOT, 'public', 'assets', 'audio');
-const PROCESSED_DIR = join(DATA_DIR, '_processed_images');
+// Phase 3：已发布的原版图挪进工厂 eagle-inbox（用户整批拖进 Eagle 存档后清空）。
+const PROCESSED_DIR = EAGLE_INBOX_DIR;
 const DELETED_DIR = join(DATA_DIR, 'deleted_image');
 const SRC_DATA = join(ROOT, 'src', 'data');
 
@@ -83,6 +96,34 @@ const VOCAB_REQUIRED_COLS = [
   '英语音标', '单词中文翻译', '中文拼音', '例句中文翻译',
   '单词日语翻译', '日语音标', '例句日语翻译',
 ];
+// Phase 4: the "WordMarketing" tab holds hot-topic words (World Cup / NBA …).
+// To go live a marketing word must clear the SAME bar as a core word: a Confirmed
+// image PLUS the full 3-piece set (word + phonetic + example) in every language —
+// i.e. it uses VOCAB_REQUIRED_COLS, NOT a relaxed gate. Marketing words that are
+// still missing sentences/phonetics simply don't emit yet; they flow in
+// automatically once the content (and image) is complete. (User rule 2026-06-05:
+// 上线的单词一定要图 + 各语言三件套都齐全。)
+const MARKETING_SHEET = 'WordMarketing';
+
+// Phase 4 — PER-LANGUAGE availability (user rule 2026-06-05). A language is
+// "live" for a word only when THAT language's own 3-piece set is present in the
+// source: word + phonetic + example. Languages are INDEPENDENT — a word with
+// complete zh/en/ja but only a bare word in Korean goes live in zh/en/ja and NOT
+// Korean. The app currently ships en/zh/ja; when a new language is added to the
+// app it gets its own 3 source columns and an entry here (+ langHelpers.LANGUAGES).
+const LANG_PIECES = {
+  en: ['en', 'ipa', 'sentence'],          // English / 英语音标 / Example
+  zh: ['zh', 'pinyin', 'sentenceZh'],     // 单词中文翻译 / 中文拼音 / 例句中文翻译
+  ja: ['ja', 'jaReading', 'jaSentence'],  // 单词日语翻译 / 日语音标 / 例句日语翻译
+};
+function wordLangs(entry) {
+  return Object.keys(LANG_PIECES).filter(L =>
+    LANG_PIECES[L].every(f => String(entry[f] || '').trim()));
+}
+// A vocab word ships when it has ≥2 live languages (so at least one of the
+// cross-language modes can show it). The image filter in main() is the other
+// half of the gate — 没图不上线.
+const MIN_LIVE_LANGS = 2;
 const PHRASE_REQUIRED_COLS = [
   'English', 'Example', 'Category', 'Level',
   '英语音标', '短语中文翻译', '中文拼音', '例句中文翻译',
@@ -318,50 +359,79 @@ function readVocab() {
   if (!existsSync(VOCAB_XLSX)) throw new Error(`Missing file: ${VOCAB_XLSX}`);
 
   const wb = XLSX.readFile(VOCAB_XLSX);
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
   const words = [];
   const allRows = []; // all rows including those without sentences (for pinyin/phonetics)
   const unknownCats = new Set();
   let incomplete = 0;
 
-  for (const row of rows) {
-    const en = String(row['English'] || '').trim();
-    if (!en) continue;
+  // Phase 4: read the core "单词" tab AND the "WordMarketing" tab. Both share the
+  // same column layout (Phase 2 merge), so one loop handles both — the only
+  // difference is the tier. The completeness gate is identical and PER-LANGUAGE
+  // (wordLangs / MIN_LIVE_LANGS): a word ships with whichever languages have a
+  // full 3-piece set, independent of the others.
+  const sources = [
+    { ws: wb.Sheets[wb.SheetNames[0]], isMarketing: false },
+  ];
+  if (wb.Sheets[MARKETING_SHEET]) {
+    sources.push({ ws: wb.Sheets[MARKETING_SHEET], isMarketing: true });
+  }
 
-    const rawCat = String(row['Category'] || '').trim();
-    const cat = VOCAB_CATEGORY_MAP[rawCat] || rawCat.toLowerCase();
-    if (!VOCAB_CATEGORY_MAP[rawCat] && rawCat) unknownCats.add(rawCat);
+  for (const src of sources) {
+    const rows = XLSX.utils.sheet_to_json(src.ws, { defval: '' });
 
-    const lvlNum = Number(row['Level']) || 1;
-    const lvl = LEVEL_MAP[lvlNum] || 'beginner';
+    for (const row of rows) {
+      const en = String(row['English'] || '').trim();
+      if (!en) continue;
 
-    const sentence = String(row['Example'] || '').trim();
+      const rawCat = String(row['Category'] || '').trim();
+      const cat = VOCAB_CATEGORY_MAP[rawCat] || rawCat.toLowerCase();
+      // Don't warn on marketing topic categories — they're intentionally not in
+      // VOCAB_CATEGORY_MAP (each hot topic is its own category key).
+      if (!src.isMarketing && !VOCAB_CATEGORY_MAP[rawCat] && rawCat) unknownCats.add(rawCat);
 
-    const entry = {
-      en,
-      zh:          String(row['单词中文翻译'] || row['Chinese (中文)'] || '').trim(),
-      category:    cat,
-      level:       lvl,
-      sentence,
-      sentenceZh:  String(row['例句中文翻译'] || row['Example CN (例句中文)'] || '').trim(),
-      img:         imgName(en),
-      ja:          String(row['单词日语翻译'] || row['Japanese (日本語)'] || '').trim(),
-      jaReading:   String(row['日语音标'] || row['Japanese Reading (日语音标)'] || '').trim(),
-      jaSentence:  String(row['例句日语翻译'] || row['Example JP (例句日語)'] || '').trim(),
-      pinyin:      String(row['中文拼音'] || row['Chinese Pinyin (拼音)'] || '').trim(),
-      ipa:         String(row['英语音标'] || row['English IPA (音标)'] || '').trim(),
-    };
+      const lvlNum = Number(row['Level']) || 1;
+      const lvl = LEVEL_MAP[lvlNum] || 'beginner';
 
-    allRows.push(entry);
+      const sentence = String(row['Example'] || '').trim();
 
-    // Only include words whose every content column is filled. Image presence
-    // is checked separately in main() once images have been processed.
-    if (rowComplete(row, VOCAB_REQUIRED_COLS)) {
-      words.push(entry);
-    } else {
-      incomplete++;
+      // tier: core words come from the main tab; marketing words are 'specific'
+      // when the "specific" switch column is filled, else 'themed'.
+      const tier = src.isMarketing
+        ? (String(row['specific'] || '').trim() ? 'specific' : 'themed')
+        : 'core';
+
+      const entry = {
+        en,
+        zh:          String(row['单词中文翻译'] || row['Chinese (中文)'] || '').trim(),
+        category:    cat,
+        level:       lvl,
+        sentence,
+        sentenceZh:  String(row['例句中文翻译'] || row['Example CN (例句中文)'] || '').trim(),
+        img:         imgName(en),
+        ja:          String(row['单词日语翻译'] || row['Japanese (日本語)'] || '').trim(),
+        jaReading:   String(row['日语音标'] || row['Japanese Reading (日语音标)'] || '').trim(),
+        jaSentence:  String(row['例句日语翻译'] || row['Example JP (例句日語)'] || '').trim(),
+        pinyin:      String(row['中文拼音'] || row['Chinese Pinyin (拼音)'] || '').trim(),
+        ipa:         String(row['英语音标'] || row['English IPA (音标)'] || '').trim(),
+        tier,
+        // concept: rare manual override to force-merge synonyms whose Chinese
+        // translations differ (see project_content_factory_refactor). Blank 99.9%.
+        concept:     String(row['concept'] || row['Concept'] || '').trim(),
+        subcategory: String(row['Subcategory'] || '').trim(),
+      };
+      // langs: the languages this word is live in (per-language 3-piece gate).
+      entry.langs = wordLangs(entry);
+
+      allRows.push(entry);
+
+      // Ship a word once ≥2 languages are live (so a cross-language mode exists).
+      // Image presence is the other half of the gate, checked in main().
+      if (entry.langs.length >= MIN_LIVE_LANGS) {
+        words.push(entry);
+      } else {
+        incomplete++;
+      }
     }
   }
 
@@ -370,10 +440,10 @@ function readVocab() {
     unknownCats.forEach(c => console.log(`     · ${c}`));
   }
   if (incomplete > 0) {
-    log.info(`Skipped ${incomplete} incomplete vocab row(s) (one or more required columns blank)`);
+    log.info(`Skipped ${incomplete} vocab row(s) with <${MIN_LIVE_LANGS} live languages (need a full 3-piece set in ≥${MIN_LIVE_LANGS} languages)`);
   }
 
-  log.ok(`Parsed ${words.length} complete vocab entries (${allRows.length} total rows)`);
+  log.ok(`Parsed ${words.length} shippable vocab entries (${allRows.length} total rows)`);
   return { words, allRows };
 }
 
@@ -510,7 +580,7 @@ function ensureCategoryXlsx(words, phrases) {
 
   // ── Write back to category.xlsx if anything changed ───────────────────────
   if (changed) {
-    const lockFile = join(DATA_DIR, `~$${basename(CATEGORY_XLSX)}`);
+    const lockFile = join(dirname(CATEGORY_XLSX), `~$${basename(CATEGORY_XLSX)}`);
     if (existsSync(lockFile)) {
       log.err(`category.xlsx is open in Excel — close it and re-run`);
       throw new Error('Excel has category.xlsx open — close it and re-run');
@@ -658,8 +728,35 @@ function filterPhrasesWithAudio(phrases) {
   return kept;
 }
 
+// Assign a stable, collision-safe id to every word (build-time).
+// id = slug(en) — identical to the previous runtime formula, so existing words
+// keep their ids byte-for-byte. Disambiguation only kicks in when two words
+// share an English spelling but mean different things (different Chinese), e.g.
+// bat/蝙蝠 vs bat/球棒 → "bat" and "bat-2". The representative tier (core) keeps
+// the clean base id; same en + same zh = same concept = same id (intentional
+// merge, e.g. player in both People and World Cup categories).
+function assignWordIds(words) {
+  const byBase = new Map(); // base slug → [{ key, id }] per distinct concept
+  // Process core tier first so core entries keep the clean base id (stable sort).
+  const order = [...words].sort((a, b) => (a.tier === 'core' ? 0 : 1) - (b.tier === 'core' ? 0 : 1));
+  for (const w of order) {
+    const base = slugifyEn(w.en);
+    const key = `${w.en.toLowerCase().trim()}|${w.zh.trim()}`;
+    let group = byBase.get(base);
+    if (!group) { group = []; byBase.set(base, group); }
+    const existing = group.find(g => g.key === key);
+    if (existing) { w.id = existing.id; continue; }
+    const id = group.length === 0 ? base : `${base}-${group.length + 1}`;
+    group.push({ key, id });
+    w.id = id;
+  }
+}
+
 // ── Generate src/data/words.js ──────────────────────────────────────────────
-function writeWordsJs(words, catOrder) {
+// buildWordsJs returns the file SOURCE (pure, side-effect free) so it can be
+// unit-tested with synthetic data; writeWordsJs wraps it with the disk write.
+function buildWordsJs(words, catOrder) {
+  assignWordIds(words);
   // catOrder: explicit category order from "Categories" sheet row order in category.xlsx.
   // Append any straggler categories (in data but missing from catOrder) at the end.
   const catsInOrder = [];
@@ -679,7 +776,7 @@ function writeWordsJs(words, catOrder) {
 
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/WordList.xlsx\n`;
+  out += `// Source: data_prep/WordList.xlsx\n`;
   out += `// Last synced: ${new Date().toISOString()}\n\n`;
 
   out += `// Category labels for UI\n`;
@@ -691,9 +788,13 @@ function writeWordsJs(words, catOrder) {
   for (const [k, v] of Object.entries(LEVEL_LABELS_ZH)) out += `  ${k}: ${jsStr(v)},\n`;
   out += `};\n\n`;
 
-  out += `// Format: [img, en, zh, category, level, sentence, sentenceZh]\n`;
-  out += `// img is a hashed, unguessable filename (Phase 5); the stable word id is\n`;
-  out += `// derived from \`en\`, NOT from img, so renaming images never changes ids.\n`;
+  out += `// Format: [img, en, zh, category, level, sentence, sentenceZh, tier, concept, subcategory, id, langs]\n`;
+  out += `// img is a hashed, unguessable filename (Phase 5). id is assigned at build\n`;
+  out += `// time (= slug(en), de-duplicated) so renaming images never changes ids.\n`;
+  out += `// tier: 'core' (main word list) | 'themed' (marketing, shown everywhere) |\n`;
+  out += `//       'specific' (marketing names/events — only in their own category).\n`;
+  out += `// langs: languages this word is live in (per-language 3-piece gate); a\n`;
+  out += `//        language pair shows the word only if BOTH its langs are present.\n`;
   out += `const raw = [\n`;
   let lastCat = null;
   for (const w of orderedWords) {
@@ -710,14 +811,18 @@ function writeWordsJs(words, catOrder) {
       jsStr(w.level),
       jsStr(w.sentence),
       jsStr(w.sentenceZh),
+      jsStr(w.tier),
+      jsStr(w.concept),
+      jsStr(w.subcategory),
+      jsStr(w.id),
+      JSON.stringify(w.langs || []),
     ].join(', ')}],\n`;
   }
   out += `];\n\n`;
 
   out += `// Process raw data into word objects\n`;
-  out += `const wordsOrdered = raw.map(([img, en, zh, category, level, sentence, sentenceZh]) => ({\n`;
-  out += `  id: en.toLowerCase().replace(/[\\s']+/g, '-').replace(/[^a-z0-9-]/g, ''),\n`;
-  out += `  en, zh, category, level, sentence, sentenceZh, img,\n`;
+  out += `const wordsOrdered = raw.map(([img, en, zh, category, level, sentence, sentenceZh, tier, concept, subcategory, id, langs]) => ({\n`;
+  out += `  id, en, zh, category, level, sentence, sentenceZh, img, tier, concept, subcategory, langs,\n`;
   out += `}));\n\n`;
 
   out += `// Seeded shuffle so order is stable per session but randomized across sessions\n`;
@@ -730,10 +835,37 @@ function writeWordsJs(words, catOrder) {
   out += `  return a;\n`;
   out += `}\n\n`;
 
-  out += `export const wordsShuffled = shuffleArray(wordsOrdered);\n`;
+  out += `// all-pool: the words shown under the "all" scope. Excludes the 'specific'\n`;
+  out += `// tier (names/events live only in their own category) and de-dups by concept\n`;
+  out += `// — concept override if present, else English+Chinese. The representative\n`;
+  out += `// prefers the 'core' tier. Category pools keep the FULL \`words\` list\n`;
+  out += `// (marketing included, no de-dup).\n`;
+  out += `function conceptKey(w) {\n`;
+  out += `  return w.concept || (w.en.toLowerCase().trim() + '|' + w.zh.trim());\n`;
+  out += `}\n`;
+  out += `function buildAllPool(list) {\n`;
+  out += `  const rep = new Map();\n`;
+  out += `  for (const w of list) {\n`;
+  out += `    if (w.tier === 'specific') continue;\n`;
+  out += `    const k = conceptKey(w);\n`;
+  out += `    const cur = rep.get(k);\n`;
+  out += `    if (!cur) { rep.set(k, w); continue; }\n`;
+  out += `    if (cur.tier !== 'core' && w.tier === 'core') rep.set(k, w);\n`;
+  out += `  }\n`;
+  out += `  return list.filter(w => w.tier !== 'specific' && rep.get(conceptKey(w)) === w);\n`;
+  out += `}\n\n`;
+
   out += `export const words = wordsOrdered;\n`;
+  out += `export const wordsShuffled = shuffleArray(wordsOrdered);\n`;
+  out += `export const wordsAllPool = buildAllPool(wordsOrdered);\n`;
+  out += `export const wordsAllPoolShuffled = shuffleArray(wordsAllPool);\n`;
   out += `export const categories = ['all', ...Object.keys(categoryLabels).filter(k => k !== 'all')];\n`;
 
+  return out;
+}
+
+function writeWordsJs(words, catOrder) {
+  const out = buildWordsJs(words, catOrder);
   writeFileSync(join(SRC_DATA, 'words.js'), out);
   log.ok(`Wrote src/data/words.js (${words.length} entries)`);
 }
@@ -742,7 +874,7 @@ function writeWordsJs(words, catOrder) {
 function writeJaDataJs(words) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/WordList.xlsx\n`;
+  out += `// Source: data_prep/WordList.xlsx\n`;
   out += `// Format: { [word.en]: { ja, reading?, sentence } }\n`;
   out += `// - ja: Japanese word to display\n`;
   out += `// - reading: romaji (shown as phonetic under the word)\n`;
@@ -780,7 +912,7 @@ function writeOralPhrasesJs(phrases, catOrder) {
 
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/PhraseList.xlsx\n`;
+  out += `// Source: data_prep/PhraseList.xlsx\n`;
   out += `// Format: [english, chinese, category, sentence, sentenceZh, ja, jaSentence, ipa, pinyin, jaReading]\n\n`;
 
   out += `const raw = [\n`;
@@ -879,7 +1011,7 @@ function writeCategoryLabelsJs(words, catOrder) {
 function writeCategoryCoversJs(covers) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/category.xlsx\n`;
+  out += `// Source: data_prep/category.xlsx\n`;
   out += `// To change a cover: edit "Cover Image Word" in the Categories or Phrase Categories sheet\n\n`;
 
   out += `// Representative image for each vocab category (detail tab in category modal)\n`;
@@ -904,7 +1036,7 @@ function writeCategoryCoversJs(covers) {
 function writePinyinJs(words) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/WordList.xlsx\n`;
+  out += `// Source: data_prep/WordList.xlsx\n`;
   out += `// Pinyin for all Chinese vocabulary words — keyed by word.zh\n`;
   out += `export const pinyinMap = {\n`;
 
@@ -924,7 +1056,7 @@ function writePinyinJs(words) {
 function writePhoneticsJs(words) {
   let out = '';
   out += `// AUTO-GENERATED by scripts/sync-data.mjs — do not edit by hand\n`;
-  out += `// Source: update_data_folder/WordList.xlsx\n`;
+  out += `// Source: data_prep/WordList.xlsx\n`;
   out += `// IPA phonetics for all vocab words — used as primary source before falling back to API\n`;
   out += `export const phoneticMap = {\n`;
 
@@ -944,30 +1076,31 @@ function writePhoneticsJs(words) {
 async function processImages(words) {
   log.section('Processing images');
 
-  if (!existsSync(IMG_IN)) {
-    log.warn(`updated_image/ folder does not exist — skipping image processing`);
-    return { processed: 0, unmatched: 0 };
+  // Phase 3：从工厂「已确认」桶收图(Confirmed + 新_Confirmed)。
+  const jobs = []; // { dir, file }
+  for (const dir of IMG_IN_DIRS) {
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir)) {
+      if (f.startsWith('.')) continue;
+      if (!['.jpg', '.jpeg', '.png', '.webp'].includes(extname(f).toLowerCase())) continue;
+      jobs.push({ dir, file: f });
+    }
   }
 
-  const files = readdirSync(IMG_IN).filter(f => {
-    if (f.startsWith('.')) return false;
-    return ['.jpg', '.jpeg', '.png', '.webp'].includes(extname(f).toLowerCase());
-  });
-
-  if (files.length === 0) {
-    log.info('No new images to process');
+  if (jobs.length === 0) {
+    log.info('No new images to process (工厂 Confirmed/新_Confirmed 为空)');
     return { processed: 0, unmatched: 0 };
   }
 
   const wordByEn = new Map(words.map(w => [w.en.toLowerCase(), w]));
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const archiveDir = join(PROCESSED_DIR, stamp);
+  const archiveDir = join(PROCESSED_DIR, stamp); // = eagle-inbox/<stamp>/
 
   let processed = 0;
   const unmatchedList = [];
 
-  for (const file of files) {
+  for (const { dir, file } of jobs) {
     const ext = extname(file);
     const base = basename(file, ext);
     // Strip macOS " copy" / " copy 2" suffix, then trailing "-<digits>"
@@ -984,7 +1117,7 @@ async function processImages(words) {
       continue;
     }
 
-    const inputPath = join(IMG_IN, file);
+    const inputPath = join(dir, file);
     const outputPath = join(IMG_OUT, word.img); // hashed filename (Phase 5)
 
     try {
@@ -994,7 +1127,7 @@ async function processImages(words) {
         .jpeg({ quality: 82, mozjpeg: true })
         .toFile(outputPath);
 
-      // Archive the original
+      // 原版图挪进工厂 eagle-inbox(待用户整批拖进 Eagle 存档)
       ensureDir(archiveDir);
       renameSync(inputPath, join(archiveDir, file));
       processed++;
@@ -1191,8 +1324,14 @@ async function main() {
   console.log('\n\x1b[32m✓ Done!\x1b[0m\n');
 }
 
-main().catch(e => {
-  console.error('\n\x1b[31m✗ Sync failed:\x1b[0m', e.message);
-  if (e.stack) console.error(e.stack);
-  process.exit(1);
-});
+// Exported for unit tests (scripts/test-phase4.mjs). Importing this module does
+// NOT run the sync — main() only fires when the file is executed directly.
+export { assignWordIds, buildWordsJs, wordLangs, MIN_LIVE_LANGS };
+
+if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
+  main().catch(e => {
+    console.error('\n\x1b[31m✗ Sync failed:\x1b[0m', e.message);
+    if (e.stack) console.error(e.stack);
+    process.exit(1);
+  });
+}

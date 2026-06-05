@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { words, wordsShuffled, categories } from '../data/words';
+import { words, wordsAllPool, wordsAllPoolShuffled, categories } from '../data/words';
 import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
@@ -149,7 +149,13 @@ export default function LearningPage({
     ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
     : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
   const activeWords = isOralMode ? oralPhrases : words;
-  const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsShuffled;
+  // Phase 4: the "all" scope (selectedCategory === 'all') uses the de-duplicated
+  // pool — 'specific'-tier marketing words excluded, English+Chinese duplicates
+  // collapsed to one representative (core preferred). Category-scoped pools use
+  // the FULL `activeWords` (marketing included, no de-dup). Oral has no tiers, so
+  // its all-pool is just oralPhrases.
+  const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsAllPoolShuffled;
+  const allPoolBase = isOralMode ? oralPhrases : wordsAllPool;
   const activeCategories = isOralMode ? oralCategories : categories;
 
   const [showCategories, _setShowCategories] = useState(false);
@@ -271,9 +277,16 @@ export default function LearningPage({
   // Current step: 0 = first encounter (new), 1+ = session review
   const currentStep = effectiveIsReview ? null : (srsCard?.step ?? 0);
 
-  // All words available for this language pair (for reviews & option generation)
+  // All words available for this language pair (FULL list — for distractor
+  // generation and category-scoped filtering; includes marketing words).
   const allWordsFiltered = useMemo(() => {
     return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
+  }, [nativeLang, targetLang, isOralMode]);
+
+  // The de-duplicated "all"-scope pool (specific tier excluded, concepts merged).
+  // Used wherever the scope is global: "all" review pool + truly-all-done checks.
+  const allPoolFiltered = useMemo(() => {
+    return allPoolBase.filter(w => isWordAvailable(w, nativeLang, targetLang));
   }, [nativeLang, targetLang, isOralMode]);
 
   // ── Review Queue Initialization & helpers ──
@@ -302,7 +315,7 @@ export default function LearningPage({
     // Restrict the review pool to the selected sub-category (and level, when applicable)
     // for both global review (isReview) and categoryReviewMode. The eligible filter
     // below still limits to learned, non-mastered words.
-    let pool = allWordsFiltered;
+    let pool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
     if (selectedCategory !== 'all') {
       pool = pool.filter(w => w.category === selectedCategory);
       if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
@@ -582,7 +595,7 @@ export default function LearningPage({
     // New words and due-review words are BOTH drawn from here — reviews never cross
     // into other subcategories, so studying "adjectives" won't surface "animals" reviews.
     let subcatPool = selectedCategory === 'all'
-      ? [...activeWords]
+      ? [...allPoolBase]
       : activeWords.filter(w => w.category === selectedCategory);
     subcatPool = subcatPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
     if (selectedLevel !== 'all' && selectedLevel !== 'oral') subcatPool = subcatPool.filter(w => w.level === selectedLevel);
@@ -647,7 +660,9 @@ export default function LearningPage({
     if (effectiveIsReview || srsCard !== null || !isVisible || sessionLoadingRef.current) return;
 
     const prog = getProgress(storageKey);
-    const unlearned = allWordsFiltered.filter(w => !prog[w.id]?.timestamp);
+    // Global "more words exist?" check uses the de-duped all-pool (specific tier
+    // excluded) so leftover specific marketing words don't block the all-done screen.
+    const unlearned = allPoolFiltered.filter(w => !prog[w.id]?.timestamp);
     if (unlearned.length === 0) return; // truly all done — show the all-done screen
 
     completedCatNameRef.current = catLabels[selectedCategory] || '';
@@ -865,7 +880,7 @@ export default function LearningPage({
       // · global ('all') review → rebuild indefinitely, user exits manually.
       if (reviewPointerRef.current >= reviewQueueRef.current.length) {
         const prog = getProgress(storageKey);
-        let basePool = allWordsFiltered;
+        let basePool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
         if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
           if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
@@ -1113,7 +1128,7 @@ export default function LearningPage({
         const prog = getProgress(storageKey);
         // Pool scope: stay within the selected sub-category for both global review (isReview)
         // and categoryReviewMode. The eligible filter below limits to learned, non-mastered.
-        let basePool = allWordsFiltered;
+        let basePool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
         if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
           if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
@@ -1220,7 +1235,7 @@ export default function LearningPage({
 
     // Rebuild the review queue immediately so the next render already has a card
     const prog = getProgress(storageKey);
-    let pool = allWordsFiltered;
+    let pool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
     if (selectedCategory !== 'all') {
       pool = pool.filter(w => w.category === selectedCategory);
       if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
@@ -1241,7 +1256,7 @@ export default function LearningPage({
     reviewPointerRef.current = 0;
     showNextReviewCard(queue, 0, savedStates);
     setProgress(prog);
-  }, [allWordsFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard]);
+  }, [allWordsFiltered, allPoolFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard]);
 
   // "Learn New": exit review mode for this category and jump to the "All" category,
   // so the SRS engine pulls the next batch of unlearned words from anywhere.
@@ -1251,12 +1266,12 @@ export default function LearningPage({
     setCategoryReviewMode(false);
     const progNow = getProgress(storageKey);
     const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
-      ? allWordsFiltered.some(w => !progNow[w.id]?.timestamp)
-      : allWordsFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
+      ? allPoolFiltered.some(w => !progNow[w.id]?.timestamp)
+      : allPoolFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
     onCategoryChange?.('all');
     onLevelChange?.(hasUnlearnedAtLevel ? selectedLevel : 'all');
     resetSrsSession();
-  }, [allWordsFiltered, selectedLevel, storageKey, onCategoryChange, onLevelChange, resetSrsSession]);
+  }, [allPoolFiltered, selectedLevel, storageKey, onCategoryChange, onLevelChange, resetSrsSession]);
 
   // Font for target language
   const targetFont = getFontFamily(targetLang);
