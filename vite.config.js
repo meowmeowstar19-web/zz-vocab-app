@@ -27,6 +27,7 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT) || 5174,
     open: false,
-    host: true
+    host: true,
+    allowedHosts: ['dev.plushieword.com']
   }
 })

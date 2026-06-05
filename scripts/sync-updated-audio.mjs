@@ -1,25 +1,35 @@
 #!/usr/bin/env node
 // ============================================================================
-// Sync updated audio drops
+// ⚠️ RETIRED — 内容工厂 Phase 3 (2026-06-04)
+// ----------------------------------------------------------------------------
+// 不再被 publish-all 调用。Phase 3 起没有「投放中转站」update_data_folder/updated_audio,
+// 音频统一由工厂生成器 4.语音生成.py 产出 audio/{word,phrase}/{lang}/<audioKey>.mp3,
+// 再由 sync-audio.mjs(读工厂、按 audioKey 压缩进 public)处理。
+// 本文件保留仅作历史参考,可手动运行处理遗留 drop,但日常发布流程已不用它。
+// ----------------------------------------------------------------------------
+// Sync updated audio drops (legacy)
 // ----------------------------------------------------------------------------
 // Reads update_data_folder/updated_audio/{WordList,PhraseList}/{jp,zh,en}/*.mp3
 // and matches each file to its xlsx row by FILENAME TEXT (not the numeric
 // prefix — row prefixes are unreliable after deletions/renumbering).
 //
-// Compresses to public/assets/audio/{ja,zh,en}/<audioKey>.mp3, verifies
-// coverage vs the xlsx, then moves the source mp3s into
-// audio-未压缩-原版/{WordList,PhraseList}/{jp,zh,en}/ (the canonical
-// uncompressed archive at the repo root) so updated_audio/ stays clean for
-// the next drop.
+// Compresses to public/assets/audio/{ja,zh,en}/<audioKey>.mp3 (these compressed
+// files are the keepers — live + on R2), verifies coverage vs the xlsx, then
+// DELETES the processed uncompressed source mp3s so updated_audio/ stays clean
+// for the next drop.
+//
+// NOTE (内容工厂 Phase 2): the uncompressed canonical archive (audio-未压缩-原版/)
+// was removed per user decision — only the online/compressed copies are kept,
+// and uncompressed sources are regenerable via data_prep/4.语音生成.py. So this
+// script no longer archives; it just deletes processed sources.
 //
 // A drop may contain only some lists / only some languages — anything not
-// present is simply skipped, and only the languages actually present have
-// their canonical archive refreshed.
+// present is simply skipped.
 // ============================================================================
 
 import XLSX from 'xlsx';
 import {
-  readdirSync, mkdirSync, existsSync, statSync, renameSync, unlinkSync,
+  readdirSync, mkdirSync, existsSync, statSync, unlinkSync,
 } from 'node:fs';
 import { join, dirname, extname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +39,6 @@ import { audioKey } from '../src/utils/audioKey.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const DROP_BASE = join(ROOT, 'update_data_folder', 'updated_audio');
-const CANONICAL_ROOT = join(ROOT, 'audio-未压缩-原版');
 const OUT_DIR = join(ROOT, 'public', 'assets', 'audio');
 
 // Source folder (jp/zh/en) → output folder (ja/zh/en) in public/assets/audio
@@ -201,28 +210,22 @@ function processList(listName, cfg) {
     }
   }
 
-  // ── Move sources to canonical location ─────────────────────────────────────
-  log.sect(`${listName}: moving sources → audio-未压缩-原版/${listName}/`);
+  // ── Delete processed uncompressed sources ──────────────────────────────────
+  // (No more audio-未压缩-原版 archive — compressed copies in public/assets/audio
+  //  are the keepers; uncompressed is regenerable. 内容工厂 Phase 2.)
+  log.sect(`${listName}: deleting processed sources from updated_audio/`);
   for (const srcLang of presentLangs) {
     const fromDir = join(dropDir, srcLang);
-    const toDir   = join(CANONICAL_ROOT, listName, srcLang);
-    ensureDir(toDir);
-
-    // Clear stale canonical files in this lang before moving the new batch in.
-    for (const old of readdirSync(toDir).filter(f => !f.startsWith('.'))) {
-      try { unlinkSync(join(toDir, old)); } catch {}
-    }
-
-    let moved = 0;
+    let removed = 0;
     for (const f of readdirSync(fromDir).filter(f => !f.startsWith('.'))) {
       try {
-        renameSync(join(fromDir, f), join(toDir, f));
-        moved++;
+        unlinkSync(join(fromDir, f));
+        removed++;
       } catch (e) {
-        log.err(`  failed to move ${f}: ${e.message}`);
+        log.err(`  failed to delete ${f}: ${e.message}`);
       }
     }
-    log.ok(`${srcLang}: moved ${moved} source file(s) into audio-未压缩-原版/${listName}/${srcLang}/`);
+    log.ok(`${srcLang}: deleted ${removed} processed source file(s)`);
   }
 
   return { totalIn, totalOut, totalCount };

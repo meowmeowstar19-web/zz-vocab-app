@@ -12,7 +12,10 @@ import { join, basename, extname } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PUBLIC_LANG = { ja: 'public/assets/audio/ja', zh: 'public/assets/audio/zh' };
-const SRC_LANG    = { jp: 'audio-未压缩-原版/PhraseList/jp', zh: 'audio-未压缩-原版/PhraseList/zh' };
+// 内容工厂 Phase 2：audio-未压缩-原版/ 已删（只留线上压缩版）。原本这里给未压缩源
+// 写 SUSPECT.txt 备注的环节已无对象 → 留空。真正去 _SUSPECT 标记的活在上面的
+// PUBLIC_LANG 块（改 public/assets/audio 里的文件）。
+const SRC_LANG    = {};
 
 function stripSuspect(stem) { return stem.replace(/_SUSPECT$/, ''); }
 
