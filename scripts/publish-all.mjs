@@ -2,13 +2,13 @@
 // ============================================================================
 // 一键发布(工厂 → 线上)—— 双击 update.command 跑这个。内容工厂 Phase 3。
 // ----------------------------------------------------------------------------
-// 工厂(~/Desktop/data_prep)= 草稿/生成区;VocabWorkspace 的 content/ = Excel 正本。
-// 发布时先把工厂 xlsx 提升进 content/,再从 content/ 生成数据。无 update_data_folder。
+// 工厂(~/Desktop/data_prep)= 草稿/生成区;VocabWorkspace 的 word-data/ = Excel 正本。
+// 发布时先把工厂 xlsx 提升进 word-data/,再从 word-data/ 生成数据。无 update_data_folder。
 // 最后只提交「素材+数据」,不碰你手改的代码:
 //
-//   ① 提升 Excel:工厂 WordList/PhraseList/category.xlsx → content/(正本,git 存档)
+//   ① 提升 Excel:工厂 WordList/PhraseList/category.xlsx → word-data/(正本,git 存档)
 //   ② 音频:工厂 audio/ 草稿 → 压缩进 public,压完删工厂草稿  → sync-audio.mjs --clean
-//   ③ 数据:读 content/ xlsx(+ 工厂单词图)→ src/data/*(单词图缩 800x800)→ sync-data.mjs
+//   ③ 数据:读 word-data/ xlsx(+ 工厂单词图)→ src/data/*(单词图缩 800x800)→ sync-data.mjs
 //   ④ src/data 有变 → 同步 Supabase                          → push:supabase
 //   ⑤ 非单词图 (public/assets/figma|install)                → 缩到「源码显示宽 x3」(背景图最长边封顶 1179)
 //   ⑥ 压缩 figma/install                                     → compress:figma
@@ -42,11 +42,11 @@ const BG_MAX_LONG_SIDE = 1179;
 const IMG_RE = /\.(png|jpe?g|webp)$/i;
 
 const ASSET_DIRS = ['public/assets/figma', 'public/assets/install'];
-// content/ = VocabWorkspace 的 Excel 正本(唯一真相)。发布第①步把工厂当前 xlsx
-// 「提升」进 content/，sync-data 随后就读 content/ 生成 words.js —— 所以 content/
+// word-data/ = VocabWorkspace 的 Excel 正本(唯一真相)。发布第①步把工厂当前 xlsx
+// 「提升」进 word-data/，sync-data 随后就读 word-data/ 生成 words.js —— 所以 word-data/
 // 永远 == 最后一次发布的最终版,和线上 words.js 一致。
 const XLSX_FILES = ['WordList.xlsx', 'PhraseList.xlsx', 'category.xlsx']
-  .map((f) => `content/${f}`);
+  .map((f) => `word-data/${f}`);
 const SW_PATH = path.join(ROOT, 'public/sw.js');
 
 // 提交范围:只有素材 + 生成数据,绝不卷入手改代码
@@ -165,17 +165,17 @@ function bumpSwVersion() {
 async function main() {
   console.log('\n' + C.b('═══ 一键发布(工厂 → 线上)═══') + '\n');
 
-  // ① Promote(提升):把工厂(data_prep,草稿区)当前 xlsx 复制进 content/ 正本。
-  //    随后 ③ sync-data 读 content/ 生成 words.js,所以 content/ 就是「最终版」=
+  // ① Promote(提升):把工厂(data_prep,草稿区)当前 xlsx 复制进 word-data/ 正本。
+  //    随后 ③ sync-data 读 word-data/ 生成 words.js,所以 word-data/ 就是「最终版」=
   //    线上数据的源头(用户怕改坏 → git 存档 + diff 可见)。必须在 ③ 之前。
-  console.log(C.b('① 提升 Excel(工厂 data_prep → content/ 正本)'));
+  console.log(C.b('① 提升 Excel(工厂 data_prep → word-data/ 正本)'));
   for (const [src, name] of [
     [WORDLIST_FILE, 'WordList.xlsx'],
     [PHRASELIST_FILE, 'PhraseList.xlsx'],
     [CATEGORY_FILE, 'category.xlsx'],
   ]) {
     if (existsSync(src)) {
-      copyFileSync(src, path.join(ROOT, 'content', name));
+      copyFileSync(src, path.join(ROOT, 'word-data', name));
       console.log(`   ${name} ✓`);
     } else console.log(C.y(`   ⚠ 工厂缺 ${name}: ${src}`));
   }
@@ -187,8 +187,8 @@ async function main() {
   run('node', ['scripts/sync-audio.mjs', '--clean']);
   if (changedPaths(['public/assets/audio']).length > 0) did.push('audio');
 
-  // ③ 数据:读 content/ xlsx(+ 工厂单词图)→ 重新生成 src/data/*(单词图缩 800x800)
-  console.log('\n' + C.b('③ 数据:content/ → src/data (sync-data)'));
+  // ③ 数据:读 word-data/ xlsx(+ 工厂单词图)→ 重新生成 src/data/*(单词图缩 800x800)
+  console.log('\n' + C.b('③ 数据:word-data/ → src/data (sync-data)'));
   run('node', ['scripts/sync-data.mjs']); // 不带 --auto,不让它 git
 
   // ④ src/data 真有变化 → 推 Supabase(反爬 Phase 1 的库,语言无关 schema)。

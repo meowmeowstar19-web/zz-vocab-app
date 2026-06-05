@@ -17,7 +17,7 @@ dist
 # Images of words deleted from WordList.xlsx (kept locally for recovery, not a published final)
 _deleted-images/
 
-# Retired: update_data_folder/ is gone — content/ holds the canonical xlsx now.
+# Retired: update_data_folder/ is gone — word-data/ holds the canonical xlsx now.
 # (Big marketing video pipeline lives outside the app; never commit it.)
 social-video/
 

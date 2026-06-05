@@ -21,9 +21,9 @@ import { execSync, execFileSync } from 'node:child_process';
 import readline from 'node:readline';
 import { audioKey } from '../src/utils/audioKey.js';
 import { hashedImageName, slugifyEn } from './imageName.mjs';
-// 内容工厂：数据源 = VocabWorkspace 本仓库的 `content/` 正本 xlsx（唯一真相）。
+// 内容工厂：数据源 = VocabWorkspace 本仓库的 `word-data/` 正本 xlsx（唯一真相）。
 // data_prep（工厂）只是草稿/生成区，经常半成品；发布时 publish-all 第①步把工厂
-// 当前 xlsx「提升」进 content/，所以 content/ 永远是「最后一次发布的最终版」。
+// 当前 xlsx「提升」进 word-data/，所以 word-data/ 永远是「最后一次发布的最终版」。
 // 图片仍从工厂「已确认」桶取（生成产物，发布后压进 public/）。
 import {
   IMAGES_WORD_DIR, EAGLE_INBOX_DIR,
@@ -32,11 +32,11 @@ import {
 // ── Paths ────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
-// 三个数据源 xlsx = 本仓库 content/ 的正本（按表头名读，列顺序无所谓）。
-const CONTENT_DIR = join(ROOT, 'content');
-const VOCAB_XLSX = join(CONTENT_DIR, 'WordList.xlsx');
-const ORAL_XLSX = join(CONTENT_DIR, 'PhraseList.xlsx');
-const CATEGORY_XLSX = join(CONTENT_DIR, 'category.xlsx');
+// 三个数据源 xlsx = 本仓库 word-data/ 的正本（按表头名读，列顺序无所谓）。
+const WORD_DATA_DIR = join(ROOT, 'word-data');
+const VOCAB_XLSX = join(WORD_DATA_DIR, 'WordList.xlsx');
+const ORAL_XLSX = join(WORD_DATA_DIR, 'PhraseList.xlsx');
+const CATEGORY_XLSX = join(WORD_DATA_DIR, 'category.xlsx');
 // Phase 3：单词图只从工厂的「已确认」桶 Confirmed 取（用户拍板：以 Confirmed 为准）。
 // 发布后原版图挪进工厂 eagle-inbox（待用户整批拖进 Eagle 存档）。
 // 要加别的桶（如 新_Confirmed）只需往这个数组里加一行。
@@ -48,7 +48,7 @@ const AUDIO_OUT = join(ROOT, 'public', 'assets', 'audio');
 // Phase 3：已发布的原版图挪进工厂 eagle-inbox（用户整批拖进 Eagle 存档后清空）。
 const PROCESSED_DIR = EAGLE_INBOX_DIR;
 // Orphan images (words removed from Excel) are archived here — a local, gitignored
-// safety net, NOT a published final, so it lives outside content/.
+// safety net, NOT a published final, so it lives outside word-data/.
 const DELETED_DIR = join(ROOT, '_deleted-images');
 const SRC_DATA = join(ROOT, 'src', 'data');
 
