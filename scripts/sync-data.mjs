@@ -874,6 +874,35 @@ function writeWordsJs(words, catOrder) {
   log.ok(`Wrote src/data/words.js (${words.length} entries)`);
 }
 
+// ── Concept de-dup summary ──────────────────────────────────────────────────
+// Surfaces (does NOT change) what buildAllPool already does: 2+ non-'specific'
+// words sharing a conceptKey collapse to ONE card in the "all" pool — i.e. only
+// one of them shows up. Same rule as the emitted conceptKey() above:
+// concept override if set, else English+Chinese. This print replaces the retired
+// data_prep/scripts/report_concepts.py so the de-dup rule lives in ONE place.
+//   · same en + DIFFERENT zh (bat/球棒 vs bat/蝙蝠) → different keys → both ship
+//   · same en + SAME zh      (player/选手 ×2)        → same key → collapses to 1
+function reportConceptMerges(words) {
+  const conceptKey = (w) => w.concept || (w.en.toLowerCase().trim() + '|' + w.zh.trim());
+  const groups = new Map();
+  for (const w of words) {
+    if (w.tier === 'specific') continue;
+    const k = conceptKey(w);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(w);
+  }
+  const merged = [...groups.values()].filter(g => g.length >= 2);
+  if (merged.length === 0) {
+    log.ok('Concept de-dup: no duplicates — every word ships as its own card');
+    return;
+  }
+  const rows = merged.reduce((n, g) => n + g.length, 0);
+  log.warn(`Concept de-dup: ${merged.length} group(s) collapse to 1 card each (${rows} rows → ${merged.length} cards):`);
+  for (const g of merged) {
+    console.log(`     · ${g[0].en} (${g[0].zh}) ×${g.length} → 1`);
+  }
+}
+
 // ── Generate src/data/jaData.js ─────────────────────────────────────────────
 function writeJaDataJs(words) {
   let out = '';
@@ -1300,6 +1329,7 @@ async function main() {
 
   log.section('Generating JS files');
   writeWordsJs(words, covers.vocabOrder);
+  reportConceptMerges(words);
   writeJaDataJs(words);
   writePinyinJs(allRows);
   writePhoneticsJs(allRows);
