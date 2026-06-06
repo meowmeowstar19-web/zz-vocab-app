@@ -32,7 +32,11 @@ export async function preloadAudioManifest(lang) {
     const mod = await loader();
     return (_audioManifests[lang] = mod.default || mod);
   } catch {
-    return (_audioManifests[lang] = {});
+    // Don't cache the failure: a transient network blip (e.g. flaky wifi when
+    // switching language) would otherwise poison this language for the whole
+    // session — every word falls back to robotic TTS until the app restarts.
+    // Returning {} without caching lets the next word retry the import.
+    return {};
   }
 }
 
