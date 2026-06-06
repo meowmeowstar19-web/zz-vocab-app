@@ -256,4 +256,9 @@ export const pinyinMap = {
   '酸': 'suān',
   '辣': 'là',
   '湿': 'shī',
+  '尼克斯': 'Níkèsī',
+  '马刺': 'mǎcì',
+  '篮球': 'lánqiú',
+  '球员': 'qiúyuán',
+  '总决赛': 'zǒngjuésài',
 };
