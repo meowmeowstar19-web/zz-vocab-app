@@ -26,7 +26,7 @@ import { hashedImageName, slugifyEn } from './imageName.mjs';
 // 当前 xlsx「提升」进 word-data/，所以 word-data/ 永远是「最后一次发布的最终版」。
 // 图片仍从工厂「已确认」桶取（生成产物，发布后压进 public/）。
 import {
-  IMAGES_WORD_DIR, EAGLE_INBOX_DIR,
+  IMAGES_WORD_DIR, IMAGES_MARKETING_DIR, EAGLE_INBOX_DIR,
 } from '../../data_prep/scripts/paths.mjs';
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ const CATEGORY_XLSX = join(WORD_DATA_DIR, 'category.xlsx');
 // 要加别的桶（如 新_Confirmed）只需往这个数组里加一行。
 const IMG_IN_DIRS = [
   join(IMAGES_WORD_DIR, 'Confirmed'),
+  join(IMAGES_MARKETING_DIR, 'Confirmed'),   // Phase 4: marketing 词图（World Cup / NBA …）
 ];
 const IMG_OUT = join(ROOT, 'public', 'images');
 const AUDIO_OUT = join(ROOT, 'public', 'assets', 'audio');
@@ -100,14 +101,21 @@ const VOCAB_REQUIRED_COLS = [
   '英语音标', '单词中文翻译', '中文拼音', '例句中文翻译',
   '单词日语翻译', '日语音标', '例句日语翻译',
 ];
-// Phase 4: the "WordMarketing" tab holds hot-topic words (World Cup / NBA …).
+// Phase 4: the "marketing" tab holds hot-topic words (World Cup / NBA …).
 // To go live a marketing word must clear the SAME bar as a core word: a Confirmed
 // image PLUS the full 3-piece set (word + phonetic + example) in every language —
 // i.e. it uses VOCAB_REQUIRED_COLS, NOT a relaxed gate. Marketing words that are
 // still missing sentences/phonetics simply don't emit yet; they flow in
 // automatically once the content (and image) is complete. (User rule 2026-06-05:
 // 上线的单词一定要图 + 各语言三件套都齐全。)
-const MARKETING_SHEET = 'WordMarketing';
+// Sheet 名容错：用户随手重命名 tab（单词→core→word、WordMarketing→marketing）后仍能找到。
+// 真实/规范名在前，旧名作 fallback。pickSheet 返回第一个存在的 worksheet（找不到返回 undefined）。
+const CORE_SHEET_NAMES = ['word', 'core', '单词'];
+const MARKETING_SHEET_NAMES = ['marketing', 'WordMarketing'];
+function pickSheet(wb, names) {
+  for (const n of names) if (wb.Sheets[n]) return wb.Sheets[n];
+  return undefined;
+}
 
 // Phase 4 — PER-LANGUAGE availability (user rule 2026-06-05). A language is
 // "live" for a word only when THAT language's own 3-piece set is present in the
@@ -369,16 +377,18 @@ function readVocab() {
   const unknownCats = new Set();
   let incomplete = 0;
 
-  // Phase 4: read the core "单词" tab AND the "WordMarketing" tab. Both share the
+  // Phase 4: read the "core" tab AND the "marketing" tab. Both share the
   // same column layout (Phase 2 merge), so one loop handles both — the only
   // difference is the tier. The completeness gate is identical and PER-LANGUAGE
   // (wordLangs / MIN_LIVE_LANGS): a word ships with whichever languages have a
   // full 3-piece set, independent of the others.
+  const coreWs = pickSheet(wb, CORE_SHEET_NAMES) || wb.Sheets[wb.SheetNames[0]];
   const sources = [
-    { ws: wb.Sheets[wb.SheetNames[0]], isMarketing: false },
+    { ws: coreWs, isMarketing: false },
   ];
-  if (wb.Sheets[MARKETING_SHEET]) {
-    sources.push({ ws: wb.Sheets[MARKETING_SHEET], isMarketing: true });
+  const marketingWs = pickSheet(wb, MARKETING_SHEET_NAMES);
+  if (marketingWs) {
+    sources.push({ ws: marketingWs, isMarketing: true });
   }
 
   for (const src of sources) {
@@ -644,8 +654,8 @@ function readOral() {
   if (!existsSync(ORAL_XLSX)) throw new Error(`Missing file: ${ORAL_XLSX}`);
 
   const wb = XLSX.readFile(ORAL_XLSX);
-  // Prefer a sheet named 口语 if present; otherwise first sheet.
-  const sheetName = wb.SheetNames.includes('口语') ? '口语' : wb.SheetNames[0];
+  // PhraseList 主表：规范名 core；旧名「口语」作 fallback；都没有再退第一个 sheet。
+  const sheetName = ['core', '口语'].find(n => wb.SheetNames.includes(n)) || wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
 
