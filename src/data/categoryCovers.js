@@ -16,6 +16,7 @@ export const vocabCategoryCovers = {
   place: '3ad8e1dcbac8dcd12104.jpg',
   time: '966782aa41e9f52a08c7.jpg',
   transport: '1e7714dcfe288bde199b.jpg',
+  nba: '20016ae53a00cb620190.jpg',
 };
 
 // Representative image for each oral category (uses a vocab word's image)

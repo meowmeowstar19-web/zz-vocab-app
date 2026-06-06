@@ -249,4 +249,9 @@ export const jaData = {
   'funny': { ja: '<ruby>面白<rt>おもしろ</rt></ruby>い', reading: 'omoshiroi', sentence: '面白いクマノミくん、おなじダジャレばっかり。サンゴたちはもう聞きあきちゃった。' },
   'strong': { ja: '<ruby>強<rt>つよ</rt></ruby>い', reading: 'tsuyoi', sentence: '強いゴリラ、キッチンのびんのふた、ぜーんぶくるっと開けちゃった！' },
   'new': { ja: '<ruby>新<rt>あたら</rt></ruby>しい', reading: 'atarashii', sentence: '新しい靴くん、靴底をよごさないように、そーっとつま先歩き。' },
+  'Knicks': { ja: 'ニックス', reading: 'nikkusu', sentence: 'ニックスはニューヨークが大好き。試合のたびに、ちっちゃな自由の女神さまをそっと持ってくるんだって！' },
+  'Spurs': { ja: 'スパーズ', reading: 'supāzu', sentence: 'スパーズはかっこよすぎて、試合中もサングラスをかけているよ！' },
+  'basketball': { ja: 'バスケットボール', reading: 'basukettobōru', sentence: 'バスケットボールがびよーんと高くはねて、リングにすぽっとはまっちゃった！' },
+  'player': { ja: '<ruby>選手<rt>せんしゅ</rt></ruby>', reading: 'senshu', sentence: '選手は試合のあとへとへと。ボールをぎゅっと抱っこして、すやすや眠っちゃった。' },
+  'finals': { ja: '<ruby>決勝戦<rt>けっしょうせん</rt></ruby>', reading: 'kesshōsen', sentence: 'いよいよ決勝戦。みんな緊張しすぎて、汗が滝みたいにだらだら！' },
 };
