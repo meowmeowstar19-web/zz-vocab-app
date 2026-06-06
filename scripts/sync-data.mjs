@@ -222,6 +222,8 @@ const CATEGORY_LABELS_DICT = {
   place:     { zh: '地点',   en: 'Places',     ja: '場所' },
   time:      { zh: '时间',   en: 'Time',       ja: '時間' },
   transport: { zh: '交通',   en: 'Transport',  ja: '乗り物' },
+  // Marketing topic categories (hot-topic vocab). Acronyms keep their casing.
+  nba:       { zh: 'NBA',    en: 'NBA',        ja: 'NBA' },
 };
 
 function titleCase(s) {
