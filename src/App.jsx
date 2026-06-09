@@ -1301,6 +1301,7 @@ export default function App() {
               onWordViewed={handleWordViewed}
               requestNextWord={requestNextWord}
               refreshKey={progressRefreshKey}
+              userEmail={session?.user?.email || ''}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
@@ -1310,6 +1311,7 @@ export default function App() {
               targetLang={targetLang}
               userScope={userScope}
               refreshKey={wordListRefreshKey}
+              userEmail={session?.user?.email || ''}
             />
           </div>
           <div style={{ display: (page === 'settings' && !reviewMode) ? undefined : 'none', height: '100%' }}>

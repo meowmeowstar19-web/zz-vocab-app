@@ -2,7 +2,9 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { words, wordsAllPool, wordsAllPoolShuffled, categories } from '../data/words';
 import { jaData } from '../data/jaData';
 import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { devPhrases, devPhrasesShuffled, devCategories, DEV_CATEGORY_LABELS, devCategoryCovers } from '../data/devPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
+import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
@@ -95,16 +97,16 @@ function buildReviewQueueFromWords(eligibleWords, progress, wordStates = {}) {
   return result;
 }
 
-const LEVELS = ['all', 'beginner', 'intermediate', 'advanced', 'oral'];
+const LEVELS = ['all', 'beginner', 'intermediate', 'advanced', 'oral', 'dev'];
 const LEVEL_LABELS = { all: '全部难度', beginner: 'Level 1', intermediate: 'Level 2', advanced: 'Level 3' };
 const ORAL_LEVEL_LABEL = { zh: '口语', en: 'Speaking', ja: '会話' };
 const TAG_COLORS_BASE = ['#e3ffbb', '#ecf7ff', '#fffcda', '#fff0f6'];
 
 // Tab labels for category modal
 const CATEGORY_TAB_LABELS = {
-  zh: { level: '难度', detail: '单词', oral: '短语' },
-  en: { level: 'Level', detail: 'Words', oral: 'Phrases' },
-  ja: { level: '難度', detail: '単語', oral: 'フレーズ' },
+  zh: { level: '难度', detail: '单词', oral: '短语', dev: '进阶' },
+  en: { level: 'Level', detail: 'Words', oral: 'Phrases', dev: '进阶' },
+  ja: { level: '難度', detail: '単語', oral: 'フレーズ', dev: '进阶' },
 };
 
 // Category cover images are auto-generated in src/data/categoryCovers.js
@@ -137,6 +139,8 @@ export default function LearningPage({
   // Triggers a re-read of `progress` so the top-right "已学" count reflects
   // words learned on another device without needing a tab switch / remount.
   refreshKey = 0,
+  // Logged-in user's email — gates the dev-only 进阶 mode (whitelist).
+  userEmail = '',
 }) {
   const posthog = usePostHog();
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
@@ -145,25 +149,44 @@ export default function LearningPage({
   const storageKey = `${userScope}_${targetLang}`;
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const isOralMode = selectedLevel === 'oral';
-  const catLabels = isOralMode
-    ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
-    : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-  const activeWords = isOralMode ? oralPhrases : words;
+  // 进阶 (dev): personal study phrases, only for the whitelisted user in zh→en.
+  // Behaves exactly like oral mode (no images, text-only quiz, no phonetics);
+  // only the DATA SOURCE and category list differ. `isPhraseMode` collapses
+  // "oral OR dev" for every behavioral branch so dev inherits oral's behavior.
+  const isDevMode = selectedLevel === 'dev';
+  const isPhraseMode = isOralMode || isDevMode;
+  const devUnlocked = nativeLang === 'zh' && targetLang === 'en' && canSwitchLanguageFreely(userEmail);
+  const catLabels = isDevMode
+    ? (DEV_CATEGORY_LABELS[nativeLang] || DEV_CATEGORY_LABELS.zh)
+    : isOralMode
+      ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
+      : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
+  const activeWords = isDevMode ? devPhrases : isOralMode ? oralPhrases : words;
   // Phase 4: the "all" scope (selectedCategory === 'all') uses the de-duplicated
   // pool — 'specific'-tier marketing words excluded, English+Chinese duplicates
   // collapsed to one representative (core preferred). Category-scoped pools use
-  // the FULL `activeWords` (marketing included, no de-dup). Oral has no tiers, so
-  // its all-pool is just oralPhrases.
-  const activeWordsShuffled = isOralMode ? oralPhrasesShuffled : wordsAllPoolShuffled;
-  const allPoolBase = isOralMode ? oralPhrases : wordsAllPool;
-  const activeCategories = isOralMode ? oralCategories : categories;
+  // the FULL `activeWords` (marketing included, no de-dup). Oral/dev have no
+  // tiers, so their all-pool is just the phrase list.
+  const activeWordsShuffled = isDevMode ? devPhrasesShuffled : isOralMode ? oralPhrasesShuffled : wordsAllPoolShuffled;
+  const allPoolBase = isDevMode ? devPhrases : isOralMode ? oralPhrases : wordsAllPool;
+  const activeCategories = isDevMode ? devCategories : isOralMode ? oralCategories : categories;
+
+  // Safety: if a persisted session is in 进阶 mode but the user is no longer
+  // unlocked (switched away from zh→en, or signed out), reset to the normal
+  // word mode so the pool never ends up empty / broken.
+  useEffect(() => {
+    if (isDevMode && !devUnlocked) {
+      onCategoryChange?.('all');
+      onLevelChange?.('all');
+    }
+  }, [isDevMode, devUnlocked, onCategoryChange, onLevelChange]);
 
   const [showCategories, _setShowCategories] = useState(false);
   const setShowCategories = useCallback((val) => {
     _setShowCategories(val);
     onCategoryModalChange?.(val);
-    if (val) posthog?.capture('category_opened', { content_type: isOralMode ? 'phrase' : 'word', native_lang: nativeLang, target_lang: targetLang });
-  }, [onCategoryModalChange, posthog, isOralMode, nativeLang, targetLang]);
+    if (val) posthog?.capture('category_opened', { content_type: isPhraseMode ? 'phrase' : 'word', native_lang: nativeLang, target_lang: targetLang });
+  }, [onCategoryModalChange, posthog, isPhraseMode, nativeLang, targetLang]);
   const [categoryTab, setCategoryTab] = useState('detail'); // 'detail' | 'oral' (level tab hidden)
   const [pendingCategory, setPendingCategory] = useState(selectedCategory);
   const [pendingLevel, setPendingLevel] = useState(selectedLevel);
@@ -273,7 +296,7 @@ export default function LearningPage({
 
   // Derived: quizFormat and currentWord — oral mode uses C/D (text only, no images)
   const rawFormat = effectiveIsReview ? (reviewCard?.format || 'B') : (srsCard?.format || 'A');
-  const quizFormat = isOralMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
+  const quizFormat = isPhraseMode ? (rawFormat === 'D' ? 'D' : 'C') : rawFormat;
   // Current step: 0 = first encounter (new), 1+ = session review
   const currentStep = effectiveIsReview ? null : (srsCard?.step ?? 0);
 
@@ -281,21 +304,21 @@ export default function LearningPage({
   // generation and category-scoped filtering; includes marketing words).
   const allWordsFiltered = useMemo(() => {
     return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang, isOralMode]);
+  }, [nativeLang, targetLang, isPhraseMode]);
 
   // The de-duplicated "all"-scope pool (specific tier excluded, concepts merged).
   // Used wherever the scope is global: "all" review pool + truly-all-done checks.
   const allPoolFiltered = useMemo(() => {
     return allPoolBase.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang, isOralMode]);
+  }, [nativeLang, targetLang, isPhraseMode]);
 
   // ── Review Queue Initialization & helpers ──
   const showNextReviewCard = useCallback((queue, pointer, wordStates) => {
     const word = queue[pointer];
     if (!word) { setReviewCard(null); return; }
     if (!wordStates[word.id]) wordStates[word.id] = { errorCount: 0, sessionCorrect: 0 };
-    setReviewCard({ word, format: getReviewQuestionType(wordStates[word.id], isOralMode) });
-  }, [isOralMode]);
+    setReviewCard({ word, format: getReviewQuestionType(wordStates[word.id], isPhraseMode) });
+  }, [isPhraseMode]);
 
   useEffect(() => {
     if (!effectiveIsReview) {
@@ -318,7 +341,7 @@ export default function LearningPage({
     let pool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
     if (selectedCategory !== 'all') {
       pool = pool.filter(w => w.category === selectedCategory);
-      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+      if (selectedLevel !== 'all' && !isPhraseMode) {
         pool = pool.filter(w => w.level === selectedLevel);
       }
     }
@@ -339,7 +362,7 @@ export default function LearningPage({
     // Per-word "mastered for this cycle" threshold:
     //   normal categories: sessionCorrect >= 3 (B + C + D all passed)
     //   oral categories:   sessionCorrect >= 2 (C + D — oral has no images)
-    const masteredThreshold = isOralMode ? 2 : 3;
+    const masteredThreshold = isPhraseMode ? 2 : 3;
     // categoryReviewMode fresh-start rule: if EVERY in-scope word already cleared
     // the threshold with no outstanding errors, zero those words out so the user
     // gets a fresh pass. Partial progress is preserved — that handles the
@@ -493,12 +516,12 @@ export default function LearningPage({
     if (selectedCategory === 'all') { setCategoryReviewMode(false); return; }
     const prog = getProgress(storageKey);
     let pool = activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang) && w.category === selectedCategory);
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+    if (selectedLevel !== 'all' && !isPhraseMode) {
       pool = pool.filter(w => w.level === selectedLevel);
     }
     const fullyDone = pool.length > 0 && pool.every(w => prog[w.id]?.timestamp);
     setCategoryReviewMode(fullyDone);
-  }, [isReview, selectedCategory, selectedLevel, isOralMode, nativeLang, targetLang, langKey, sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isReview, selectedCategory, selectedLevel, isPhraseMode, nativeLang, targetLang, langKey, sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Review mode: wordPool (unchanged) ──
   const wordPool = useMemo(() => {
@@ -506,9 +529,9 @@ export default function LearningPage({
     const prog = progress;
     let pool = selectedCategory === 'all' ? activeWordsShuffled : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && !isPhraseMode) pool = pool.filter(w => w.level === selectedLevel);
     return shuffle(pool.filter(w => prog[w.id] && !prog[w.id].mastered));
-  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isPhraseMode]);
 
   // ── Has the user ever learned ANY word in the current scope? ──
   // Used to differentiate "review complete" from "nothing to review yet": when
@@ -519,9 +542,9 @@ export default function LearningPage({
     const prog = progress;
     let pool = selectedCategory === 'all' ? activeWordsShuffled : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && !isPhraseMode) pool = pool.filter(w => w.level === selectedLevel);
     return pool.some(w => prog[w.id]);
-  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isOralMode]);
+  }, [selectedCategory, selectedLevel, progress, isReview, nativeLang, targetLang, isPhraseMode]);
 
   // ── SRS Session Initialization (learning mode only) ──
   const showNextCard = useCallback(() => {
@@ -598,7 +621,7 @@ export default function LearningPage({
       ? [...allPoolBase]
       : activeWords.filter(w => w.category === selectedCategory);
     subcatPool = subcatPool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') subcatPool = subcatPool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && !isPhraseMode) subcatPool = subcatPool.filter(w => w.level === selectedLevel);
 
     // New words (not yet learned) within this subcategory
     let newPool = subcatPool.filter(w => !prog[w.id]?.timestamp);
@@ -695,7 +718,7 @@ export default function LearningPage({
     if (!currentWord) return activeWords;
     const base = activeWords.filter(w => w.category === currentWord.category);
     return base.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [currentWord, nativeLang, targetLang, isOralMode]);
+  }, [currentWord, nativeLang, targetLang, isPhraseMode]);
 
   const tagColorMap = useMemo(() => {
     const cats = activeCategories.filter(c => c !== 'all');
@@ -707,7 +730,7 @@ export default function LearningPage({
       map[cat] = TAG_COLORS_BASE[(gridCol + gridRow) % TAG_COLORS_BASE.length];
     });
     return map;
-  }, [isOralMode]);
+  }, [isPhraseMode]);
 
   // ── Generate options when word or format changes ──
   useEffect(() => {
@@ -742,7 +765,7 @@ export default function LearningPage({
     const staticPhonetic = getPhonetic(currentWord, targetLang);
     if (staticPhonetic !== null) { setPhonetic(staticPhonetic); return; }
     setPhonetic('');
-    if (isOralMode) return; // no API fallback for phrases
+    if (isPhraseMode) return; // no API fallback for phrases
     let cancelled = false;
     const parts = currentWord.en.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
     (async () => {
@@ -758,7 +781,7 @@ export default function LearningPage({
       }
     })();
     return () => { cancelled = true; };
-  }, [currentWord?.id, targetLang, isOralMode]);
+  }, [currentWord?.id, targetLang, isPhraseMode]);
 
   // Sentence translation — translate to whichever language differs from sentenceLang
   const translationLang = sentenceLang !== nativeLang ? nativeLang : targetLang;
@@ -883,7 +906,7 @@ export default function LearningPage({
         let basePool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
         if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
-          if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+          if (selectedLevel !== 'all' && !isPhraseMode) {
             basePool = basePool.filter(w => w.level === selectedLevel);
           }
         }
@@ -899,7 +922,7 @@ export default function LearningPage({
         }
 
         if (selectedCategory !== 'all') {
-          const masteredThreshold = isOralMode ? 2 : 3;
+          const masteredThreshold = isPhraseMode ? 2 : 3;
           const allMastered = eligible.every(w => {
             const s = reviewWordStatesRef.current[w.id];
             return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
@@ -979,8 +1002,8 @@ export default function LearningPage({
       } else {
         if (step < 3) {
           // Schedule next step — oral mode skips step 2 (C→C→D instead of A→B→C→D)
-          const nextStep = (isOralMode && step === 1) ? 3 : step + 1;
-          const nextFormat = isOralMode ? (nextStep === 3 ? 'D' : 'C') : SESSION_FORMATS[nextStep];
+          const nextStep = (isPhraseMode && step === 1) ? 3 : step + 1;
+          const nextFormat = isPhraseMode ? (nextStep === 3 ? 'D' : 'C') : SESSION_FORMATS[nextStep];
           pendingRef.current.push({
             word: card.word,
             step: nextStep,
@@ -1041,7 +1064,7 @@ export default function LearningPage({
     triggerAnim(option);
     const correctAnswer = getWordText(currentWord, nativeLang);
     if (option === correctAnswer) {
-      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'choice', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'choice', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(true);
       playCorrectSound();
@@ -1052,7 +1075,7 @@ export default function LearningPage({
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
-      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'choice', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setSelected(option);
       setIsCorrect(false);
       playWrongSound();
@@ -1066,7 +1089,7 @@ export default function LearningPage({
     if (guardNextWord()) return;
     triggerAnim(`img-${optWord.id}`);
     if (optWord.id === currentWord.id) {
-      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'image', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(true);
       playCorrectSound();
       if (!effectiveIsReview && srsCard?.type === 'new') {
@@ -1074,7 +1097,7 @@ export default function LearningPage({
       }
       autoAdvanceTimer.current = setTimeout(advanceToNext, 800);
     } else {
-      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+      posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'image', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
       setIsCorrect(false);
       playWrongSound();
       setWrongImageIds(prev => new Set([...prev, optWord.id]));
@@ -1086,7 +1109,7 @@ export default function LearningPage({
   const handleDKnow = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_answered', { correct: true, word: currentWord?.en, mode: 'recall', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dKnow');
     playCorrectSound();
     dModeResultRef.current = 'know';
@@ -1096,7 +1119,7 @@ export default function LearningPage({
   const handleDDontKnow = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_answered', { correct: false, word: currentWord?.en, mode: 'recall', content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('dDontKnow');
     playWrongSound();
     dModeResultRef.current = 'dontknow';
@@ -1113,7 +1136,7 @@ export default function LearningPage({
   const handleSkip = useCallback(() => {
     if (!currentWord) return;
     if (guardNextWord()) return;
-    posthog?.capture('word_skipped', { word: currentWord?.en, content_type: isOralMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_skipped', { word: currentWord?.en, content_type: isPhraseMode ? 'phrase' : 'word', is_review: effectiveIsReview, native_lang: nativeLang, target_lang: targetLang });
     triggerAnim('skip');
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     playSlaySound();
@@ -1131,7 +1154,7 @@ export default function LearningPage({
         let basePool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
         if (selectedCategory !== 'all') {
           basePool = basePool.filter(w => w.category === selectedCategory);
-          if (selectedLevel !== 'all' && selectedLevel !== 'oral') basePool = basePool.filter(w => w.level === selectedLevel);
+          if (selectedLevel !== 'all' && !isPhraseMode) basePool = basePool.filter(w => w.level === selectedLevel);
         }
         const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) {
@@ -1146,7 +1169,7 @@ export default function LearningPage({
         }
         if (reviewPointerRef.current >= reviewQueueRef.current.length) {
           if (selectedCategory !== 'all') {
-            const masteredThreshold = isOralMode ? 2 : 3;
+            const masteredThreshold = isPhraseMode ? 2 : 3;
             const allMastered = eligible.every(w => {
               const s = reviewWordStatesRef.current[w.id];
               return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
@@ -1195,7 +1218,7 @@ export default function LearningPage({
     // SRS mode: learned/total in current category+level filter
     let pool = selectedCategory === 'all' ? [...activeWords] : activeWords.filter(w => w.category === selectedCategory);
     pool = pool.filter(w => isWordAvailable(w, nativeLang, targetLang));
-    if (selectedLevel !== 'all' && selectedLevel !== 'oral') pool = pool.filter(w => w.level === selectedLevel);
+    if (selectedLevel !== 'all' && !isPhraseMode) pool = pool.filter(w => w.level === selectedLevel);
     const total = pool.length;
     const learned = pool.filter(w => progress[w.id]?.timestamp).length;
     return `${learned}/${total}`;
@@ -1205,7 +1228,9 @@ export default function LearningPage({
     setPendingCategory(selectedCategory);
     setPendingLevel(selectedLevel);
     // Set initial tab based on current mode (level tab hidden, default to detail)
-    if (selectedLevel === 'oral') {
+    if (selectedLevel === 'dev') {
+      setCategoryTab('dev');
+    } else if (selectedLevel === 'oral') {
       setCategoryTab('oral');
     } else {
       setCategoryTab('detail');
@@ -1238,7 +1263,7 @@ export default function LearningPage({
     let pool = selectedCategory === 'all' ? allPoolFiltered : allWordsFiltered;
     if (selectedCategory !== 'all') {
       pool = pool.filter(w => w.category === selectedCategory);
-      if (selectedLevel !== 'all' && selectedLevel !== 'oral') {
+      if (selectedLevel !== 'all' && !isPhraseMode) {
         pool = pool.filter(w => w.level === selectedLevel);
       }
     }
@@ -1265,7 +1290,7 @@ export default function LearningPage({
     setCategoryCycleDone(false);
     setCategoryReviewMode(false);
     const progNow = getProgress(storageKey);
-    const hasUnlearnedAtLevel = selectedLevel === 'all' || selectedLevel === 'oral'
+    const hasUnlearnedAtLevel = selectedLevel === 'all' || isPhraseMode
       ? allPoolFiltered.some(w => !progNow[w.id]?.timestamp)
       : allPoolFiltered.some(w => w.level === selectedLevel && !progNow[w.id]?.timestamp);
     onCategoryChange?.('all');
@@ -1279,6 +1304,8 @@ export default function LearningPage({
 
   const levelDisplayText = pendingLevel === 'all'
     ? t.allLevels
+    : pendingLevel === 'dev'
+    ? '进阶'
     : pendingLevel === 'oral'
       ? (ORAL_LEVEL_LABEL[nativeLang] || ORAL_LEVEL_LABEL.zh)
       : `${t.levelPrefix}: ${LEVEL_LABELS[pendingLevel]}`;
@@ -1434,7 +1461,7 @@ export default function LearningPage({
             if (showEmptyReview) {
               // Match the WordListPage empty-state styling so review and list
               // empty surfaces feel like the same thing.
-              const noLearnedText = isOralMode
+              const noLearnedText = isPhraseMode
                 ? (t.noLearnedPhrases || t.noLearned)
                 : t.noLearned;
               return (
@@ -1608,19 +1635,21 @@ export default function LearningPage({
             }}
           />
 
-          {/* Speaker + phonetic / reading */}
-          <button
-            onClick={handleSpeak}
-            className="flex items-center gap-1.5 text-[#999] active:scale-95"
-            style={{ marginTop: isTargetJa ? 4 : 5 }}
-          >
-            <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
-            {phonetic && (
-              <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
-                {phonetic}
-              </span>
-            )}
-          </button>
+          {/* Speaker + phonetic / reading — hidden in 进阶 mode (no audio/phonetic) */}
+          {!isDevMode && (
+            <button
+              onClick={handleSpeak}
+              className="flex items-center gap-1.5 text-[#999] active:scale-95"
+              style={{ marginTop: isTargetJa ? 4 : 5 }}
+            >
+              <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15, flexShrink: 0 }} />
+              {phonetic && (
+                <span style={{ fontSize: phoneticFS, fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }} className="text-center">
+                  {phonetic}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Example sentence — hidden in D mode */}
           {displaySentence && quizFormat !== 'D' && (
@@ -1640,7 +1669,7 @@ export default function LearningPage({
 
           {/* Translation — always visible in formats A & B (& oral C step 0); cover in C; hidden in D */}
           {displaySentence && quizFormat !== 'D' && needsTranslation && (
-            quizFormat === 'A' || quizFormat === 'B' || (isOralMode && quizFormat === 'C' && currentStep === 0) ? (
+            quizFormat === 'A' || quizFormat === 'B' || (isPhraseMode && quizFormat === 'C' && currentStep === 0) ? (
               <p
                 className="text-center px-2"
                 style={{ marginTop: 5, fontSize: translationFS_base - (isCJK(translationLang) ? 2 : 0), color: sentenceTranslation ? '#555' : '#bbb', lineHeight: isCJK(translationLang) ? 1.5 : 1.25 }}
@@ -1885,6 +1914,9 @@ export default function LearningPage({
     const tabLabels = CATEGORY_TAB_LABELS[nativeLang] || CATEGORY_TAB_LABELS.zh;
         // Level tab temporarily hidden
         const tabs = [{ key: 'detail', label: tabLabels.detail }, { key: 'oral', label: tabLabels.oral }];
+        // 进阶 tab — only for the whitelisted user in zh→en. Never shown otherwise,
+        // so this personal study mode never mixes with the public categories.
+        if (devUnlocked) tabs.push({ key: 'dev', label: tabLabels.dev });
         // Uniform tab width: within a language, all tabs share the widest label's width.
         // CJK chars are roughly twice as wide as Latin letters at the same font size,
         // so we approximate per-char pixel widths (14px font, weight 500).
@@ -1920,6 +1952,8 @@ export default function LearningPage({
           if (firstWord) dynamicCatImages[cat] = firstWord.img;
         });
         const oralCats = oralCategories.filter(c => c !== 'all');
+        const devCatLabels = DEV_CATEGORY_LABELS[nativeLang] || DEV_CATEGORY_LABELS.zh;
+        const devCats = devUnlocked ? devCategories.filter(c => c !== 'all') : [];
 
         // Progress helper: count learned / total for a word pool
         const getCatProgress = (wordPool) => {
@@ -2043,6 +2077,7 @@ export default function LearningPage({
                           setCategoryTab(tab.key);
                           if (tab.key === 'detail') { setPendingCategory('all'); setPendingLevel('all'); }
                           else if (tab.key === 'oral') { setPendingCategory('all'); setPendingLevel('oral'); }
+                          else if (tab.key === 'dev') { setPendingCategory('all'); setPendingLevel('dev'); }
                         }
                       }}
                       style={{
@@ -2167,6 +2202,44 @@ export default function LearningPage({
                           return renderCatCard(
                             item.key, item.imgSrc, item.label, isSelected,
                             () => { setPendingCategory(item.key); setPendingLevel('oral'); },
+                            prog, decor,
+                            { imageContain: item.key === 'all' },
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* === 进阶 (DEV) TAB — whitelist-only, zh→en === */}
+                  {categoryTab === 'dev' && devUnlocked && (() => {
+                    const devItems = [
+                      { key: 'all', label: devCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: devPhrases },
+                      ...devCats.map(cat => {
+                        const imgFile = devCategoryCovers[cat];
+                        return {
+                          key: cat,
+                          label: devCatLabels[cat] || cat,
+                          imgSrc: imgFile ? getImageUrl(imgFile) : null,
+                          pool: devPhrases.filter(w => w.category === cat),
+                        };
+                      }),
+                    ];
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 332, margin: '0 auto' }}>
+                        {devItems.map((item, idx) => {
+                          const isSelected = pendingCategory === item.key && categoryTab === 'dev';
+                          const prog = getCatProgress(item.pool);
+                          const rowIdx = Math.floor(idx / 3);
+                          const colIdx = idx % 3;
+                          const row = getRowDecor(`dev-${rowIdx}`);
+                          const decor = {
+                            hasLetter: row.letterIdx === colIdx,
+                            hasStar: rowIdx !== 0 && row.starIdx === colIdx,
+                            starAtTR: row.starAtTR,
+                          };
+                          return renderCatCard(
+                            item.key, item.imgSrc, item.label, isSelected,
+                            () => { setPendingCategory(item.key); setPendingLevel('dev'); },
                             prog, decor,
                             { imageContain: item.key === 'all' },
                           );

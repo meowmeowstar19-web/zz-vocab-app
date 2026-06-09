@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
 import sharp from 'sharp';
 // 内容工厂 Phase 3：数据/音频源是「工厂」(data_prep)。xlsx 走共享路径钥匙。
-import { WORDLIST_FILE, PHRASELIST_FILE, CATEGORY_FILE } from '../../data_prep/scripts/paths.mjs';
+import { WORDLIST_FILE, PHRASELIST_FILE, CATEGORY_FILE, DEV_FILE } from '../../data_prep/scripts/paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,7 +45,7 @@ const ASSET_DIRS = ['public/assets/figma', 'public/assets/install'];
 // word-data/ = VocabWorkspace 的 Excel 正本(唯一真相)。发布第①步把工厂当前 xlsx
 // 「提升」进 word-data/，sync-data 随后就读 word-data/ 生成 words.js —— 所以 word-data/
 // 永远 == 最后一次发布的最终版,和线上 words.js 一致。
-const XLSX_FILES = ['WordList.xlsx', 'PhraseList.xlsx', 'category.xlsx']
+const XLSX_FILES = ['WordList.xlsx', 'PhraseList.xlsx', 'category.xlsx', 'dev-单词.xlsx']
   .map((f) => `word-data/${f}`);
 const SW_PATH = path.join(ROOT, 'public/sw.js');
 
@@ -173,6 +173,7 @@ async function main() {
     [WORDLIST_FILE, 'WordList.xlsx'],
     [PHRASELIST_FILE, 'PhraseList.xlsx'],
     [CATEGORY_FILE, 'category.xlsx'],
+    [DEV_FILE, 'dev-单词.xlsx'],
   ]) {
     if (existsSync(src)) {
       copyFileSync(src, path.join(ROOT, 'word-data', name));

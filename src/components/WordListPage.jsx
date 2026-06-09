@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { words, categories as wordCategories } from '../data/words';
 import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
+import { devPhrases } from '../data/devPhrases';
 import { jaData } from '../data/jaData';
+import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { getProgress, toggleMastered } from '../utils/storage';
 import { speakWordByLang } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
@@ -85,8 +87,11 @@ function usePhonetic(wordEn, targetLang) {
   return phonetic;
 }
 
-export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0 }) {
+export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0, userEmail = '' }) {
   const posthog = usePostHog();
+  // 进阶 (dev) sub-tab: whitelisted user only, zh→en only. Personal study list,
+  // kept entirely separate from the public 单词 / 短语 tabs.
+  const devUnlocked = nativeLang === 'zh' && targetLang === 'en' && canSwitchLanguageFreely(userEmail);
   // Progress is scoped per-user and per-target so account switches don't
   // bleed mastered/learned flags between users on the same device.
   const langKey = `${userScope}_${targetLang}`;
@@ -118,6 +123,11 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setPopupWord(null);
   }, [langKey]);
 
+  // If the 进阶 sub-tab is active but the user is no longer unlocked, fall back.
+  useEffect(() => {
+    if (subTab === 'dev' && !devUnlocked) setSubTab('words');
+  }, [subTab, devUnlocked]);
+
   useEffect(() => {
     setProgress(getProgress(langKey));
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -126,19 +136,22 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setRevealedWords(new Set());
   }, [filter]);
 
-  // Full pool — words + oral phrases.
+  // Full pool — words + oral phrases (+ 进阶 phrases for the unlocked user only,
+  // so dev content never reaches anyone else's totals or lists).
   const allWords = useMemo(() => {
-    return [...words, ...oralPhrases];
-  }, []);
+    return devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+  }, [devUnlocked]);
 
   const eligibleWords = useMemo(() => {
     return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
   }, [nativeLang, targetLang, allWords]);
 
-  // Pool filtered by 单词/短语 sub-tab (used by non-gallery filters)
+  // Pool filtered by 单词/短语/进阶 sub-tab (used by non-gallery filters).
+  // The 单词 tab must exclude BOTH oral and dev so 进阶 phrases never leak in.
   const subTabPool = useMemo(() => {
     if (subTab === 'phrases') return eligibleWords.filter(w => w.level === 'oral');
-    return eligibleWords.filter(w => w.level !== 'oral');
+    if (subTab === 'dev') return eligibleWords.filter(w => w.level === 'dev');
+    return eligibleWords.filter(w => w.level !== 'oral' && w.level !== 'dev');
   }, [eligibleWords, subTab]);
 
   const totalLearning = useMemo(() => {
@@ -198,7 +211,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
     const newMastered = !currentMastered;
-    posthog?.capture('word_mastered_toggled', { word_id: wordId, mastered: newMastered, content_type: subTab === 'phrases' ? 'phrase' : 'word', native_lang: nativeLang, target_lang: targetLang });
+    posthog?.capture('word_mastered_toggled', { word_id: wordId, mastered: newMastered, content_type: subTab === 'words' ? 'word' : 'phrase', native_lang: nativeLang, target_lang: targetLang });
 
     // Step 1: show new check state visually (word stays in list, no storage update yet)
     setPendingMasteredWords(prev => new Map(prev).set(wordId, newMastered));
@@ -382,9 +395,12 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
             {[
               { key: 'words', label: t.wordsTab },
               { key: 'phrases', label: t.phrasesTab },
-            ].map((tab, idx) => {
+              // 进阶 tab — whitelisted user in zh→en only.
+              ...(devUnlocked ? [{ key: 'dev', label: '进阶' }] : []),
+            ].map((tab, idx, arr) => {
               const active = subTab === tab.key;
               const isLeft = idx === 0;
+              const isRight = idx === arr.length - 1;
               return (
                 <button
                   key={tab.key}
@@ -398,8 +414,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
                     borderRight: '1.5px solid #000',
                     borderTopLeftRadius: isLeft ? 5 : 0,
                     borderBottomLeftRadius: isLeft ? 5 : 0,
-                    borderTopRightRadius: isLeft ? 0 : 5,
-                    borderBottomRightRadius: isLeft ? 0 : 5,
+                    borderTopRightRadius: isRight ? 5 : 0,
+                    borderBottomRightRadius: isRight ? 5 : 0,
                     backgroundColor: active ? '#FFF9DF' : 'transparent',
                     color: '#000',
                   }}
@@ -420,8 +436,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
             </div>
             <div className="text-sm font-bold">
               {filter === 'mastered'
-                ? (subTab === 'phrases' ? (t.noMasteredPhrases || t.noMastered) : t.noMastered)
-                : (subTab === 'phrases' ? (t.noLearnedPhrases || t.noLearned) : t.noLearned)
+                ? (subTab === 'words' ? t.noMastered : (t.noMasteredPhrases || t.noMastered))
+                : (subTab === 'words' ? t.noLearned : (t.noLearnedPhrases || t.noLearned))
               }
             </div>
             <div className="text-xs mt-1 text-textLight">
