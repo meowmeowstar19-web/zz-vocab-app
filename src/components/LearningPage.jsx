@@ -537,6 +537,11 @@ export default function LearningPage({
   // nav-decor-top-2 (bear) — design node 109:158: 58w in the 405-wide nav,
   // ~0.70× the left decor. Mirrors navLeftDecorW's responsive curve.
   const navRightDecorW = Math.round(responsive2(58, 40, 35));
+  // The bear PNG has ~12.8% transparent padding below its belly (vs the cat's
+  // ~1.8%), so a FIXED bottom offset would let the resting line drift as the
+  // width scales. Offset proportionally to displayed height so the belly always
+  // rests on the nav edge like the cat: imgH = w×141/174, padding = 0.128×imgH.
+  const navRightDecorBottom = -Math.round(navRightDecorW * (141 / 174) * 0.128 + 4);
 
   // Reload progress when target language changes (storage key changed) OR
   // when App signals a sync-arrival via refreshKey. Without the refreshKey
@@ -1419,7 +1424,7 @@ export default function LearningPage({
               style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
               className="absolute pointer-events-none select-none"
-              style={{ right: 12, bottom: -13, width: navRightDecorW, zIndex: 3 }} />
+              style={{ right: 12, bottom: navRightDecorBottom, width: navRightDecorW, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1578,7 +1583,7 @@ export default function LearningPage({
             style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
             className="absolute pointer-events-none select-none"
-            style={{ right: 12, bottom: -13, width: navRightDecorW, zIndex: 3 }} />
+            style={{ right: 12, bottom: navRightDecorBottom, width: navRightDecorW, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
