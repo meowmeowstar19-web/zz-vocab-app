@@ -539,9 +539,10 @@ export default function LearningPage({
   const navRightDecorW = Math.round(responsive2(58, 40, 35));
   // The bear PNG has ~12.8% transparent padding below its belly (vs the cat's
   // ~1.8%), so a FIXED bottom offset would let the resting line drift as the
-  // width scales. Offset proportionally to displayed height so the belly always
-  // rests on the nav edge like the cat: imgH = w×141/174, padding = 0.128×imgH.
-  const navRightDecorBottom = -Math.round(navRightDecorW * (141 / 174) * 0.128 + 4);
+  // width scales. The proportional term (0.128×imgH) cancels that padding; the
+  // constant term is the resting depth — a steady ~7px belly overlap on the nav
+  // at every size (≈ -13px at full width, the depth that reads best).
+  const navRightDecorBottom = -Math.round(navRightDecorW * (141 / 174) * 0.128 + 7);
 
   // Reload progress when target language changes (storage key changed) OR
   // when App signals a sync-arrival via refreshKey. Without the refreshKey
