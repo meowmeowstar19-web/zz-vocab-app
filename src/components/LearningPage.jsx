@@ -537,12 +537,10 @@ export default function LearningPage({
   // nav-decor-top-2 (bear) — design node 109:158: 58w in the 405-wide nav,
   // ~0.70× the left decor. Mirrors navLeftDecorW's responsive curve.
   const navRightDecorW = Math.round(responsive2(58, 40, 35));
-  // The bear PNG has ~12.8% transparent padding below its belly (vs the cat's
-  // ~1.8%), so a FIXED bottom offset would let the resting line drift as the
-  // width scales. The proportional term (0.128×imgH) cancels that padding; the
-  // constant term is the resting depth — a steady ~7px belly overlap on the nav
-  // at every size (≈ -13px at full width, the depth that reads best).
-  const navRightDecorBottom = -Math.round(navRightDecorW * (141 / 174) * 0.128 + 7);
+  // Bottom offset scales with the bear's width (which shrinks with screen
+  // height), so it rests deep at full size and rides up as the screen shortens
+  // — calibrated to -13px at full width (navRightDecorW = 58).
+  const navRightDecorBottom = -Math.round((navRightDecorW * 13) / 58);
 
   // Reload progress when target language changes (storage key changed) OR
   // when App signals a sync-arrival via refreshKey. Without the refreshKey
