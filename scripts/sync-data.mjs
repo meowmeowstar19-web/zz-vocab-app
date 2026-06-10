@@ -745,24 +745,42 @@ function readDevPhrases() {
   const categories = []; // sheet names, in workbook order, that have ≥1 shippable row
   let skipped = 0;
 
+  // Header tolerance: tabs are hand-made and their column headers vary (e.g. the
+  // English-word column is sometimes 英语词组, the Chinese column is 中文翻译 on some
+  // tabs and 中文词组翻译 on others). Read each field by trying a small alias list so
+  // renaming/varying a header never silently drops a whole tab again.
+  const pick = (row, aliases) => {
+    for (const a of aliases) { const v = String(row[a] || '').trim(); if (v) return v; }
+    return '';
+  };
+  const EN_COLS = ['英语词组', '英语', 'English'];
+  const ZH_COLS = ['中文翻译', '中文词组翻译', '中文', 'Chinese'];
+  const SENT_COLS = ['英语例句', '例句', 'Example'];
+
   for (const sheetName of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+    const dataRows = rows.filter(r => pick(r, EN_COLS) || pick(r, ZH_COLS));
     let count = 0;
     for (const row of rows) {
-      const en = String(row['英语词组'] || '').trim();
-      const zh = String(row['中文翻译'] || '').trim();
+      const en = pick(row, EN_COLS);
+      const zh = pick(row, ZH_COLS);
       if (!en || !zh) { if (en || zh) skipped++; continue; } // need BOTH to ship
       phrases.push({
         en, zh,
         category: sheetName,
-        sentence: String(row['英语例句'] || '').trim(), // optional — '' if absent
+        sentence: pick(row, SENT_COLS), // optional — '' if absent
       });
       count++;
     }
     if (count > 0) { categories.push(sheetName); log.ok(`  ${sheetName.padEnd(8)} ${count} phrase(s)`); }
+    // Loud guard: a tab full of rows that produced ZERO phrases almost always
+    // means a header mismatch (the silent-drop bug). Surface it instead of hiding.
+    else if (dataRows.length > 0) {
+      log.warn(`Tab "${sheetName}" has ${dataRows.length} data row(s) but 0 shipped — check column headers (need ${EN_COLS[0]} + ${ZH_COLS[0]})`);
+    }
   }
 
-  if (skipped > 0) log.info(`Skipped ${skipped} 进阶 row(s) missing 英语词组 or 中文翻译`);
+  if (skipped > 0) log.info(`Skipped ${skipped} dev row(s) missing 英语词组 or 中文翻译`);
   log.ok(`Parsed ${phrases.length} 进阶 phrases across ${categories.length} categor${categories.length === 1 ? 'y' : 'ies'}`);
   return { phrases, categories };
 }
