@@ -5,6 +5,9 @@
 // Comparison is case-insensitive and trims whitespace.
 export const LANGUAGE_SWITCH_WHITELIST = [
   'meowmeowstar19@gmail.com',
+  'ahsirjoe@gmail.com',
+  'adacylar@gmail.com',
+  'chenwenaiba@gmail.com',
 ];
 
 export function canSwitchLanguageFreely(email) {
