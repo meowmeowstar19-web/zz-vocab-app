@@ -28,6 +28,48 @@ function shuffle(arr) {
   return a;
 }
 
+// Text shown inside the category button's yellow pill, by native language.
+const CATEGORY_BTN_LABEL = { zh: '主题', en: 'Theme', ja: 'テーマ' };
+
+// Shared "主题/Theme/テーマ" top-bar button: frog-on-pill image with the
+// localized label overlaid on the yellow pill. Geometry follows Figma node
+// 940:345 — a 48×43 frame (the image's native aspect, no letterboxing), font
+// 12px @ size 48, label vertically centered at 33/43 ≈ 76.7% of the height.
+function CategoryButton({ size = 48, onClick, label }) {
+  const width = size;
+  const height = Math.round((size * 43) / 48);
+  return (
+    <button
+      data-testid="learn-category-btn"
+      onClick={onClick}
+      className="relative active:scale-90"
+      style={{ width, height }}
+    >
+      <img
+        src={getFigmaAssetUrl('category-btn.png')}
+        alt={label}
+        className="w-full h-full object-contain"
+      />
+      <span
+        className="absolute font-bold pointer-events-none select-none"
+        style={{
+          left: 0,
+          right: 0,
+          top: '76.7%',
+          transform: 'translateY(-50%)',
+          textAlign: 'center',
+          color: '#000',
+          fontSize: Math.round((size * 12) / 48),
+          lineHeight: 1,
+          letterSpacing: '-0.03em',
+        }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+}
+
 function getOptions(correctWord, wordPool, nativeLang) {
   const correctText = getWordText(correctWord, nativeLang);
   const others = wordPool.filter(w => w.id !== correctWord.id && getWordText(w, nativeLang) !== correctText);
@@ -148,6 +190,7 @@ export default function LearningPage({
   // progress lives in a different localStorage slot than account B's.
   const storageKey = `${userScope}_${targetLang}`;
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
+  const categoryBtnLabel = CATEGORY_BTN_LABEL[nativeLang] || CATEGORY_BTN_LABEL.zh;
   const isOralMode = selectedLevel === 'oral';
   // 进阶 (dev): personal study phrases, only for the whitelisted user in zh→en.
   // Behaves exactly like oral mode (no images, text-only quiz, no phonetics);
@@ -491,6 +534,9 @@ export default function LearningPage({
   const showCatDecor = contentH >= 550;        // cat on choices (hide only on very short screens)
   const isCompact = contentH < FULL_H;
   const navLeftDecorW = Math.round(responsive2(83, 56, 49));
+  // nav-decor-top-2 (bear) — design node 109:158: 58w in the 405-wide nav,
+  // ~0.70× the left decor. Mirrors navLeftDecorW's responsive curve.
+  const navRightDecorW = Math.round(responsive2(58, 40, 35));
 
   // Reload progress when target language changes (storage key changed) OR
   // when App signals a sync-arrival via refreshKey. Without the refreshKey
@@ -1331,9 +1377,7 @@ export default function LearningPage({
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
-              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
-                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
-              </button>
+              <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             )}
           </div>
           <div className="flex-1 flex items-center justify-center px-6">
@@ -1375,7 +1419,7 @@ export default function LearningPage({
               style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
               className="absolute pointer-events-none select-none"
-              style={{ right: 8, bottom: -5, width: 37, zIndex: 3 }} />
+              style={{ right: 12, bottom: -13, width: navRightDecorW, zIndex: 3 }} />
             <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
               className="absolute pointer-events-none select-none"
               style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1391,9 +1435,7 @@ export default function LearningPage({
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
             ) : (
-              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[30px] h-[30px] active:scale-90">
-                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
-              </button>
+              <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             )}
             <span className="text-[14px] text-[#999]">{counterText}</span>
           </div>
@@ -1449,9 +1491,7 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
-              </button>
+              <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             </div>
           </div>
         )}
@@ -1538,7 +1578,7 @@ export default function LearningPage({
             style={{ left: 0, bottom: -4, width: navLeftDecorW, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-top-2.png')} alt=""
             className="absolute pointer-events-none select-none"
-            style={{ right: 8, bottom: -5, width: 37, zIndex: 3 }} />
+            style={{ right: 12, bottom: -13, width: navRightDecorW, zIndex: 3 }} />
           <img src={getFigmaAssetUrl('nav-decor-3.png')} alt=""
             className="absolute pointer-events-none select-none"
             style={{ left: 105, bottom: -17, width: 37, zIndex: 3 }} />
@@ -1559,18 +1599,10 @@ export default function LearningPage({
               <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
                 <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
               </button>
-              <button data-testid="learn-category-btn" onClick={handleOpenCategories} className="w-[28px] h-[28px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
-              </button>
+              <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             </div>
           ) : (
-            <button
-              data-testid="learn-category-btn"
-              onClick={handleOpenCategories}
-              className="w-[28px] h-[28px] active:scale-90"
-            >
-              <img src={getFigmaAssetUrl('category-btn.png')} alt="分类" className="w-full h-full object-contain" />
-            </button>
+            <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
           )}
 
           <span className="text-[14px] text-[#999]">{counterText}</span>
