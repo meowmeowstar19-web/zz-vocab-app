@@ -28,16 +28,25 @@ import { join, dirname, extname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 // 路径钥匙：工厂音频目录从这里取（搬文件夹时一处改）。
-import { AUDIO_WORD_DIR, AUDIO_PHRASE_DIR, AUDIO_MARKETING_DIR } from '../../data_prep/scripts/paths.mjs';
+import { AUDIO_WORD_DIR, AUDIO_PHRASE_DIR, AUDIO_MARKETING_DIR, AUDIO_DEV_DIR } from '../../data_prep/scripts/paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const OUT_DIR = join(ROOT, 'public', 'assets', 'audio');
 
-// 工厂源目录（word/phrase/marketing 三个清单；marketing 与 word 一样扁平进 public/<lang>/）
-const SRC_LISTS = { word: AUDIO_WORD_DIR, phrase: AUDIO_PHRASE_DIR, marketing: AUDIO_MARKETING_DIR };
-// 工厂语言文件夹 → public 输出语言码（jp 源 → ja 输出，对齐 useAudio 的语言码）
+// 工厂源目录（word/phrase/marketing/dev 四个清单）。
+const SRC_LISTS = {
+  word: AUDIO_WORD_DIR, phrase: AUDIO_PHRASE_DIR, marketing: AUDIO_MARKETING_DIR,
+  'dev-phrases': AUDIO_DEV_DIR,
+};
+// 工厂语言文件夹 → public 输出命名空间（= public/assets/audio/<ns>/ + audio-manifest/<ns>.json）。
+// 普通清单：jp 源 → ja 输出，对齐 useAudio 的语言码。
 const LANG_MAP = { en: 'en', jp: 'ja', zh: 'zh' };
+// dev-phrases = 进阶 (zh→en, whitelist) 词组：en 草稿 → 独立命名空间 dev-phrases/，
+// 故意不并进 en，免得这套(白名单专属、量大)塞进每个英语用户都加载的 en manifest。
+// app 端 useAudio.speakDevPhrase 走 ns='dev-phrases' 解析。
+const DEV_MAP = { en: 'dev-phrases' };
+const mapFor = (listName) => (listName === 'dev-phrases' ? DEV_MAP : LANG_MAP);
 
 // Encoding target: matches existing public/assets/audio/*/*.mp3
 const BITRATE = '48k';
@@ -138,7 +147,7 @@ function main() {
       continue;
     }
     anySrc = true;
-    for (const [srcLang, outLang] of Object.entries(LANG_MAP)) {
+    for (const [srcLang, outLang] of Object.entries(mapFor(listName))) {
       const r = processLangDir(listName, srcLang, outLang);
       totalIn += r.bytesIn; totalOut += r.bytesOut;
       totalCount += r.count; totalSkipped += r.skipped;

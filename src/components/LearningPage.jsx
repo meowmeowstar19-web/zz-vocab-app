@@ -5,7 +5,7 @@ import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS 
 import { devPhrases, devPhrasesShuffled, devCategories, DEV_CATEGORY_LABELS, devCategoryCovers } from '../data/devPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
-import { speakWordByLang, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
+import { speakWordByLang, speakDevPhrase, preloadAudioManifest, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
 import {
@@ -432,10 +432,18 @@ export default function LearningPage({
     if (reviewRedirectTimerRef.current) clearTimeout(reviewRedirectTimerRef.current);
   }, []);
 
-  // Speak function based on target language
+  // Speak function based on target language. 进阶 (dev) phrases use their own
+  // isolated audio namespace (dev-phrases), not the shared 'en' audio.
   const speakCurrent = useCallback((text) => {
-    speakWordByLang(stripRuby(text), targetLang);
-  }, [targetLang]);
+    if (isDevMode) speakDevPhrase(stripRuby(text));
+    else speakWordByLang(stripRuby(text), targetLang);
+  }, [targetLang, isDevMode]);
+
+  // Lazy-load the dev-phrases manifest only once dev mode is actually unlocked,
+  // so the (large, whitelist-only) dev audio index never loads for normal users.
+  useEffect(() => {
+    if (isDevMode && devUnlocked) preloadAudioManifest('dev-phrases');
+  }, [isDevMode, devUnlocked]);
 
   // Measure container height for responsive layout.
   // Skip when offsetHeight is 0 — this page stays mounted while other tabs are

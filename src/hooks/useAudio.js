@@ -207,20 +207,27 @@ export function speakWordZh(text) {
 }
 
 const TTS_MAP = { en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' };
-export function speakWordByLang(text, lang) {
-  const manifest = _audioManifests[lang];
+
+// Core recorded-audio playback. `ns` is the audio namespace = the manifest name
+// AND the public/assets/audio/<ns>/ folder (normally the lang code, but can be a
+// dedicated namespace like 'dev-phrases' that must NOT mix into a lang's audio).
+// `keyLang` is the language whose audioKey() casing rules name the files (e.g.
+// dev phrases are English, so files are lowercased → keyLang 'en'). `ttsLang` is
+// the SpeechSynthesis fallback locale when there's no recording.
+function speakFromManifest(text, { ns, keyLang, ttsLang }) {
+  const manifest = _audioManifests[ns];
   // Manifest not loaded yet (e.g. very first word before preload resolved):
   // kick off the load and fall back to TTS for this one word. Subsequent
   // words use the recording. Don't block the UI on the async import.
   if (!manifest) {
-    preloadAudioManifest(lang);
-    speakWord(text, TTS_MAP[lang] || 'en-US');
+    preloadAudioManifest(ns);
+    speakWord(text, ttsLang);
     return;
   }
-  const key = audioKey(text, lang);
+  const key = audioKey(text, keyLang);
   const hash = manifest[key];
   if (hash !== undefined) {
-    const url = getAudioUrl(lang, key, hash);
+    const url = getAudioUrl(ns, key, hash);
     const now = Date.now();
     if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
     _lastSpeak = { text, time: now };
@@ -239,7 +246,20 @@ export function speakWordByLang(text, lang) {
     playRecorded(url);
     return;
   }
-  speakWord(text, TTS_MAP[lang] || 'en-US');
+  speakWord(text, ttsLang);
+}
+
+export function speakWordByLang(text, lang) {
+  speakFromManifest(text, { ns: lang, keyLang: lang, ttsLang: TTS_MAP[lang] || 'en-US' });
+}
+
+// 进阶 (dev) phrases live in their OWN audio namespace — public/assets/audio/
+// dev-phrases/ + src/data/audio-manifest/dev-phrases.json — deliberately kept
+// out of the shared 'en' audio so the (huge, whitelist-only) dev set never
+// bloats the en manifest every English learner loads. The phrases are English,
+// so files are named with the en (lowercased) audioKey and TTS falls back to en-US.
+export function speakDevPhrase(text) {
+  speakFromManifest(text, { ns: 'dev-phrases', keyLang: 'en', ttsLang: 'en-US' });
 }
 
 export function playCorrectSound() {
