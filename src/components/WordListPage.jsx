@@ -5,7 +5,14 @@ import { devPhrases } from '../data/devPhrases';
 import { jaData } from '../data/jaData';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { getProgress, toggleMastered } from '../utils/storage';
-import { speakWordByLang } from '../hooks/useAudio';
+import { speakWordByLang, speakDevPhrase, preloadAudioManifest } from '../hooks/useAudio';
+
+// 进阶 (dev) phrases use a dedicated audio namespace, not the shared 'en' audio —
+// route them to speakDevPhrase or they fall back to (ugly) browser TTS.
+function speakWordOrDev(word, text, targetLang) {
+  if (word?.level === 'dev') speakDevPhrase(text);
+  else speakWordByLang(text, targetLang);
+}
 import RubyText, { stripRuby } from './RubyText';
 import { phoneticMap } from '../data/phonetics';
 import {
@@ -128,6 +135,12 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     if (subTab === 'dev' && !devUnlocked) setSubTab('words');
   }, [subTab, devUnlocked]);
 
+  // Preload the dev-phrases audio manifest so the first tap plays the recording
+  // (not a one-off TTS fallback) — same as LearningPage does.
+  useEffect(() => {
+    if (devUnlocked) preloadAudioManifest('dev-phrases');
+  }, [devUnlocked]);
+
   useEffect(() => {
     setProgress(getProgress(langKey));
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -238,13 +251,13 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       });
     }
     setPopupWord(word);
-    speakWordByLang(stripRuby(getWordText(word, targetLang) || word.en), targetLang);
+    speakWordOrDev(word, stripRuby(getWordText(word, targetLang) || word.en), targetLang);
   }, [revealedWords, targetLang, nativeLang]);
 
   const handleSpeak = useCallback((e, word) => {
     e.stopPropagation();
     const text = stripRuby(getWordText(word, targetLang) || word.en);
-    speakWordByLang(text, targetLang);
+    speakWordOrDev(word, text, targetLang);
   }, [targetLang]);
 
   // Preload images (first 20) + translations (all) so popup opens instantly
@@ -662,7 +675,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
   }, [imgSrc]);
 
   const handleSpeak = () => {
-    speakWordByLang(stripRuby(displayText), targetLang);
+    speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
   return (
