@@ -8,6 +8,7 @@ export const LANGUAGE_SWITCH_WHITELIST = [
   'ahsirjoe@gmail.com',
   'adacylar@gmail.com',
   'chenwenaiba@gmail.com',
+  'da.chenyingy@gmail.com',
 ];
 
 export function canSwitchLanguageFreely(email) {
