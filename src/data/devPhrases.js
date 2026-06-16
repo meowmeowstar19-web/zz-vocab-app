@@ -879,7 +879,7 @@ const raw = [
   ['Crash and burn', '一败涂地', '实用词组', 'My first presentation crashed and burned.', '我第一次演讲彻底搞砸了'],
   ['It finally clicked', '突然开窍了', '实用词组', 'After hours of practice, it finally clicked.', '练了好几个小时,我终于开窍了'],
   ['Cram for a test', '临阵磨枪备考', '实用词组', 'I crammed for the test all night.', '我熬了一整夜临时抱佛脚'],
-  ['In over my head', '力不从心', '实用词组', 'This class is way over my head.', '这门课我完全跟不上'],
+  ['In over my head', '力不从心', '实用词组', 'I feel like I am in over my head with this class', '这门课我完全跟不上'],
   ['Trip up on something', '在某处栽跟头', '实用词组', 'I always trip up on the spelling.', '我老是在拼写上栽跟头'],
   ['Get the swing of it', '渐渐上手', '实用词组', 'Give it a week and you\'ll get the swing of it.', '再过一周你就上手了'],
   ['Botch it', '搞砸弄糟', '实用词组', 'I botched the whole thing.', '我把整件事都搞砸了'],
