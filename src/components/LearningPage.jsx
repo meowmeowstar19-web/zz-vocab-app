@@ -13,7 +13,7 @@ import {
   getTranslationPair, getFontFamily, UI_TEXT, CATEGORY_LABELS,
 } from '../utils/langHelpers';
 import {
-  getDueReviewWords, calcBudget, buildInterleaved, getInterval,
+  getReviewWordsForBlend, REVIEW_BLEND_CAP, buildInterleaved, getInterval,
   getReviewFormat, SESSION_GAPS, SESSION_FORMATS, D_KNOW_GAP,
 } from '../utils/srs';
 import { usePostHog } from '@posthog/react';
@@ -685,13 +685,14 @@ export default function LearningPage({
     let newPool = subcatPool.filter(w => !prog[w.id]?.timestamp);
     newPool = shuffle(newPool);
 
-    // Due review words — restricted to this subcategory only
-    const dueWords = getDueReviewWords(prog, subcatPool);
-    const { reviewBudget } = calcBudget(dueWords.length);
+    // Old words to weave in — ALL learned (non-mastered) words in this subcategory,
+    // NOT gated on whether they're strictly "due" yet. Recently-learned / most-
+    // fragile words come first. Capped per sitting so the queue stays sane.
+    const reviewWords = getReviewWordsForBlend(prog, subcatPool);
+    const reviewSlice = reviewWords.slice(0, REVIEW_BLEND_CAP);
 
-    // Use ALL available new words — session continues until category is truly exhausted
-    const reviewSlice = dueWords.slice(0, reviewBudget);
-
+    // Blend ~1:1 with new words. Use ALL available new words — session continues
+    // until the category (new + capped review) is truly exhausted.
     const queue = buildInterleaved(newPool, reviewSlice, prog);
 
     // eslint-disable-next-line no-console
@@ -701,8 +702,8 @@ export default function LearningPage({
       subcatPoolSize: subcatPool.length,
       subcatPoolIds: subcatPool.map(w => w.id),
       newPoolIds: newPool.map(w => w.id),
-      dueWordIds: dueWords.map(w => w.id),
-      reviewBudget,
+      reviewWordIds: reviewWords.map(w => w.id),
+      reviewSliceIds: reviewSlice.map(w => w.id),
       queue: queue.map(c => `${c.word.id}(${c.type}/${c.format})`),
       progressSnapshot: Object.fromEntries(
         subcatPool.map(w => [w.id, {
@@ -1695,8 +1696,8 @@ export default function LearningPage({
             </button>
           )}
 
-          {/* Example sentence — hidden in D mode */}
-          {displaySentence && quizFormat !== 'D' && (
+          {/* Example sentence — shown in all formats incl. D (认识 mode); translation stays covered in C & D */}
+          {displaySentence && (
             <p
               className="text-textMain text-center"
               style={{
@@ -1711,8 +1712,8 @@ export default function LearningPage({
             </p>
           )}
 
-          {/* Translation — always visible in formats A & B (& oral C step 0); cover in C; hidden in D */}
-          {displaySentence && quizFormat !== 'D' && needsTranslation && (
+          {/* Translation — always visible in formats A & B (& oral C step 0); covered (tap to reveal) in C & D */}
+          {displaySentence && needsTranslation && (
             quizFormat === 'A' || quizFormat === 'B' || (isPhraseMode && quizFormat === 'C' && currentStep === 0) ? (
               <p
                 className="text-center px-2"

@@ -96,6 +96,40 @@ export function getDueReviewWords(progress, allWords, now = Date.now()) {
   return due;
 }
 
+// ── Review words for the learning-screen blend ──
+// Unlike getDueReviewWords (strict "is it due yet?"), this returns ALL learned,
+// non-mastered words in scope so the learning screen can ALWAYS weave old words
+// in alongside new ones — never gated on the SRS interval. Ordering:
+//   1. Currently-due words first (recently-learned / most-fragile first — that's
+//      getDueReviewWords's own sort: srsLevel ascending, then most overdue).
+//   2. Then not-yet-due words, again fragile/recent first (srsLevel asc), then
+//      whichever is closest to becoming due.
+// Recently-learned words sit at low srsLevels with short intervals, so this
+// naturally surfaces "刚学的旧词" before "很久很久的旧词".
+export function getReviewWordsForBlend(progress, allWords, now = Date.now()) {
+  const due = getDueReviewWords(progress, allWords, now);
+  const dueIds = new Set(due.map(w => w.id));
+  const notDue = [];
+  for (const w of allWords) {
+    if (dueIds.has(w.id)) continue;
+    const p = progress[w.id];
+    if (!p || !p.timestamp || p.mastered) continue;
+    notDue.push(w);
+  }
+  notDue.sort((a, b) => {
+    const pa = progress[a.id], pb = progress[b.id];
+    const la = pa.srsLevel ?? 4, lb = pb.srsLevel ?? 4;
+    if (la !== lb) return la - lb;                       // fragile / recent first
+    return (pa.nextReviewAt || 0) - (pb.nextReviewAt || 0); // soonest-due next
+  });
+  return [...due, ...notDue];
+}
+
+// Upper bound on old-word reviews woven into a single learning sitting. Not a
+// target — just keeps the queue sane; the dedicated 复习 tab handles unlimited
+// review. Ordered fragile/recent-first, so the cap keeps the words that matter.
+export const REVIEW_BLEND_CAP = 60;
+
 // ── Energy budget ──
 export const SESSION_ENERGY = 50;
 export const NEW_WORD_ENERGY = 3;
@@ -109,41 +143,35 @@ export function calcBudget(dueCount) {
 }
 
 // ── Build interleaved queue ──
+// Chunk sizes for the new/old blend. We learn new words in bursts of 5 (matches
+// the natural "5-at-a-time" rhythm), then consolidate with a burst of old-word
+// reviews, then repeat. Grouping (vs strict 1:1 every-other-card alternation)
+// keeps new-learning momentum and makes review feel like a deliberate round
+// instead of whiplash. Equal chunks → still ~1:1 overall, just grouped.
+export const NEW_CHUNK = 5;    // new words per burst
+export const REVIEW_CHUNK = 5; // old-word reviews per burst
+
 export function buildInterleaved(newWords, reviewWords, progress) {
   const queue = [];
-
   if (newWords.length === 0 && reviewWords.length === 0) return queue;
-  if (newWords.length === 0) {
-    return reviewWords.map(w => ({
-      word: w,
-      format: getReviewFormat(progress[w.id]?.srsLevel ?? 4),
-      type: 'review',
-    }));
-  }
-  if (reviewWords.length === 0) {
-    return newWords.map(w => ({ word: w, format: 'A', type: 'new', step: 0 }));
-  }
 
-  // Calculate interleaving ratio: how many new words between each review
-  const newPerReview = Math.max(1, Math.round(newWords.length / reviewWords.length));
+  const mkNew = w => ({ word: w, format: 'A', type: 'new', step: 0 });
+  const mkReview = w => {
+    const level = progress[w.id]?.srsLevel ?? 4;
+    return { word: w, format: getReviewFormat(level), type: 'review', level };
+  };
+
+  if (newWords.length === 0) return reviewWords.map(mkReview);
+  if (reviewWords.length === 0) return newWords.map(mkNew);
+
+  // Burst of new words, then a burst of reviews, repeat. Whichever list is longer
+  // tails the queue once the other runs out, so old words are never buried behind
+  // a wall of new ones (and vice-versa when the new pool is small).
   let ni = 0, ri = 0;
-
   while (ni < newWords.length || ri < reviewWords.length) {
-    // Add batch of new words
-    for (let i = 0; i < newPerReview && ni < newWords.length; i++) {
-      queue.push({ word: newWords[ni], format: 'A', type: 'new', step: 0 });
-      ni++;
-    }
-    // Add 1 review word
-    if (ri < reviewWords.length) {
-      const rw = reviewWords[ri];
-      const p = progress[rw.id] || {};
-      const level = p.srsLevel ?? 4;
-      queue.push({ word: rw, format: getReviewFormat(level), type: 'review', level });
-      ri++;
-    }
+    for (let i = 0; i < NEW_CHUNK && ni < newWords.length; i++) queue.push(mkNew(newWords[ni++]));
+    for (let i = 0; i < REVIEW_CHUNK && ri < reviewWords.length; i++) queue.push(mkReview(reviewWords[ri++]));
   }
-
   return queue;
 }
 
