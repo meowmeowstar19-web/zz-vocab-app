@@ -2,7 +2,7 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v106';
+const CACHE_VERSION = 'v107';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word-content images (local /images/ or R2 CDN). UI
@@ -49,6 +49,9 @@ const PRECACHE_URLS = [
   '/icons/apple-touch-icon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  // Self-hosted Nunito (latin). On the first-paint critical path (preloaded in
+  // index.html) — precache so it's instant on repeat visits and works offline.
+  '/fonts/nunito-latin.woff2',
 ];
 
 self.addEventListener('install', (event) => {
@@ -296,8 +299,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets → cache-first.
-  if (isStaticAsset(url) || url.origin === 'https://fonts.gstatic.com' || url.origin === 'https://fonts.googleapis.com') {
+  // Static assets → cache-first. (Nunito is now self-hosted under /fonts/, so
+  // the former fonts.gstatic.com / fonts.googleapis.com special-cases are gone.)
+  if (isStaticAsset(url)) {
     event.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached;

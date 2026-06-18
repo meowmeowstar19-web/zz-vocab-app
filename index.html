@@ -70,9 +70,10 @@
         }
       }
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Self-hosted Nunito (see @font-face in index.css). No external
+         fonts.googleapis.com request — it render-blocks and stalls in China.
+         Preload so the one 38KB woff2 starts downloading immediately. -->
+    <link rel="preload" href="/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
     <title>PlushieWord</title>
   </head>
   <body>
