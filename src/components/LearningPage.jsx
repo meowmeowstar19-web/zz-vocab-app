@@ -685,10 +685,14 @@ export default function LearningPage({
     let newPool = subcatPool.filter(w => !prog[w.id]?.timestamp);
     newPool = shuffle(newPool);
 
-    // Old words to weave in — ALL learned (non-mastered) words in this subcategory,
-    // NOT gated on whether they're strictly "due" yet. Recently-learned / most-
+    // Old words to weave in — ALL learned (non-mastered) words the user has,
+    // pulled CROSS-CATEGORY (not limited to the selected category), so picking a
+    // fresh category to learn still blends in everything you've studied before.
+    // `allPoolFiltered` is mode-aware (words / oral / dev) and language-filtered,
+    // so reviews stay within the current mode but ignore category + level.
+    // NOT gated on whether they're strictly "due" yet; recently-learned / most-
     // fragile words come first. Capped per sitting so the queue stays sane.
-    const reviewWords = getReviewWordsForBlend(prog, subcatPool);
+    const reviewWords = getReviewWordsForBlend(prog, allPoolFiltered);
     const reviewSlice = reviewWords.slice(0, REVIEW_BLEND_CAP);
 
     // Blend ~1:1 with new words. Use ALL available new words — session continues
@@ -727,7 +731,7 @@ export default function LearningPage({
     } else {
       setSrsCard(null);
     }
-  }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, showNextCard, sessionKey]);
+  }, [effectiveIsReview, storageKey, langKey, selectedCategory, selectedLevel, nativeLang, targetLang, allWordsFiltered, allPoolFiltered, showNextCard, sessionKey]);
 
   // Force rebuild SRS session when category/level confirmed
   const resetSrsSession = useCallback(() => {
