@@ -82,21 +82,9 @@ migrateProgressToTargetOnly();
 migrateProgressToUserScope();
 migrateClearStaleGateWords();
 
-// Reset learning category to "all" if the user has been away for more than this.
-// Picked 6h: long enough that the same study session keeps its category, short
-// enough that returning the next morning starts fresh on "all".
-const STALE_CATEGORY_MS = 6 * 60 * 60 * 1000;
-
-// Read & evaluate "last active" once at module load — before App reads localStorage
-// for the initial learningCategory state. If stale, wipe the saved category so
-// useState falls back to 'all'.
-(function resetCategoryIfStale() {
-  const last = parseInt(localStorage.getItem('app_last_active') || '0', 10);
-  if (!last || Date.now() - last > STALE_CATEGORY_MS) {
-    localStorage.removeItem('app_learning_category');
-  }
-  localStorage.setItem('app_last_active', String(Date.now()));
-})();
+// The selected learning category persists indefinitely across sessions/logins —
+// returning users always resume on their last-chosen category (never auto-reset
+// to "all"). See `learningCategory` init below (reads `app_learning_category`).
 
 // Detect browser language → default native lang for first-time visitors.
 // Used pre-login (Welcome / Email pages) so unsaved users see localized UI.
