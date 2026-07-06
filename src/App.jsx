@@ -238,6 +238,11 @@ export default function App() {
   // app continues with the 'guest' fallback instead of hanging on a blank
   // screen forever.
   const [anonAttemptFailed, setAnonAttemptFailed] = useState(false);
+  // Watchdog for the scope-finalization placeholder: true once the app has
+  // waited long enough on auth (token refresh / anon mint) that continuing
+  // to block is worse than the SRS-reshuffle flash the gate exists to
+  // prevent. See the gate below (scopeFinalized) for the full story.
+  const [gateTimedOut, setGateTimedOut] = useState(false);
   // Device-based "already onboarded" check: once the user has picked their
   // native+target language (which writes app_native) AND hasn't explicitly
   // logged out, they enter the app as a guest on every subsequent visit
@@ -598,6 +603,19 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Stale-flag recovery: app_email_auth_pending marks the OTP send→verify
+    // window WITHIN a single page session (EmailLoginPage sets it after
+    // signing out the anon session; verify success / back / modal close
+    // clear it). If the page dies mid-window (iOS killing the PWA while the
+    // user copies the code from Mail is the common case), the flag survives
+    // the restart but the OTP UI does not — and a returning user
+    // (app_had_account=1) then has NO path to a session: the anon-mint
+    // effect below returns early on this flag forever, scopeFinalized never
+    // goes true, and the app sits on the background-image placeholder until
+    // localStorage is cleared. A fresh mount always means the OTP window is
+    // over, so the flag is stale by definition here.
+    try { localStorage.removeItem('app_email_auth_pending'); } catch {}
+
     // linkIdentity rejections (e.g. "identity already attached to another
     // user") come back as `#error=...&error_code=...&error_description=...`
     // in the OAuth callback URL. supabase-js parses the same hash for tokens
@@ -672,6 +690,14 @@ export default function App() {
           dispatchLoginModal({ type: 'close' });
         }
       }
+    }).catch((e) => {
+      // getSession can reject (lock acquisition failure, storage access
+      // errors, exhausted refresh retries surfacing as a throw). Without
+      // this handler authReady stays false forever → permanent placeholder.
+      // Proceed session-less: the anon-mint effect / legacy 'guest' scope
+      // take over, same as a signed-out visitor.
+      console.warn('[auth] getSession failed at startup:', e?.message || e);
+      setAuthReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       // Distinguish a Supabase-initiated SIGNED_OUT (token refresh failed —
@@ -801,6 +827,39 @@ export default function App() {
         setAnonAttemptFailed(true);
       });
   }, [authReady, session, isGuest, needsLangSetup]);
+
+  // Hold the in-app shell until the user scope is finalized. Two cases:
+  //   (a) authReady is still false — supabase.auth.getSession() hasn't
+  //       resolved yet, so we don't know if there's a real session waiting.
+  //       Mounting LearningPage now would pick userScope='guest' and then
+  //       flip to u_<uid> when getSession lands, rebuilding the SRS queue
+  //       with a fresh shuffle → the user sees one word flash before the
+  //       real first word.
+  //   (b) authReady=true, isGuest=true, no session yet, anon sign-in
+  //       hasn't settled. signInAnonymously is in flight — same flash.
+  //       anonAttemptFailed unblocks (a) if anon sign-in actually rejected,
+  //       so we fall through to the legacy 'guest' scope rather than
+  //       hanging on a blank screen forever.
+  const scopeFinalized = authReady && (!!session || !isGuest || anonAttemptFailed);
+
+  // Watchdog on that gate. getSession() blocks on a NETWORK round-trip
+  // whenever the cached access token is expired (any open after >1h away):
+  // navigator.locks acquisition (up to 5s if a frozen PWA instance holds
+  // it) + token refresh with supabase-js's internal retries (seconds on a
+  // weak cellular link) + possibly a second round-trip minting a fresh anon
+  // session. Users were staring at the placeholder for all of it. After
+  // GATE_MAX_WAIT_MS we render the app with the interim 'guest' scope and
+  // let the session land whenever it lands; the scope flip then rebuilds
+  // the SRS queue (one word may visibly swap) — in the rare slow case
+  // that's strictly better than an indefinite background-image screen.
+  // Trade-off accepted: a real signed-in user on a pathologically slow
+  // link could log 1-2 words into the guest gate counter before the flip.
+  const GATE_MAX_WAIT_MS = 4000;
+  useEffect(() => {
+    if (scopeFinalized) return;
+    const t = setTimeout(() => setGateTimedOut(true), GATE_MAX_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [scopeFinalized]);
 
   // Close the 5-word forced-login gate as soon as we have a REAL (non-anon)
   // session AND the post-OAuth verification has finished. Skipping while
@@ -1215,26 +1274,17 @@ export default function App() {
     );
   }
 
-  // Hold the in-app shell until the user scope is finalized. Two cases:
-  //   (a) authReady is still false — supabase.auth.getSession() hasn't
-  //       resolved yet, so we don't know if there's a real session waiting.
-  //       Mounting LearningPage now would pick userScope='guest' and then
-  //       flip to u_<uid> when getSession lands, rebuilding the SRS queue
-  //       with a fresh shuffle → the user sees one word flash before the
-  //       real first word.
-  //   (b) authReady=true, isGuest=true, no session yet, anon sign-in
-  //       hasn't settled. signInAnonymously is in flight — same flash.
-  //       anonAttemptFailed unblocks (a) if anon sign-in actually rejected,
-  //       so we fall through to the legacy 'guest' scope rather than
-  //       hanging on a blank screen forever.
-  const scopeFinalized = authReady && (!!session || !isGuest || anonAttemptFailed);
+  // scopeFinalized is computed up next to its watchdog effect (search for
+  // GATE_MAX_WAIT_MS rationale there). gateTimedOut lets a slow/stuck auth
+  // round-trip fall through to the interim 'guest' scope instead of pinning
+  // the user on this placeholder indefinitely.
   // Skip the placeholder while the LoginPromptModal is open. Email send-code
   // inside the modal does a transient signOut to clear the anon session
   // before signInWithOtp; that flips scopeFinalized false mid-flow and would
   // unmount the entire tree (including the modal itself), leaving the user
   // staring at the background image. The modal overlays the main app, so a
   // brief 'guest' userScope underneath is invisible to the user.
-  if (isLoggedIn && !scopeFinalized && !loginModal.open) {
+  if (isLoggedIn && !scopeFinalized && !loginModal.open && !gateTimedOut) {
     // Background matches LearningPage's study_background.jpg exactly so the
     // gate → LearningPage swap is visually invisible. An earlier version
     // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
