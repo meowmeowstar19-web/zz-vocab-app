@@ -18,15 +18,12 @@ import { readLocalSnapshot, writeLocalSnapshot, mergeSnapshots } from '../utils/
 
 const uidOf = (scope) => (scope && scope.startsWith('u_') ? scope.slice(2) : undefined);
 
-// Semantics (user decision 2026-07-07, identical in both apps): sign-in
-// enters an account UNTOUCHED — the machine no longer emits any 'login'
-// merge, so the only mergeScopes that arrives here is reason 'remint': a
-// fresh anon uid replacing a lost session inherits the previous scope
-// (same guest, anti-data-loss — unrelated to account switching). The
-// 'login' guard below is defense-in-depth against a future machine
-// regression. The from-scope keys are left untouched (cheap backup).
-export function mergeScopes(fromScope, toScope, reason) {
-  if (reason === 'login') return;
+// The machine emits mergeScopes in exactly ONE situation: a fresh anon uid
+// replacing a lost session (expired / consumed) inherits the previous
+// scope — same guest, anti-data-loss. Signing INTO an account never merges
+// (user decision 2026-07-07, identical in both apps; enforced by the
+// machine tests). The from-scope keys are left untouched (cheap backup).
+export function mergeScopes(fromScope, toScope) {
   if (!fromScope || !toScope || fromScope === toScope) return;
   try {
     const from = readLocalSnapshot(uidOf(fromScope), fromScope);

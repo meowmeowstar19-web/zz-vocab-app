@@ -35,9 +35,8 @@ PW 特有(不同步):`scopedStorage.js`(用 progressSync 的合并语义实现 m
    不再靠"查云端有没有进度"。
 2. **Sign in 已有账号 = 原样进入该账号,绝不合并游客数据**(两个 app 完全一致——
    machine 的 enterAuthed 已不发任何登录合并;游客槽位原地留存,与账号无关)。
-   唯一存在的 mergeScopes 是 reason='remint':同一游客的匿名 session 技术性死亡后
-   重铸新号时继承自己的数据(防丢档,与账号切换无关)。scopedStorage 里的
-   `if (reason === 'login') return` 只是防机器回归的保险。
+   机器里唯一的 mergeScopes:同一游客的匿名 session 技术性死亡后重铸新号时
+   继承自己的数据(防丢档,与账号切换无关)。"登录不合并"由 machine 测试断言保护。
 3. **登出后 Guest Mode = 全新存档**(GUEST_CHOSEN 铸新 uid,不继承旧 anon 数据)——
    与旧 PW 正常路径一致,防止已登出账号数据泄进下一个游客。
 4. 旧设备 `app_logged_out=1`(含 token 过期误设的)迁移后一次性落 WelcomePage。

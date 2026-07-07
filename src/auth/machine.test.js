@@ -154,7 +154,7 @@ describe('OTP flow', () => {
     const r = transition(exited.state, { type: 'ANON_MINTED', session: anonSession('fresh9') })
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
     expect(r.state.userScope).toBe('u_fresh9')
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9', reason: 'remint' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9' })
   })
 
   it('reload after a consumed session: boot re-mint inherits lastUserScope (no wardrobe reset)', () => {
@@ -164,7 +164,7 @@ describe('OTP flow', () => {
       { type: 'ANON_MINTED', session: anonSession('fresh9') },
     ])
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9', reason: 'remint' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9' })
   })
 
   it('kill mid-OTP, reopen, verify: the account is entered UNTOUCHED (no guest merge)', () => {
@@ -420,7 +420,7 @@ describe('sign out & session death', () => {
       { type: 'ANON_MINTED', session: anonSession('fresh2') },
     ])
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_dead1', to: 'u_fresh2', reason: 'remint' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_dead1', to: 'u_fresh2' })
   })
 })
 

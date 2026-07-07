@@ -66,8 +66,9 @@ const patchSnap = (state, patch) => ({ ...state, snapshot: { ...state.snapshot, 
 // unrelated to the account. The only path where guest data becomes account
 // data is the BIND flow, and that keeps the uid (linkIdentity/updateUser) —
 // the guest account BECOMES the real account, nothing to merge by
-// construction. The 'remint' merge in enterGuestAnon is different in kind:
-// it preserves the SAME guest's data across a technical session death.
+// construction. The one mergeScopes in this machine lives in enterGuestAnon
+// and is different in kind: it preserves the SAME guest's data across a
+// technical session death (expired/consumed anon → fresh anon uid).
 function enterAuthed(state, session, extra = {}) {
   const patch = {
     hadAccount: true,
@@ -109,9 +110,7 @@ function enterGuestAnon(state, session) {
   const prior = state.userScope
   const next = scopeOf(session)
   if (prior && prior.startsWith('u_') && prior !== next) {
-    // reason 'remint' = a fresh anon uid replacing a lost one — every app
-    // must merge this, or an expired/consumed session reads as a wiped game.
-    effects.push({ type: 'mergeScopes', from: prior, to: next, reason: 'remint' })
+    effects.push({ type: 'mergeScopes', from: prior, to: next })
   }
   return {
     state: {
