@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import EmailLoginPage from './EmailLoginPage';
-import { supabase } from '../lib/supabase';
+import { useAuth, STATUS } from '../auth/useAuth.js';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl } from '../utils/assetUrl';
@@ -10,24 +10,21 @@ const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
 
 export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) {
   const posthog = usePostHog();
+  const auth = useAuth();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
-  const [showEmail, setShowEmail] = useState(false);
-  const [oauthError, setOauthError] = useState('');
+  // A login-OTP flow that survived a reload (OTP_PENDING whose exit falls
+  // back to LOGGED_OUT) reopens straight on the verify pane.
+  const resumedEmail = auth.status === STATUS.OTP_PENDING ? auth.otp?.email : null;
+  const [showEmail, setShowEmail] = useState(() => !!resumedEmail);
   const [tosAccepted, setTosAccepted] = useState(true);
   const [privacyAccepted, setPrivacyAccepted] = useState(true);
   const [toast, setToast] = useState('');
   const [doc, setDoc] = useState(null); // { title, html } | null
   const [docLoading, setDocLoading] = useState(false);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const hashParams = new URLSearchParams(window.location.hash.slice(1));
-    const err = params.get('error_description') || params.get('error') || hashParams.get('error_description') || hashParams.get('error');
-    if (err) {
-      setOauthError(decodeURIComponent(err.replace(/\+/g, ' ')));
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  }, []);
+  // OAuth failures: the machine parses ?error_description off the boot URL
+  // (urlAuthError) and concludes round-trip rejections into bindError.
+  const oauthError = auth.bindError || auth.urlAuthError || '';
 
   useEffect(() => {
     if (!toast) return;
@@ -43,18 +40,12 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
     return true;
   };
 
-  const signInWithProvider = async (provider) => {
+  const signInWithProvider = (provider) => {
     if (!guard()) return;
-    setOauthError('');
     posthog?.capture('login_oauth_initiated', { provider, native_lang: nativeLang });
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: window.location.origin,
-        queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
-      },
-    });
-    if (error) setOauthError(error.message);
+    // Post-logout login: the machine's welcome-surface flow never merges a
+    // previous account's scope into the new session (explicitLogout rule).
+    auth.signInOAuth(provider, 'welcome');
   };
 
   const handleEmailClick = () => {
@@ -87,7 +78,16 @@ export default function WelcomePage({ onLogin, onTestMode, nativeLang = 'en' }) 
   };
 
   if (showEmail) {
-    return <EmailLoginPage onBack={() => setShowEmail(false)} onLogin={onLogin} nativeLang={nativeLang} />;
+    return (
+      <EmailLoginPage
+        onBack={() => setShowEmail(false)}
+        onLogin={onLogin}
+        nativeLang={nativeLang}
+        surface="welcome"
+        initialEmail={resumedEmail || ''}
+        initialStep={resumedEmail ? 'verify' : 'email'}
+      />
+    );
   }
 
   const renderAcknowledge = (checked, setChecked, name, url) => {

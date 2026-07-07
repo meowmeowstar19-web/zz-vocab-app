@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useAuth, STATUS } from '../auth/useAuth.js';
 import { UI_TEXT } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import EmailLoginPage from './EmailLoginPage';
@@ -12,61 +12,46 @@ const PRIVACY_URL = '/legal/PlushieWord_Privacy_Policy.html';
 // Same auth choices as WelcomePage, minus the Test Mode entry and the
 // language-detection background — user already has their UI set up.
 //
-// `initialError`: optional error message to display in place of the normal
-// auth picker. Used when returning from an OAuth bind that was rejected
-// because the target account already has cloud progress — instead of dumping
-// the user on the Learn page with a toast, App.jsx routes them back to
-// Settings and reopens this modal in its error state. A "确认" button below
-// the message swaps back to the normal link-account view.
-// `flowType` controls whether a successful auth should bind onto the current
-// guest (and merge their local progress) or just sign in normally. "bind" is
-// the original Sign up path — it sets `bind_flow_active` so syncOnLogin will
-// reject the merge if the target account already has cloud progress. "login"
-// is a plain sign-in (welcome-page semantics): no bind markers, no inline
-// rejection, and guest local data is discarded by the cloud snapshot.
-// `onAuthFailed` is called when a bind-flow auth attempt errors synchronously
-// from this modal (no redirect happened, no auth state event will fire). The
-// parent uses it to reset its `*BindPending` React state — without this call,
-// state stays true and the modal stays stuck in its "verifying…" spinner
-// because pending React state isn't auto-derived from localStorage flag
-// removal. linkIdentity in particular returns sync errors (missing session,
-// already-attached identity) that signInWithOAuth never did.
+// UI ONLY since the state-machine migration: every supabase call and
+// localStorage flag that used to live here moved into the machine. The modal
+// reads pending / error / round-trip state straight from useAuth():
+//   pending pane  ← status BINDING with an OAuth provider (redirect out, or
+//                   the round-trip coming home at boot)
+//   error pane    ← auth.bindError (identity_already_exists, provider errors,
+//                   round-trip timeout); 确认 clears it via clearBindError()
+// `flowType` picks bind (keep uid via linkIdentity/updateUser) vs login
+// (switch account; the machine folds the guest's local data into the account
+// scope). The in-modal Sign up ↔ Log in toggle remaps it via emailMode.
 export default function LoginPromptModal({
   nativeLang = 'en',
   onClose,
   onLoggedIn,
-  initialError = '',
   initialEmailMode = 'login',
   flowType = 'bind',
-  // forced=true is used by the 5-word/day gate: the user must sign in before
-  // they can keep learning. Hides the close button and ignores backdrop clicks.
+  // forced=true hides the close button and ignores backdrop clicks.
   forced = false,
-  // Where to land after a full-page OAuth round-trip. Default 'settings' keeps
-  // the existing Settings-initiated bind behavior. Pass 'learn' for the gate
-  // modal so the user comes back to the learning page they were on.
-  oauthLandingPage = 'settings',
-  // When true, render a "checking your account…" placeholder instead of the
-  // auth picker. Used immediately after an OAuth round-trip while syncOnLogin
-  // is still running — without this, the user sees nothing for ~1s and then
-  // a rejection popup appears out of nowhere. Backdrop click is also ignored
-  // in this state so the user can't dismiss mid-check.
-  pending = false,
-  // See block comment above the component.
-  onAuthFailed,
   // Which UI launched this modal: 'gate' (5-word gate on Learn) or 'settings'
-  // (Sign up / Log in from the Settings page). Only used to tag the root with
-  // a stable data-testid for cross-device tests.
+  // (Sign up / Log in from the Settings page). Persisted inside the machine's
+  // bind marker so an OAuth round-trip reopens on the same surface.
   surface = 'settings',
 }) {
   const posthog = usePostHog();
+  const auth = useAuth();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
-  // Sticky "this device has previously held a real account" flag. Read once
-  // at render. Used together with the current emailMode below to decide
-  // whether to show the welcome-back subtitle under the title.
-  const hadAccount = (() => {
-    try { return localStorage.getItem('app_had_account') === '1'; } catch { return false; }
-  })();
-  const [showEmail, setShowEmail] = useState(false);
+  // Sticky "this device has previously held a real account" bit from the
+  // auth snapshot — drives the welcome-back subtitle under the title.
+  const hadAccount = auth.hadAccount;
+  // OAuth round-trip resolving (redirect out or coming home): spinner pane.
+  const pending = auth.status === STATUS.BINDING
+    && auth.bind?.provider !== 'email'
+    && !auth.bindError;
+  const bindError = auth.bindError || '';
+  // A machine-restored email flow (page killed mid-OTP / mid-bind-verify)
+  // reopens straight on the verify pane with the email prefilled.
+  const resumedEmail = auth.status === STATUS.OTP_PENDING
+    ? auth.otp?.email
+    : (auth.status === STATUS.BINDING && auth.bind?.provider === 'email' ? auth.bind?.email : null);
+  const [showEmail, setShowEmail] = useState(() => !!resumedEmail);
   // Local copy of the mode so the in-modal toggle ("Already have an account? /
   // Don't have an account?") can flip between signup and login without
   // closing this popup and opening a second one on top.
@@ -74,19 +59,9 @@ export default function LoginPromptModal({
   useEffect(() => { setEmailMode(initialEmailMode); }, [initialEmailMode]);
   const [tosAccepted, setTosAccepted] = useState(true);
   const [privacyAccepted, setPrivacyAccepted] = useState(true);
-  const [oauthError, setOauthError] = useState('');
   const [toast, setToast] = useState('');
   const [doc, setDoc] = useState(null); // { title, html } | null
   const [docLoading, setDocLoading] = useState(false);
-  // Local error state seeded from the parent's `initialError`. When the prop
-  // changes (e.g. a pending OAuth roundtrip resolves into a rejection), the
-  // useEffect below pushes the new value into state. The 确认 button can
-  // clear bindError locally without parental coordination — the modal swaps
-  // back to the auth picker until a new error arrives.
-  const [bindError, setBindError] = useState(initialError || '');
-  useEffect(() => {
-    setBindError(initialError || '');
-  }, [initialError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -102,118 +77,25 @@ export default function LoginPromptModal({
     return true;
   };
 
-  // Mark the next successful login as a "bind from guest" attempt. Read by
-  // progressSync.syncOnLogin to reject binding onto an account that already
-  // has cloud progress (prevents the new guest data from overwriting it).
-  const markBindFlow = () => {
-    try { localStorage.setItem('bind_flow_active', '1'); } catch {}
-  };
-
-  // OAuth bounces through the provider and reloads the app, so we need a
-  // separate flag that survives the round-trip to know which page to land on
-  // after we come back. `bind_oauth_pending` lands on Settings (the original
-  // bind flow). `gate_oauth_pending` lands on Learn (the 5-word gate path,
-  // because the user was studying when the gate fired).
-  //
-  // Always clear the opposite flag first. Otherwise a stale flag from an
-  // earlier flow (e.g. a cancelled gate OAuth that didn't finish cleaning
-  // up) can co-exist with the new flag, and `runSyncOrReject` ends up
-  // routing the rejection into the WRONG modal AND the right modal opens
-  // too — two stacked popups on one rejection.
-  const markOAuthPending = () => {
-    try {
-      if (oauthLandingPage === 'learn') {
-        localStorage.removeItem('bind_oauth_pending');
-        localStorage.setItem('gate_oauth_pending', '1');
-      } else {
-        localStorage.removeItem('gate_oauth_pending');
-        localStorage.setItem('bind_oauth_pending', '1');
-      }
-    } catch {}
-  };
-
   // Derive the effective flow from the user's CURRENT intent (emailMode),
   // not from the flowType prop set when the modal opened. The in-modal
   // Sign up ↔ Log in toggle changes emailMode but cannot reach back up to
-  // change the parent's flowType — if we read flowType here, a user who
-  // opens "Sign up" then toggles to "Log in" inside the modal still hits
-  // the bind path and gets rejected as if signing up. Mapping by emailMode
-  // makes the toggle actually mean what it says.
+  // change the parent's flowType — mapping by emailMode makes the toggle
+  // actually mean what it says.
   const effectiveFlow = emailMode === 'signup' ? 'bind' : 'login';
 
-  const signInWithProvider = async (provider) => {
+  const signInWithProvider = (provider) => {
     if (!guard()) return;
-    setOauthError('');
     posthog?.capture('login_oauth_initiated', {
       provider, native_lang: nativeLang, source: 'settings_save_progress', flow: effectiveFlow,
     });
-    // Only the bind flow needs the OAuth-pending + bind-flow markers; a plain
-    // login flow should fall through to the welcome-page auth semantics.
-    if (effectiveFlow === 'bind') {
-      markBindFlow();
-      markOAuthPending();
-      // Remember which sub-flow (Sign up vs Log in) opened the modal so that
-      // after the OAuth round-trip — which fully reloads the app and remounts
-      // SettingsPage with default state — we can restore the same title on
-      // the rejection popup. Without this, a rejected Sign up bind comes back
-      // labelled "Sign in" because that's the SettingsPage default.
-      try { localStorage.setItem('bind_oauth_email_mode', emailMode || 'login'); } catch {}
-    }
-    // Bind from an anonymous session uses linkIdentity — the server adds the
-    // OAuth provider to the CURRENT user (uid preserved) and atomically
-    // rejects if the identity is already attached to another user. Plain
-    // login uses signInWithOAuth (welcome-page semantics) which replaces
-    // whatever session is active with the existing account's session.
-    //
-    // linkIdentity REQUIRES an authed session (anon or otherwise) — it
-    // sends an Authorization: Bearer <jwt> header. If App's background
-    // signInAnonymously() hasn't landed yet, the call fails with "This
-    // endpoint requires a valid Bearer token". Create an anon session
-    // synchronously as a safety net before the bind. Cheap when one exists.
-    if (effectiveFlow === 'bind') {
-      const { data: { session: existing } } = await supabase.auth.getSession();
-      if (!existing) {
-        const { error: anonErr } = await supabase.auth.signInAnonymously();
-        if (anonErr) {
-          try {
-            localStorage.removeItem('bind_flow_active');
-            localStorage.removeItem('bind_oauth_pending');
-            localStorage.removeItem('gate_oauth_pending');
-            localStorage.removeItem('bind_oauth_email_mode');
-          } catch {}
-          setOauthError(anonErr.message);
-          onAuthFailed?.();
-          return;
-        }
-      }
-    }
-    const { error } = await (effectiveFlow === 'bind'
-      ? supabase.auth.linkIdentity({
-          provider,
-          options: {
-            redirectTo: window.location.origin,
-            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
-          },
-        })
-      : supabase.auth.signInWithOAuth({
-          provider,
-          options: {
-            redirectTo: window.location.origin,
-            queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined,
-          },
-        }));
-    if (error) {
-      if (effectiveFlow === 'bind') {
-        try {
-          localStorage.removeItem('bind_flow_active');
-          localStorage.removeItem('bind_oauth_pending');
-          localStorage.removeItem('gate_oauth_pending');
-          localStorage.removeItem('bind_oauth_email_mode');
-        } catch {}
-        onAuthFailed?.();
-      }
-      setOauthError(error.message);
-    }
+    // Bind keeps the anon uid (linkIdentity — the server atomically rejects
+    // if the identity is already attached to another user); login switches
+    // accounts. The machine persists the round-trip marker, mints a safety-
+    // net anon session for the bind path if needed, and surfaces every
+    // failure (sync errors, URL errors, timeouts) via auth.bindError.
+    if (effectiveFlow === 'bind') auth.bindOAuth(provider, surface);
+    else auth.signInOAuth(provider, surface);
   };
 
   const handleEmailClick = () => {
@@ -221,7 +103,6 @@ export default function LoginPromptModal({
     posthog?.capture('login_email_clicked', {
       native_lang: nativeLang, source: 'settings_save_progress', flow: effectiveFlow,
     });
-    if (effectiveFlow === 'bind') markBindFlow();
     setShowEmail(true);
   };
 
@@ -246,13 +127,10 @@ export default function LoginPromptModal({
     }
   };
 
-  // If the user opens the email flow, swap the whole overlay for the email page.
-  // It owns its own back button (calls onBack to return to the picker).
-  //
-  // `bindFlow` tells EmailLoginPage that any successful auth here is a guest
-  // → account bind attempt, so it should run syncOnLogin inline and surface
-  // a rejection as an in-form error (instead of letting App.jsx's global
-  // listener handle it as a top-of-screen toast after the modal has closed).
+  // If the user opens the email flow, swap the whole overlay for the email
+  // page. It owns its own back button (calls onBack to return to the picker).
+  // A machine-restored flow (resumedEmail) mounts straight on the verify
+  // pane with the address prefilled.
   if (showEmail) {
     return (
       <div className="absolute inset-0 z-50" style={{ backgroundColor: '#fff' }}>
@@ -260,7 +138,10 @@ export default function LoginPromptModal({
           onBack={() => setShowEmail(false)}
           onLogin={handleEmailLogin}
           nativeLang={nativeLang}
-          bindFlow={effectiveFlow === 'bind'}
+          bindFlow={resumedEmail ? auth.status === STATUS.BINDING : effectiveFlow === 'bind'}
+          surface={surface}
+          initialEmail={resumedEmail || ''}
+          initialStep={resumedEmail ? 'verify' : 'email'}
         />
       </div>
     );
@@ -303,23 +184,19 @@ export default function LoginPromptModal({
     );
   };
 
-  // Both X-button and backdrop-click close paths should release the bind-flow
-  // flags. Without this, a guest who started a bind, hit the "account in use"
-  // error, then closed the modal would have a stale `bind_flow_active`
-  // sitting in localStorage — and the next time they signed in anywhere
-  // (e.g. exit guest mode → sign in from Welcome), syncOnLogin would
-  // mistakenly reject that legitimate login.
+  // Both X-button and backdrop-click funnel here. If an email flow is still
+  // pending in the machine (OTP sent, verify pane abandoned via X instead of
+  // the in-form back button), exit it — the machine clears the marker and
+  // restores/verifies the guest session (铁律5's single exit).
   const handleClose = () => {
     // The forced gate modal is non-dismissable — the user has to sign in.
-    // The pending state is also non-dismissable so the user can't bail out
-    // mid-verification (the rejection result would then have nowhere to go).
+    // The OAuth pending pane is also non-dismissable so the user can't bail
+    // out mid-verification (the conclusion would have nowhere to go).
     if (forced || pending) return;
-    try {
-      localStorage.removeItem('bind_flow_active');
-      localStorage.removeItem('bind_oauth_pending');
-      localStorage.removeItem('gate_oauth_pending');
-      localStorage.removeItem('bind_oauth_email_mode');
-    } catch {}
+    if (auth.status === STATUS.OTP_PENDING
+        || (auth.status === STATUS.BINDING && auth.bind?.provider === 'email')) {
+      auth.exitOtp();
+    }
     onClose?.();
   };
 
@@ -436,7 +313,7 @@ export default function LoginPromptModal({
             </p>
             <div style={{ flex: 1, minHeight: 24 }} />
             <button
-              onClick={() => setBindError('')}
+              onClick={() => auth.clearBindError()}
               className="active:scale-95"
               style={{
                 width: 130, height: 39,
@@ -482,12 +359,6 @@ export default function LoginPromptModal({
                 <img src={getFigmaAssetUrl('icon-email.png')} alt="Email" className="w-full h-full object-cover" />
               </button>
             </div>
-
-            {oauthError && (
-              <p className="text-red-500 text-[12px] text-center px-2" style={{ marginTop: 12 }}>
-                {oauthError}
-              </p>
-            )}
 
             {/* In-modal mode toggle — swaps the modal between signup and
                 login by changing the title and the mode the email button

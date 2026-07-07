@@ -1,6 +1,7 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../auth/useAuth.js';
+import { supabase } from '../lib/supabase'; // data only (feedback insert) — auth goes through useAuth
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { usePostHog } from '@posthog/react';
@@ -57,6 +58,7 @@ function ChevronDown() {
 
 export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindOAuthPending = false, onOpenLoginPrompt }) {
   const posthog = usePostHog();
+  const auth = useAuth();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
   const [pendingCode, setPendingCode] = useState(null);
   // { type: 'native'|'target', code: 'en'|'ja'|'zh', remainingAfter: number } — confirmation popup state
@@ -265,10 +267,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const [avatarError, setAvatarError] = useState('');
   const avatarInputRef = useRef(null);
 
-  // applyUser is shared between the initial load, the auth listener, and the
-  // OAuth-bind resolution effect below. Wrapped in useCallback so the
-  // dependency closure stays stable across renders.
-  const applyUser = useCallback((u) => {
+  // Identity comes straight from the auth machine. While an OAuth bind is
+  // still resolving (bindOAuthPending) we keep showing the PREVIOUS identity
+  // instead of flashing the not-yet-confirmed account's email/avatar — the
+  // machine only reaches AUTHED after the round trip concluded, at which
+  // point bindOAuthPending flips false and this effect applies the result.
+  useEffect(() => {
+    if (bindOAuthPending) return;
+    const u = auth.session?.user || null;
     setUser(u);
     const stored = readStoredAvatar(u?.id);
     // OAuth providers expose the profile picture under different keys.
@@ -289,49 +295,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     });
     // Ensure today's login is counted even if App.jsx mounted before sign-in
     bumpLoginDay(u?.id);
-  }, []);
-
-  // Initial and post-OAuth-bind user load. We re-run when `bindOAuthPending`
-  // transitions to false: on mount with the flag set, we deliberately
-  // SKIP fetching the user so SettingsPage doesn't briefly render the
-  // existing account's identity (email, avatar) while
-  // App.jsx is still resolving whether the bind should be rejected. App.jsx
-  // flips `bindOAuthPending` to false in `runSyncOrReject`'s finally — at
-  // which point the session is either kept (success) or cleared via signOut
-  // (rejection), and getUser() returns the correct final state.
-  useEffect(() => {
-    if (bindOAuthPending) return;
-    let mounted = true;
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) applyUser(data.user || null);
-    });
-    return () => { mounted = false; };
-  }, [bindOAuthPending, applyUser]);
-
-  // Keep `user` in sync with auth state for the rest of the session. Without
-  // this listener, after a bind-rejection signOut (or any later logout),
-  // SettingsPage would keep rendering the previous account's identity until
-  // the next remount — exactly the bug that made the guest look silently
-  // swapped onto the existing account.
-  useEffect(() => {
-    let mounted = true;
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (!mounted) return;
-      // Suppress SIGNED_IN-type events while an OAuth bind is still being
-      // resolved — applying the OAuth user here would re-introduce the flash.
-      // SIGNED_OUT (s === null) is fine to apply; it's what restores guest UI
-      // after the rejection signOut.
-      if (s?.user) {
-        try {
-          if (localStorage.getItem('bind_oauth_pending') === '1') return;
-        } catch {}
-        applyUser(s.user);
-      } else {
-        applyUser(null);
-      }
-    });
-    return () => { mounted = false; sub.subscription.unsubscribe(); };
-  }, [applyUser]);
+  }, [bindOAuthPending, auth.session?.user?.id]);
 
   const handleAvatarClick = () => {
     avatarInputRef.current?.click();

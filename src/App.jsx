@@ -11,7 +11,8 @@ import { primeAudio, playSlaySound, preloadAudioManifest } from './hooks/useAudi
 import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { UI_TEXT } from './utils/langHelpers';
 import { getFigmaAssetUrl } from './utils/assetUrl';
-import { supabase, intentionalSignOut } from './lib/supabase';
+import { useAuth, STATUS } from './auth/useAuth.js';
+import { migrateLegacyAuthFlags } from './auth/legacyFlags.js';
 import { isWeChatBrowser } from './utils/wechat';
 import { Analytics } from '@vercel/analytics/react';
 import { usePostHog } from '@posthog/react';
@@ -76,11 +77,14 @@ function TabIcon({ type, active }) {
   );
 }
 
-// Run migrations once on module load
+// Run migrations once on module load. migrateLegacyAuthFlags MUST run before
+// the first useAuth() mount — it folds the pre-machine auth flags into
+// auth.snapshot.v1, which the machine's BOOT reads.
 migrateOldProgress();
 migrateProgressToTargetOnly();
 migrateProgressToUserScope();
 migrateClearStaleGateWords();
+migrateLegacyAuthFlags();
 
 // The selected learning category persists indefinitely across sessions/logins —
 // returning users always resume on their last-chosen category (never auto-reset
@@ -108,205 +112,70 @@ function defaultTargetFor(native) {
   return 'en';
 }
 
-// Read `?error=` / `#error=` params left in the URL by a failed OAuth
-// callback (linkIdentity rejection, provider denial, etc.). Strips them from
-// the address bar so a refresh doesn't re-trigger. Returns null if absent.
-function readOAuthErrorFromUrl() {
-  try {
-    const tail = (window.location.hash || window.location.search || '').slice(1);
-    if (!tail) return null;
-    const p = new URLSearchParams(tail);
-    const error = p.get('error');
-    const code = p.get('error_code');
-    if (!error && !code) return null;
-    try { history.replaceState(null, '', window.location.pathname); } catch {}
-    return { error, code, description: p.get('error_description') };
-  } catch { return null; }
-}
-
-// Atomically read which surface (gate / settings) launched the pending OAuth
-// bind round-trip and clear all bind-related localStorage. Returns the
-// surface name or null if no bind was in flight.
-function consumeBindPendingSurface() {
-  let surface = null;
-  try {
-    if (localStorage.getItem('gate_oauth_pending') === '1') surface = 'gate';
-    else if (localStorage.getItem('bind_oauth_pending') === '1') surface = 'settings';
-    if (surface) {
-      ['gate_oauth_pending', 'bind_oauth_pending', 'bind_flow_active', 'bind_oauth_email_mode']
-        .forEach((k) => localStorage.removeItem(k));
-    }
-  } catch {}
-  return surface;
-}
-
-// Step 4: single source of truth for the LoginPromptModal. Replaces the
-// six separate flags from Step 2/3 (showLoginGate, gateBindPending,
-// settingsBindPending, gateModalError, bindModalError, plus SettingsPage's
-// own showLoginPrompt). Having one state object — and ONE modal instance
-// rendered in App below — makes "stacked popups on Settings" structurally
-// impossible (mechanism 3 in the OAuth land-mine map) and keeps the four
-// observable modal fields in lockstep.
+// Single source of truth for WHICH surface has the LoginPromptModal open and
+// in what mode. Pure UI concern now: pending/error/round-trip restoration all
+// live in the auth machine (useAuth reads them from the persisted snapshot),
+// so the reducer shrank to open/surface/flowType/emailMode. One modal
+// instance rendered in App below keeps "stacked popups" structurally
+// impossible.
 //
-// Shape:
-//   open      — whether the modal is rendered
-//   surface   — which UI launched it: 'gate' (5-word gate on Learn) or
-//               'settings' (Sign up / Log in from the Settings tab). Drives
-//               oauthLandingPage for the OAuth round-trip + which page App
-//               routes to on a bind rejection.
-//   flowType  — 'bind' (attach to current guest) or 'login' (plain sign-in,
-//               discards guest data). Settings's "Log in" link uses 'login';
-//               everything else is 'bind'.
-//   emailMode — pre-selected mode for the Email sub-form: 'signup' or 'login'.
-//   pending   — modal shows "checking your account…" while a post-OAuth bind
-//               round-trip is being resolved (true between mount-time hydration
-//               from a *_oauth_pending flag and runSyncOrReject completing).
-//   error     — rejection message inline inside the modal; suppresses pending.
+//   surface   — 'gate' (5-word gate on Learn) or 'settings' (Sign up / Log
+//               in from the Settings tab).
+//   flowType  — 'bind' (attach to current guest, keeps uid) or 'login'
+//               (switch account; the machine folds the guest's local data
+//               into the account scope).
+//   emailMode — pre-selected mode for the Email sub-form: 'signup' | 'login'.
 function loginModalReducer(state, action) {
   switch (action.type) {
     case 'open':
-      // Opening from a fresh user gesture (gate fires, user clicks Sign up).
-      // Always clears any leftover pending/error from a prior round.
       return {
         open: true,
         surface: action.surface,
         flowType: action.flowType || 'bind',
         emailMode: action.emailMode || 'signup',
-        pending: false,
-        error: '',
       };
-    case 'reject':
-      // Bind rejected (account already has cloud progress, or linkIdentity's
-      // identity_already_exists). Force the modal back open on the launching
-      // surface with the inline error view. Keeps flowType / emailMode so the
-      // title still reads "Sign up" when the rejected flow started that way.
-      return {
-        ...state,
-        open: true,
-        surface: action.surface,
-        pending: false,
-        error: action.error,
-      };
-    case 'authFailed':
-      // Sync error from linkIdentity / signInAnonymously (no redirect, no
-      // auth state event will fire). Drop pending so the modal exits its
-      // spinner and the user can retry / close.
-      return { ...state, pending: false };
     case 'close':
-      return { ...state, open: false, pending: false, error: '' };
+      return { ...state, open: false };
     default:
       return state;
   }
 }
 
-// Hydrate the modal from a *_oauth_pending flag at mount — the OAuth round-trip
-// fully reloads the app, so persistent flags are the only way to know we're
-// returning mid-bind and should reopen in pending state.
 function initialLoginModal() {
-  try {
-    const persistedEmailMode = (() => {
-      const p = localStorage.getItem('bind_oauth_email_mode');
-      return (p === 'signup' || p === 'login') ? p : 'signup';
-    })();
-    if (localStorage.getItem('gate_oauth_pending') === '1') {
-      return { open: true, surface: 'gate', flowType: 'bind', emailMode: 'signup', pending: true, error: '' };
-    }
-    if (localStorage.getItem('bind_oauth_pending') === '1') {
-      return { open: true, surface: 'settings', flowType: 'bind', emailMode: persistedEmailMode, pending: true, error: '' };
-    }
-  } catch {}
-  return { open: false, surface: 'settings', flowType: 'bind', emailMode: 'signup', pending: false, error: '' };
+  return { open: false, surface: 'settings', flowType: 'bind', emailMode: 'signup' };
 }
 
 export default function App() {
   const posthog = usePostHog();
-  const [session, setSession] = useState(null);
-  // True once supabase.auth.getSession() has resolved. Before this resolves,
-  // `session` is null even for real logged-in users — so handleWordViewed
-  // would treat them as guests and pollute `gate_words_${today}`. Logged-in
-  // pollution then surfaces as the gate firing on the 3rd word (or
-  // immediately on guest entry) for the SAME device after a sign-out.
-  const [authReady, setAuthReady] = useState(false);
-  // True once the anon signInAnonymously attempt has SETTLED (success →
-  // session arrives via onAuthStateChange; failure → fall back to legacy
-  // 'guest' scope). We gate the main app render on this so LearningPage
-  // doesn't mount briefly with userScope='guest' and then re-mount with
-  // userScope=`u_<anon-id>` — the SRS session would rebuild with a fresh
-  // shuffle and the user would see one word flash before a different one
-  // settles in. anonAttemptFailed lets us also ungate if anon sign-in
-  // rejected (e.g. provider disabled at the Supabase project level), so the
-  // app continues with the 'guest' fallback instead of hanging on a blank
-  // screen forever.
-  const [anonAttemptFailed, setAnonAttemptFailed] = useState(false);
-  // Watchdog for the scope-finalization placeholder: true once the app has
-  // waited long enough on auth (token refresh / anon mint) that continuing
-  // to block is worse than the SRS-reshuffle flash the gate exists to
-  // prevent. See the gate below (scopeFinalized) for the full story.
-  const [gateTimedOut, setGateTimedOut] = useState(false);
-  // Device-based "already onboarded" check: once the user has picked their
-  // native+target language (which writes app_native) AND hasn't explicitly
-  // logged out, they enter the app as a guest on every subsequent visit
-  // without seeing the Welcome page. handleLogout sets `app_logged_out=1`
-  // to break the auto-promotion until the user re-enters (either through
-  // WelcomePage's Guest Mode link or a successful sign-in).
-  //
-  // Migration: existing users who have `app_native` set from before this
-  // flag existed should still auto-promote — only an explicit logout sets
-  // `app_logged_out`. So absence of the flag is treated as "still a guest".
-  const [isGuest, setIsGuest] = useState(() => {
-    const hasLang = !!localStorage.getItem('app_native');
-    const explicitlyLoggedOut = localStorage.getItem('app_logged_out') === '1';
-    const hadAccount = localStorage.getItem('app_had_account') === '1';
-    // Returning user (this device has previously held a real account) skips
-    // the WelcomePage entirely — they land directly on Learn as a guest and
-    // the 5-word gate fires on word 1 with the "welcome back" Sign-in modal.
-    // This applies to BOTH intentional logout and refresh-token expiry; the
-    // app_logged_out flag is treated as advisory, not blocking, once the
-    // device has ever been associated with a real account.
-    if (hadAccount && hasLang) {
-      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
-      return true;
-    }
-    if (hasLang && !explicitlyLoggedOut && localStorage.getItem('app_logged_in') !== 'true') {
-      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
-    }
-    if (explicitlyLoggedOut) return false;
-    return hasLang || localStorage.getItem('app_logged_in') === 'true';
-  });
-  const isLoggedIn = !!session || isGuest;
+  // The auth state machine owns everything the old session/authReady/
+  // anonAttemptFailed/gateTimedOut/isGuest block tracked. Key mappings:
+  //   session        → auth.session
+  //   authReady      → auth.ready (machine watchdog caps INITIALIZING ≤4s)
+  //   scope flash    → auth.userScope boots from the persisted lastUserScope,
+  //                    so a returning guest renders with their real scope
+  //                    immediately (no 'guest' → u_<uid> remount flash)
+  //   isGuest/logout → status !== LOGGED_OUT (explicit logout is machine state)
+  const auth = useAuth();
+  const { session } = auth;
   // First-time visitors with no language picked land on LanguageSetupPage.
   // Existing users (app_native set) skip it.
   const [needsLangSetup, setNeedsLangSetup] = useState(() => !localStorage.getItem('app_native'));
   // 5-free-word gate: when a guest has learned GATE_FREE_LIMIT distinct
-  // words (lifetime, per anon uid) and tries to advance, we show a forced
+  // words (lifetime, per anon uid) and tries to advance, we show the
   // LoginPromptModal. WeChat in-app browser users are exempt (OAuth doesn't
   // reliably work there). Logged-in users are also exempt.
-  //
-  // Modal state lives in this single reducer (Step 4). See loginModalReducer
-  // for the shape + transitions. Initial state hydrates from
-  // *_oauth_pending localStorage so an in-flight OAuth round-trip resumes
-  // in pending state on the post-redirect mount.
   const [loginModal, dispatchLoginModal] = useReducer(loginModalReducer, undefined, initialLoginModal);
-  // Convenience flag for guards that apply whenever a bind round-trip is
-  // resolving (needsLangSetup suppression, check-in suppression, SettingsPage
-  // applyUser skip).
-  const bindOAuthPending = loginModal.pending;
+  // A bind/login round-trip is resolving (OAuth redirect out+home, or the
+  // email-bind verify pane). Guards that used to read *_oauth_pending flags
+  // key off the machine state instead.
+  const bindOAuthPending = auth.status === STATUS.BINDING;
   // True while the initial cloud→local merge (`syncOnLogin`) is running for
   // a real, non-anon session. The check-in popup is gated on this so it
   // doesn't paint "第1天" using the local-only count that bumpLoginDay just
   // wrote — the popup waits until syncOnLogin has merged in the historical
   // cloud days, then renders the correct total.
   const [syncInFlight, setSyncInFlight] = useState(false);
-  const [page, setPage] = useState(() => {
-    try {
-      // gate_oauth_pending lands back on Learn (the gate was triggered while
-      // studying). bind_oauth_pending lands on Settings (Sign up / Log in
-      // initiated from Settings). gate takes precedence if somehow both set.
-      if (localStorage.getItem('gate_oauth_pending') === '1') return 'learn';
-      if (localStorage.getItem('bind_oauth_pending') === '1') return 'settings';
-    } catch {}
-    return 'learn';
-  });
+  const [page, setPage] = useState('learn');
   const [reviewMode, setReviewMode] = useState(false);
   const [wordListRefreshKey, setWordListRefreshKey] = useState(0);
   // Note: the previous "session expired" modal was removed 2026-05-27 — the
@@ -476,60 +345,39 @@ export default function App() {
     };
   }, []);
 
-  // Sync entry point — wraps syncOnLogin so the OAuth bind path can detect
-  // "this account already has progress" and refuse to merge. Soft signOut
-  // (keeps guest mode + local data intact) on rejection.
-  //
-  // EmailLoginPage runs the same check *inline* and signals via
-  // `bind_inline_active` that it owns the rejection UI for this auth event —
-  // we bail out here so the user doesn't get a global toast on top of (or
-  // moments after) the in-form red error. Without this guard, both handlers
-  // fire concurrently: the form shows its error, then the global toast pops
-  // and the modal closes, dumping the user back to Settings.
-  const runSyncOrReject = async (uid) => {
-    try {
-      if (localStorage.getItem('bind_inline_active') === '1') return;
-    } catch {}
-    let rejected = false;
-    // Read the bind context flags up-front. syncOnLogin no longer clears
-    // `bind_flow_active` on rejection — it stays set so any delayed parallel
-    // call (INITIAL_SESSION waiting on supabase's internal lock can arrive
-    // after the first syncOnLogin's inFlight resolves) also rejects instead
-    // of treating itself as a normal login and merging the rejected
-    // account's cloud data into the guest's localStorage.
-    const wasBindFlow = (() => {
-      try { return localStorage.getItem('bind_flow_active') === '1'; }
-      catch { return false; }
-    })();
-    // Capture which surface launched the OAuth BEFORE we await syncOnLogin.
-    // Without snapshotting here, a parallel runSyncOrReject call (the
-    // getSession + onAuthStateChange listeners both fire on OAuth return,
-    // both share the same `inFlight` syncOnLogin promise, and both await
-    // the rejection result) would race against the first caller's `finally`
-    // block — which clears these flags — and end up reading them as `false`,
-    // mis-routing the rejection to Settings even when the gate launched it.
-    const wasGateOAuth = (() => {
-      try { return localStorage.getItem('gate_oauth_pending') === '1'; }
-      catch { return false; }
-    })();
-    const wasSettingsOAuth = (() => {
-      try { return localStorage.getItem('bind_oauth_pending') === '1'; }
-      catch { return false; }
-    })();
-    const wasOAuthPending = wasGateOAuth || wasSettingsOAuth;
-    // Flip BEFORE awaiting so the check-in useEffect — which is about to
-    // re-run on the same tick because `session` just changed — sees the
-    // sync-in-flight state and defers the popup until merge completes.
+  // Per-session identity plumbing: login-day bump, posthog identify, and the
+  // one-time legacy guest-slot migration for anonymous uids. The machine owns
+  // session lifecycle (mint / re-mint / expiry / scope merges), so this is
+  // pure observation — no signInAnonymously, no SIGNED_OUT forensics.
+  useEffect(() => {
+    const u = session?.user;
+    bumpLoginDay(u?.id);
+    if (!u) return;
+    posthog?.identify(u.id, { email: u.email });
+    if (u.is_anonymous) {
+      // Move legacy device-global 'guest_*' slots into this anon uid's scope
+      // (idempotent, per-uid flag) and absorb any app_anon_data_to_migrate
+      // carry-over stashed by the pre-machine code.
+      migrateScopesToAnon(u.id);
+    }
+  }, [session?.user?.id]);
+
+  // Cloud sync on real login. The machine already folded the guest's local
+  // data into this account's scope (mergeScopes effect, synchronous) before
+  // React re-rendered, so syncOnLogin just pull-merge-pushes the uid's own
+  // slot. Anonymous users stay local-only — no cloud row until they bind.
+  useEffect(() => {
+    if (auth.status !== STATUS.AUTHED) return;
+    const uid = session?.user?.id;
+    if (!uid) return;
+    // Flip BEFORE awaiting so the check-in effect defers its popup until the
+    // historical login_days have been merged in.
     setSyncInFlight(true);
-    try {
-      const result = await syncOnLogin(uid);
-      // Pick up any language preferences restored from the cloud snapshot so
-      // re-login on a fresh device (or after switching accounts) lands on the
-      // user's previously-saved langs instead of whatever the prior local
-      // session had set. When the account has no saved preferences,
-      // writeLocalSnapshot cleared the local keys — flip needsLangSetup so
-      // the picker shows immediately for them.
-      if (!result?.rejected) {
+    syncOnLogin(uid)
+      .then(() => {
+        // Cloud preferences may have restored the account's saved langs; a
+        // cloud row with none leaves the device's pick alone. No app_native
+        // at all → this account never onboarded → show the picker.
         try {
           const n = localStorage.getItem('app_native');
           const tg = localStorage.getItem('app_target');
@@ -537,350 +385,63 @@ export default function App() {
           if (tg) setTargetLang(tg);
           if (!n) setNeedsLangSetup(true);
         } catch {}
-      }
-      if (result?.rejected) {
-        rejected = true;
-        await intentionalSignOut();
-        // Now that we've fully handled the rejection (signed out, no more
-        // syncOnLogin calls can fire for this uid), clear the bind flag so a
-        // future legitimate sign-in by this guest — e.g. they exit guest mode
-        // and sign into a different account from Welcome — isn't mistakenly
-        // treated as a bind attempt and rejected against THAT account's cloud
-        // progress.
-        try { localStorage.removeItem('bind_flow_active'); } catch {}
-        // Route the rejection back to whichever surface launched the bind,
-        // using the snapshot captured at function entry (see comment above).
-        // Gate-initiated binds (user was studying when the 5-word gate fired)
-        // stay on Learn — the gate modal reopens with the rejection inline.
-        // Settings-initiated binds route to Settings as before.
-        routeBindRejection(wasGateOAuth ? 'gate' : 'settings', { reason: result.reason });
-      } else if (wasBindFlow && uid) {
-        // Successful bind. The guest already picked native/target while in test
-        // mode (those live in localStorage under app_native/app_target, which
-        // are global, not per-user), so we don't need to re-prompt them with
-        // the LangSetup wizard. Mark this account as onboarded.
-        try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
-        posthog?.capture('bind_account_success');
-      }
-    } finally {
-      // Only clear after routing — see comment above. The reducer is the
-      // single source of truth for pending state; the rejection branch
-      // already dispatched 'reject' (which flips pending → false and surfaces
-      // the inline error). The success branch needs to close the pending
-      // modal here so a clean bind exits the spinner.
-      try {
-        localStorage.removeItem('bind_oauth_pending');
-        localStorage.removeItem('gate_oauth_pending');
-      } catch {}
-      // On rejection the body already dispatched 'reject' (which opens the
-      // inline error view); do NOT clobber that with 'close' here.
-      if (!rejected && wasOAuthPending) {
-        dispatchLoginModal({ type: 'close' });
-      }
-      // Release the check-in gate — at this point local login_days has been
-      // merged with the cloud snapshot, so getLoginDayCount reports the full
-      // historical total.
-      setSyncInFlight(false);
-      // Tell LearningPage + WordListPage to re-read progress from localStorage.
-      // Cloud-side changes (another device pushed) have just been merged in,
-      // but in-memory React state on the pages predates the merge.
-      setProgressRefreshKey(k => k + 1);
-      setWordListRefreshKey(k => k + 1);
-    }
-  };
-
-  // Sends a bind rejection back to the surface that launched it: the gate
-  // modal reopens with its inline error view, the Settings modal does the
-  // same — both routed through the single LoginPromptModal instance. Used by
-  // both the linkIdentity OAuth-error path (URL hash) and runSyncOrReject's
-  // cloud-progress conflict path.
-  const routeBindRejection = (surface, reason) => {
-    const msg = (UI_TEXT[nativeLang] || UI_TEXT.en).bindAccountTakenToast
-      || 'This account already has progress. Please try a different one.';
-    dispatchLoginModal({ type: 'reject', surface, error: msg });
-    if (surface === 'settings') setPage('settings');
-    posthog?.capture('bind_rejected', { surface, ...(reason || {}) });
-  };
-
-  useEffect(() => {
-    // Stale-flag recovery: app_email_auth_pending marks the OTP send→verify
-    // window WITHIN a single page session (EmailLoginPage sets it after
-    // signing out the anon session; verify success / back / modal close
-    // clear it). If the page dies mid-window (iOS killing the PWA while the
-    // user copies the code from Mail is the common case), the flag survives
-    // the restart but the OTP UI does not — and a returning user
-    // (app_had_account=1) then has NO path to a session: the anon-mint
-    // effect below returns early on this flag forever, scopeFinalized never
-    // goes true, and the app sits on the background-image placeholder until
-    // localStorage is cleared. A fresh mount always means the OTP window is
-    // over, so the flag is stale by definition here.
-    try { localStorage.removeItem('app_email_auth_pending'); } catch {}
-
-    // linkIdentity rejections (e.g. "identity already attached to another
-    // user") come back as `#error=...&error_code=...&error_description=...`
-    // in the OAuth callback URL. supabase-js parses the same hash for tokens
-    // but doesn't surface errors to JS, so without this preflight the round-
-    // trip looks like a no-op and the modal hangs on "verifying…".
-    const oauthError = readOAuthErrorFromUrl();
-    if (oauthError) {
-      const surface = consumeBindPendingSurface();
-      if (surface) routeBindRejection(surface, oauthError);
-    }
-
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-      bumpLoginDay(data.session?.user?.id);
-
-      if (data.session?.user) {
-        posthog?.identify(data.session.user.id, {
-          email: data.session.user.email,
-        });
-        // Step 1 of the anon-session refactor: anonymous users get the same
-        // pull/merge/push treatment as real accounts, plus a one-time
-        // migration of legacy `guest_*` localStorage slots into their
-        // u_<anon_uid> scope. Stamp the active anon scope so a subsequent
-        // bind flow can find it post-redirect (see progressSync.js).
-        if (data.session.user.is_anonymous) {
-          migrateScopesToAnon(data.session.user.id);
-          try { localStorage.setItem('app_anon_scope', `u_${data.session.user.id}`); } catch {}
-          // Stale-flag recovery: mount happened with a *_oauth_pending flag
-          // set AND we're still anonymous AND no URL error was present (the
-          // hash-error preflight above would have consumed the surface). The
-          // OAuth round-trip never returned to this origin — most commonly
-          // because Supabase's allow-list rejected `redirectTo` and fell back
-          // to the Site URL, so the bind completed on a different domain.
-          // Clear localStorage AND the React pending state initialized from
-          // it, so the modal exits its "verifying…" spinner instead of
-          // hanging forever on every subsequent visit to this origin.
-          if (!oauthError && consumeBindPendingSurface()) {
-            // initialLoginModal hydrated to {open:true, pending:true} from
-            // the same flag; close it so the modal exits its "verifying…"
-            // spinner instead of hanging forever on every subsequent visit.
-            dispatchLoginModal({ type: 'close' });
-          }
-        }
-        // Pull cloud progress, merge with local, push the union back up.
-        // Skip for anonymous users — they stay local-only to avoid bloating
-        // user_progress with rows for drive-by visitors and to keep the
-        // anonymous `authenticated` role away from the cloud table entirely.
-        // Their data is promoted to cloud only on a successful bind.
-        if (!data.session.user.is_anonymous) {
-          runSyncOrReject(data.session.user.id);
-        }
-      } else {
-        // OAuth round-trip resulted in no session (user cancelled on the
-        // provider, true OAuth failure, or the redirect raced ahead of
-        // supabase parsing the hash). Clear any pending flags so the modal
-        // can leave its "verifying…" state instead of hanging forever, and
-        // the user sees the auth picker again on whichever surface launched
-        // the attempt.
-        let wasOauthRoundTrip = false;
-        try {
-          wasOauthRoundTrip = localStorage.getItem('bind_oauth_pending') === '1'
-            || localStorage.getItem('gate_oauth_pending') === '1';
-        } catch {}
-        if (wasOauthRoundTrip) {
-          try {
-            localStorage.removeItem('bind_oauth_pending');
-            localStorage.removeItem('gate_oauth_pending');
-            localStorage.removeItem('bind_flow_active');
-            localStorage.removeItem('bind_oauth_email_mode');
-          } catch {}
-          dispatchLoginModal({ type: 'close' });
-        }
-      }
-    }).catch((e) => {
-      // getSession can reject (lock acquisition failure, storage access
-      // errors, exhausted refresh retries surfacing as a throw). Without
-      // this handler authReady stays false forever → permanent placeholder.
-      // Proceed session-less: the anon-mint effect / legacy 'guest' scope
-      // take over, same as a signed-out visitor.
-      console.warn('[auth] getSession failed at startup:', e?.message || e);
-      setAuthReady(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      // Distinguish a Supabase-initiated SIGNED_OUT (token refresh failed —
-      // e.g. another device rotated the refresh token past the reuse window)
-      // from an app-initiated one. intentionalSignOut() sets the flag before
-      // signOut runs; if SIGNED_OUT fires WITHOUT the flag set, the session
-      // died unexpectedly and we should tell the user instead of silently
-      // dropping them into guest mode.
-      if (_event === 'SIGNED_OUT') {
-        let intentional = false;
-        try {
-          intentional = localStorage.getItem('intentional_signout') === '1';
-          localStorage.removeItem('intentional_signout');
-        } catch {}
-        // Only treat as expired if there was a non-anon session before this
-        // event — anon sessions getting cleared (e.g. during the email
-        // send-code flow) are routine and not user-visible expiries.
-        if (!intentional && session && !session.user?.is_anonymous) {
-          try { localStorage.setItem('app_logged_out', '1'); } catch {}
-          setIsGuest(false);
-        }
-      }
-      setSession(s);
-      bumpLoginDay(s?.user?.id);
-      if (s?.user) {
-        // Don't blow away `app_logged_out` for anonymous sessions — that
-        // flag is what stops the auto-promotion to guest after an explicit
-        // logout. Only a real sign-in should clear it.
-        if (!s.user.is_anonymous) {
-          try { localStorage.removeItem('app_logged_out'); } catch {}
-          // OTP verify landed a real session — the email-auth window is over.
-          try { localStorage.removeItem('app_email_auth_pending'); } catch {}
-          // Sticky marker: once this device has ever held a real (non-anon)
-          // session, remember it forever. Drives the gate modal to open in
-          // "Sign in" mode with a "welcome back" subtitle on subsequent
-          // visits where the user is a guest again (system-logout or
-          // explicit logout). Never cleared — even a full sign-out should
-          // keep showing the welcome-back flow next time.
-          try { localStorage.setItem('app_had_account', '1'); } catch {}
-        }
-        posthog?.identify(s.user.id, { email: s.user.email });
-        // Persist the email so a dev-only escape hatch on Settings can still
-        // identify the dev user after they drop into guest mode (where
-        // supabase session is null and user.email is unavailable).
-        if (s.user.email) {
-          try { localStorage.setItem('app_last_email', s.user.email); } catch {}
-        }
-        if (s.user.is_anonymous) {
-          // Migrate legacy 'guest_*' data into the anon scope and stamp the
-          // scope pointer for the bind flow. We deliberately do NOT call
-          // runSyncOrReject for anon users — they stay local-only.
-          migrateScopesToAnon(s.user.id);
-          try { localStorage.setItem('app_anon_scope', `u_${s.user.id}`); } catch {}
-        } else {
-          runSyncOrReject(s.user.id);
-        }
-      }
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  // Step 1 of the anon-session refactor: every guest gets a real Supabase
-  // anonymous session so the per-user storage scope (`u_<uid>`) replaces
-  // the device-global 'guest' bucket. Fires when isGuest goes true and we
-  // don't already have a session — covers brand-new visitors that just
-  // finished LanguageSetupPage (handleLangSetupComplete sets isGuest) and
-  // returning visitors whose stored anon session may have expired.
-  //
-  // The ref guards against double-firing if isGuest toggles off-then-on
-  // while signInAnonymously is still in flight (each call would mint a
-  // separate anon account on the server). onAuthStateChange resets it
-  // once the session lands.
-  //
-  // Error handling: if anonymous sign-ins are DISABLED at the Supabase
-  // project level the call rejects; we fall back silently to the legacy
-  // 'guest' scope so the app keeps working (userScope derivation below
-  // already handles the !session case).
-  const anonInFlight = useRef(false);
-  useEffect(() => {
-    if (session) { anonInFlight.current = false; return; }
-    if (!authReady) return;
-    // Fire as soon as we know we're heading into the app — either the user
-    // is already a guest, or they're on LanguageSetupPage (first-time
-    // visitor with no app_native yet) and about to become one. Pre-warming
-    // anon sign-in during the picker step means the session is ready by the
-    // time they tap Confirm, so scopeFinalized is already true on the next
-    // render and the gate placeholder never shows. Explicit logged-out
-    // users (on WelcomePage) are still skipped via the app_logged_out
-    // guard below.
-    if (!isGuest && !needsLangSetup) return;
-    // Defensive: don't auto-recreate an anon session if the user explicitly
-    // logged out AND has never had a real account on this device. For
-    // returning users (app_had_account=1) we WANT the anon session — they
-    // stay in the in-app guest shell and the gate fires on word 1.
-    try {
-      if (localStorage.getItem('app_logged_out') === '1'
-          && localStorage.getItem('app_had_account') !== '1') return;
-    } catch {}
-    // EmailLoginPage signs out the anon session before signInWithOtp and sets
-    // this flag for the duration of the OTP send→verify window. We MUST NOT
-    // mint a replacement anon here: a late anon sign-in would race verifyOtp
-    // and either clobber the freshly-verified email session or move the
-    // guest-scope data out from under syncOnLogin. The guard above is not
-    // enough — returning users have app_had_account=1, which bypasses it.
-    // Cleared on verify success (onAuthStateChange real login), on back, and
-    // on modal close.
-    try {
-      if (localStorage.getItem('app_email_auth_pending') === '1') return;
-    } catch {}
-    if (anonInFlight.current) return;
-    anonInFlight.current = true;
-    setAnonAttemptFailed(false);
-    // Supabase returns errors as `res.error` rather than throwing — handle
-    // both forms. We deliberately leave anonInFlight=true on failure so a
-    // permanent config error (anonymous provider disabled) doesn't spin in
-    // a retry loop on every dependency change; the app gracefully falls
-    // back to the legacy 'guest' scope via the userScope derivation.
-    supabase.auth.signInAnonymously()
-      .then((res) => {
-        if (res?.error) {
-          console.warn('[anon] signInAnonymously rejected:', res.error.message);
-          setAnonAttemptFailed(true);
-        }
       })
-      .catch((e) => {
-        console.warn('[anon] signInAnonymously threw:', e?.message || e);
-        setAnonAttemptFailed(true);
+      .catch((e) => console.warn('[auth] syncOnLogin failed:', e?.message || e))
+      .finally(() => {
+        setSyncInFlight(false);
+        // Tell LearningPage + WordListPage to re-read progress from
+        // localStorage — the merge may have pulled another device's rows.
+        setProgressRefreshKey(k => k + 1);
+        setWordListRefreshKey(k => k + 1);
       });
-  }, [authReady, session, isGuest, needsLangSetup]);
+  }, [auth.status, session?.user?.id]);
 
-  // Hold the in-app shell until the user scope is finalized. Two cases:
-  //   (a) authReady is still false — supabase.auth.getSession() hasn't
-  //       resolved yet, so we don't know if there's a real session waiting.
-  //       Mounting LearningPage now would pick userScope='guest' and then
-  //       flip to u_<uid> when getSession lands, rebuilding the SRS queue
-  //       with a fresh shuffle → the user sees one word flash before the
-  //       real first word.
-  //   (b) authReady=true, isGuest=true, no session yet, anon sign-in
-  //       hasn't settled. signInAnonymously is in flight — same flash.
-  //       anonAttemptFailed unblocks (a) if anon sign-in actually rejected,
-  //       so we fall through to the legacy 'guest' scope rather than
-  //       hanging on a blank screen forever.
-  const scopeFinalized = authReady && (!!session || !isGuest || anonAttemptFailed);
-
-  // Watchdog on that gate. getSession() blocks on a NETWORK round-trip
-  // whenever the cached access token is expired (any open after >1h away):
-  // navigator.locks acquisition (up to 5s if a frozen PWA instance holds
-  // it) + token refresh with supabase-js's internal retries (seconds on a
-  // weak cellular link) + possibly a second round-trip minting a fresh anon
-  // session. Users were staring at the placeholder for all of it. After
-  // GATE_MAX_WAIT_MS we render the app with the interim 'guest' scope and
-  // let the session land whenever it lands; the scope flip then rebuilds
-  // the SRS queue (one word may visibly swap) — in the rare slow case
-  // that's strictly better than an indefinite background-image screen.
-  // Trade-off accepted: a real signed-in user on a pathologically slow
-  // link could log 1-2 words into the guest gate counter before the flip.
-  const GATE_MAX_WAIT_MS = 4000;
+  // An OAuth round-trip (or a page kill mid-flow) restores BINDING from the
+  // snapshot at boot — reopen the modal on whichever surface launched it so
+  // the pending pane / error pane has a host. 'welcome' surface renders on
+  // WelcomePage itself, not in the modal.
   useEffect(() => {
-    if (scopeFinalized) return;
-    const t = setTimeout(() => setGateTimedOut(true), GATE_MAX_WAIT_MS);
-    return () => clearTimeout(t);
-  }, [scopeFinalized]);
+    if (auth.status !== STATUS.BINDING || !auth.bind) return;
+    if (auth.bind.surface === 'welcome') return;
+    if (!loginModal.open) {
+      dispatchLoginModal({
+        type: 'open',
+        surface: auth.bind.surface === 'gate' ? 'gate' : 'settings',
+        flowType: auth.bind.mode === 'login' ? 'login' : 'bind',
+        emailMode: auth.bind.mode === 'login' ? 'login' : 'signup',
+      });
+      if (auth.bind.surface === 'settings') setPage('settings');
+    }
+  }, [auth.status, auth.bind, loginModal.open]);
 
-  // Close the 5-word forced-login gate as soon as we have a REAL (non-anon)
-  // session AND the post-OAuth verification has finished. Skipping while
-  // loginModal.pending is true is what keeps the modal in its "verifying…"
-  // state during the brief window between session-arrival and
-  // runSyncOrReject's rejection — without it the modal would flash closed
-  // and then reopen in error state. loginModal.error also blocks closure so
-  // the rejection message stays put. Step 1 of the refactor: anonymous
-  // sessions are guests, so they must NOT auto-close the gate.
+  // Same restoration for a login-OTP verify pane that survived a page kill
+  // (OTP_PENDING at boot). Welcome-side OTP renders on WelcomePage.
   useEffect(() => {
-    if (
-      session
-      && !session.user.is_anonymous
-      && loginModal.open
-      && loginModal.surface === 'gate'
-      && !loginModal.error
-      && !loginModal.pending
-    ) {
+    if (auth.status !== STATUS.OTP_PENDING) return;
+    if (auth.otpReturn === STATUS.LOGGED_OUT) return;
+    if (!loginModal.open) {
+      dispatchLoginModal({ type: 'open', surface: 'settings', flowType: 'login', emailMode: 'login' });
+    }
+  }, [auth.status, auth.otpReturn, loginModal.open]);
+
+  // A bind rejection routed to the Settings surface should land the user on
+  // Settings (the gate surface stays on Learn) — the modal shows the error
+  // pane from auth.bindError either way.
+  useEffect(() => {
+    if (auth.bindError && loginModal.open && loginModal.surface === 'settings') {
+      setPage('settings');
+    }
+  }, [auth.bindError, loginModal.open, loginModal.surface]);
+
+  // Close the 5-word gate as soon as the account is real. auth.isRealAccount
+  // only goes true AFTER the machine concluded the round trip (BIND_OK), so
+  // there's no flash-closed-then-error window; a queued bindError keeps the
+  // modal open on its error pane.
+  useEffect(() => {
+    if (auth.isRealAccount && loginModal.open && !auth.bindError) {
       dispatchLoginModal({ type: 'close' });
     }
-  }, [session, loginModal.open, loginModal.surface, loginModal.error, loginModal.pending]);
+  }, [auth.isRealAccount, loginModal.open, auth.bindError]);
 
   // Background sync: while signed in (NON-anon), pull-merge-push the local
   // snapshot against the cloud row on relevant lifecycle events. Anon users
@@ -1001,44 +562,33 @@ export default function App() {
     // cleared by logout/login/account-switch. So the picker fires only when
     // the device has truly never picked a language.
     //
-    // Suppression during an in-flight OAuth bind round-trip still applies —
-    // we don't want a brief picker flash on top of Settings while the bind
-    // is verifying.
-    if (bindOAuthPending || loginModal.error) {
-      setNeedsLangSetup(false);
-      return;
-    }
-    const inBindFlow = (() => {
-      try {
-        return localStorage.getItem('bind_inline_active') === '1'
-          || localStorage.getItem('bind_flow_active') === '1';
-      } catch { return false; }
-    })();
-    if (inBindFlow) {
+    // Suppressed while a bind/OTP flow is resolving so the picker doesn't
+    // flash on top of the modal mid-round-trip.
+    if (bindOAuthPending || auth.status === STATUS.OTP_PENDING || auth.bindError) {
       setNeedsLangSetup(false);
       return;
     }
     setNeedsLangSetup(!localStorage.getItem('app_native'));
-  }, [isLoggedIn, session, isGuest, bindOAuthPending, loginModal.error]);
+  }, [auth.status, auth.bindError, session?.user?.id, bindOAuthPending]);
 
   // Daily check-in popup: show once per local-calendar day after the user is
   // past login + language setup. bumpLoginDay has already added today's date.
   // Also wait until pwaInstalled is known (not null) so the install hint
   // inside the popup paints with the correct state from the first frame.
   useEffect(() => {
-    if (!isLoggedIn || needsLangSetup) return;
+    if (!auth.ready || needsLangSetup) return;
     if (pwaInstalled === null) return;
     // Skip the check-in while a guest→account bind is still resolving (just
     // returned from OAuth) or its rejection error is queued to surface in the
     // Settings modal. Without this guard the user gets a check-in popup on
     // the Learn page *before* we route them to Settings to see the error.
     if (bindOAuthPending) return;
-    if (loginModal.error) return;
+    if (auth.bindError) return;
     // Guests + anonymous Supabase sessions don't see the check-in popup —
     // the cumulative-day count is only meaningful for real (cloud-synced)
     // accounts. Guests learn straight away; the popup appears only after
     // they bind into a real account.
-    if (!session || session.user.is_anonymous) return;
+    if (!auth.isRealAccount) return;
     // Wait for the initial cloud sync to finish — otherwise getLoginDayCount
     // reads only `[today]` (what bumpLoginDay just wrote) and paints "第1天"
     // even for accounts with a long history on other devices.
@@ -1047,7 +597,7 @@ export default function App() {
     if (shouldShowCheckin(uid)) {
       setCheckinDay(getLoginDayCount(uid));
     }
-  }, [isLoggedIn, needsLangSetup, session, pwaInstalled, loginModal.error, bindOAuthPending, syncInFlight]);
+  }, [auth.ready, auth.isRealAccount, needsLangSetup, session, pwaInstalled, auth.bindError, bindOAuthPending, syncInFlight]);
 
   const handleCheckin = () => {
     // Unlock audio *inside* the click gesture — iOS Safari requires this for
@@ -1109,60 +659,28 @@ export default function App() {
   };
 
   const handleLogin = () => {
-    // Called after the WelcomePage flow (guest-mode link) — drops the user
-    // back into the app. Clears the `app_logged_out` marker so the device
-    // resumes auto-promoting to guest on subsequent visits.
-    try { localStorage.setItem('app_logged_in', 'true'); } catch {}
-    try { localStorage.removeItem('app_logged_out'); } catch {}
-    try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
-    // Clear any leftover gate / oauth-pending state so re-entering guest
-    // mode doesn't immediately pop the LoginPromptModal. The modal can
-    // survive across re-entry (no remount happens between sign-out and
-    // re-entry — App stays mounted), and stale `*_oauth_pending` flags from
-    // an interrupted earlier flow would make initialLoginModal start it
-    // open + pending on the next reload.
-    try { localStorage.removeItem('gate_oauth_pending'); } catch {}
-    try { localStorage.removeItem('bind_oauth_pending'); } catch {}
+    // Called from WelcomePage's Guest Mode link. The machine mints a FRESH
+    // anon uid (fresh game) and clears explicitLogout — a logged-out
+    // account's scope must never leak into the next guest.
     dispatchLoginModal({ type: 'close' });
     // Unlock audio inside this user gesture — without it, the auto-speak on
     // the first word after login is silent on iOS Safari (the audio context
     // stays suspended until any subsequent user gesture).
     primeAudio();
-    setIsGuest(true);
+    auth.chooseGuest();
     setPage('learn');
     setReviewMode(false);
   };
 
-  const handleLogout = async () => {
-    // Explicit logout: clear both supabase session AND guest mode, then
-    // route the user to WelcomePage as a real login screen (per requirement
-    // "用户主动点击log out，应该回到 login界面"). Set `app_logged_out=1` so
-    // the auto-promotion in the isGuest initializer doesn't flip the user
-    // back into guest mode on reload. Their language pick and local
-    // progress stay in place so a future sign-in or guest re-entry doesn't
-    // re-prompt the language picker.
-    //
-    // Do NOT switch to the Learn tab here — that would briefly make
-    // LearningPage visible while the signOut promise resolves and fire its
-    // auto-speak effect. Tearing down to WelcomePage via !isLoggedIn covers
-    // the visual transition. handleLogin restores page='learn' on re-entry.
+  const handleLogout = () => {
+    // Explicit logout → machine persists explicitLogout, signs supabase out,
+    // lands on LOGGED_OUT → WelcomePage renders (per requirement "用户主动
+    // 点击log out，应该回到 login界面"). Language pick and local progress
+    // stay in place. Do NOT switch to the Learn tab here — the WelcomePage
+    // teardown covers the visual transition; handleLogin restores
+    // page='learn' on re-entry.
     setReviewMode(false);
-    // Order matters with anonymous sessions (Step 1 refactor):
-    //   - Stash the anon scope BEFORE signOut so a future guest re-entry's
-    //     fresh anon session can absorb the progress back (handleLogout was
-    //     never expected to wipe local progress; the carry-over preserves
-    //     that guarantee under the new per-anon-uid scoping).
-    //   - Set `app_logged_out` BEFORE signOut so the anon-creation
-    //     useEffect sees it on the session=null re-render that fires before
-    //     setIsGuest(false) lands.
-    //   - Set `isGuest=false` BEFORE awaiting signOut for the same reason.
-    if (session?.user?.is_anonymous) {
-      try { localStorage.setItem('app_anon_data_to_migrate', `u_${session.user.id}`); } catch {}
-    }
-    try { localStorage.removeItem('app_logged_in'); } catch {}
-    try { localStorage.setItem('app_logged_out', '1'); } catch {}
-    setIsGuest(false);
-    if (session) await intentionalSignOut();
+    auth.signOut();
   };
 
   // Called by LearningPage when a new word is presented. The per-word
@@ -1182,7 +700,7 @@ export default function App() {
   // advance behind the gate. Count comes from `countLearnedWords(userScope)`
   // which reads the per-uid progress slot the user's word list already shows.
   const requestNextWord = () => {
-    if (!authReady) return true;
+    if (!auth.ready) return true;
     // DEV-only test hook: lets the monkey/screenshot suite roam past the
     // 5-word gate in any browser UA (only WeChat is exempt at runtime). Inert
     // in production — import.meta.env.DEV is false after `vite build`, so this
@@ -1190,15 +708,12 @@ export default function App() {
     if (import.meta.env.DEV) {
       try { if (localStorage.getItem('__test_no_gate') === '1') return true; } catch {}
     }
-    if ((session && !session.user.is_anonymous) || IS_WECHAT) return true;
-    // Returning user (this device has previously held a real account session
-    // and is now back in guest mode — either after intentional logout or a
-    // refresh-token expiry). No free quota — the very first word triggers
+    if (auth.isRealAccount || IS_WECHAT) return true;
+    // Returning user (this device has previously held a real account and is
+    // now back in guest mode). No free quota — the very first word triggers
     // the gate, opened in "Sign in" mode. The welcome-back subtitle is
-    // derived inside LoginPromptModal from the same app_had_account flag.
-    let hadAccount = false;
-    try { hadAccount = localStorage.getItem('app_had_account') === '1'; } catch {}
-    if (hadAccount) {
+    // derived inside LoginPromptModal from the same hadAccount snapshot bit.
+    if (auth.hadAccount) {
       dispatchLoginModal({ type: 'open', surface: 'gate', flowType: 'login', emailMode: 'login' });
       return false;
     }
@@ -1229,15 +744,9 @@ export default function App() {
       localStorage.setItem('lang_onboarded_' + session.user.id, 'true');
     }
     setNeedsLangSetup(false);
-    // First-time visitors with no language picked land here as their initial
-    // screen. Promote them to a guest session so they drop straight into the
-    // learning UI on the next render (no Welcome page in between).
-    if (!isGuest) {
-      try { localStorage.setItem('app_logged_in', 'true'); } catch {}
-      try { localStorage.removeItem('app_logged_out'); } catch {}
-      try { localStorage.setItem('app_last_active', String(Date.now())); } catch {}
-      setIsGuest(true);
-    }
+    // First-time visitors land here as their initial screen; the machine has
+    // already minted (or is minting) their anon session in the background, so
+    // completing the picker drops straight into the learning UI.
   };
 
   const handleLanguageChange = ({ native, target }) => {
@@ -1256,9 +765,11 @@ export default function App() {
 
   // Per-user storage scope. Each account on the device — including the
   // anonymous guest — gets its own slot in localStorage so progress, review
-  // state, and review-word data don't bleed between accounts. Changes when
-  // session arrives/clears, which triggers a re-read in the consuming pages.
-  const userScope = session?.user?.id ? `u_${session.user.id}` : 'guest';
+  // state, and review-word data don't bleed between accounts. The machine
+  // derives it (u_<uid> / legacy 'guest') and boots it optimistically from
+  // the persisted lastUserScope, so returning users render with the right
+  // scope before the network resolves.
+  const userScope = auth.userScope;
 
   // Show language setup for first-time visitors AND for logged-in accounts
   // that haven't picked a language yet. Brand-new visitors land here as
@@ -1274,17 +785,12 @@ export default function App() {
     );
   }
 
-  // scopeFinalized is computed up next to its watchdog effect (search for
-  // GATE_MAX_WAIT_MS rationale there). gateTimedOut lets a slow/stuck auth
-  // round-trip fall through to the interim 'guest' scope instead of pinning
-  // the user on this placeholder indefinitely.
-  // Skip the placeholder while the LoginPromptModal is open. Email send-code
-  // inside the modal does a transient signOut to clear the anon session
-  // before signInWithOtp; that flips scopeFinalized false mid-flow and would
-  // unmount the entire tree (including the modal itself), leaving the user
-  // staring at the background image. The modal overlays the main app, so a
-  // brief 'guest' userScope underneath is invisible to the user.
-  if (isLoggedIn && !scopeFinalized && !loginModal.open && !gateTimedOut) {
+  // Hold the shell on the study-background placeholder only while the
+  // machine is INITIALIZING (getSession in flight). Its built-in watchdog
+  // caps this at 4s, and the optimistic lastUserScope means a returning
+  // user's scope is already correct — GUEST_LEGACY / minting states render
+  // the app normally instead of blocking (铁律2: render first).
+  if (!auth.ready && !loginModal.open) {
     // Background matches LearningPage's study_background.jpg exactly so the
     // gate → LearningPage swap is visually invisible. An earlier version
     // used bg-warm-bg (#FFF9F0 cream) which registered as a yellow flash
@@ -1302,11 +808,16 @@ export default function App() {
     );
   }
 
-  // After-logout login screen. Reached when the user explicitly signed out
-  // (clearing both supabase session and `app_logged_in`). app_native is
-  // still set, so the language picker doesn't re-fire. WelcomePage provides
-  // the Google / Discord / Email / Guest-mode picker.
-  if (!isLoggedIn) {
+  // After-logout login screen (machine state LOGGED_OUT). Also hosts the
+  // tail of a welcome-launched flow that survived a reload: an OAuth
+  // round-trip coming home (BINDING, surface 'welcome') or a login-OTP
+  // verify pane (OTP_PENDING whose exit falls back to LOGGED_OUT).
+  // app_native is still set, so the language picker doesn't re-fire.
+  if (
+    auth.status === STATUS.LOGGED_OUT
+    || (auth.status === STATUS.BINDING && auth.bind?.surface === 'welcome')
+    || (auth.status === STATUS.OTP_PENDING && auth.otpReturn === STATUS.LOGGED_OUT)
+  ) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-full max-w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
@@ -1362,10 +873,10 @@ export default function App() {
               pwaInstalled={pwaInstalled}
               // Settings's Sign-up / Log-in entries route through App so the
               // single LoginPromptModal instance (below) can render them. The
-              // bindOAuthPending prop still gates SettingsPage's applyUser
-              // fetch — needed to avoid flashing the wrong identity while a
-              // bind round-trip is resolving.
-              bindOAuthPending={loginModal.pending && loginModal.surface === 'settings'}
+              // bindOAuthPending prop still gates SettingsPage's identity
+              // display — avoids flashing the wrong identity while a bind
+              // round-trip is resolving.
+              bindOAuthPending={bindOAuthPending && loginModal.surface === 'settings'}
               onOpenLoginPrompt={({ flowType, emailMode }) => {
                 dispatchLoginModal({ type: 'open', surface: 'settings', flowType, emailMode });
               }}
@@ -1507,49 +1018,18 @@ export default function App() {
             popup link and the Settings button share one modal. */}
         {installModalNode}
 
-        {/* Single LoginPromptModal instance (Step 4). The reducer state owns
-            whether/which-surface to render; both the 5-word gate (Learn) and
-            the Settings Sign-up / Log-in entries route through here. One
-            instance = no stacked-popup class of bug, regardless of which
-            surface launched the round-trip.
-
-            For the gate surface, oauthLandingPage='learn' so the post-OAuth
-            redirect comes back to Learn; for Settings it lands on Settings.
-            handleGateDismiss / handleLogin / runSyncOrReject all dispatch
-            'close' to take the modal down. */}
+        {/* Single LoginPromptModal instance. The reducer owns whether/which-
+            surface to render; the machine owns pending/error/round-trip
+            state, which the modal reads via useAuth() itself. One instance =
+            no stacked-popup class of bug. */}
         {loginModal.open && (
           <LoginPromptModal
             nativeLang={nativeLang}
             surface={loginModal.surface}
             initialEmailMode={loginModal.emailMode}
             flowType={loginModal.flowType}
-            oauthLandingPage={loginModal.surface === 'gate' ? 'learn' : 'settings'}
-            // Show "checking your account…" while an OAuth round-trip is
-            // resolving. Flips off once runSyncOrReject finishes — success
-            // dispatches 'close', rejection dispatches 'reject' which clears
-            // pending and surfaces error inline.
-            pending={loginModal.pending && !loginModal.error}
-            initialError={loginModal.error}
-            onClose={() => {
-              // Gate surface uses handleGateDismiss semantics; Settings just
-              // closes. Both end up in the same 'close' dispatch.
-              dispatchLoginModal({ type: 'close' });
-              // Safety net: if the user dismisses mid email-OTP flow (e.g.
-              // after a bind rejection) without using the in-form back button,
-              // clear the suppression flag so the anon session can re-mint.
-              try { localStorage.removeItem('app_email_auth_pending'); } catch {}
-            }}
+            onClose={() => dispatchLoginModal({ type: 'close' })}
             onLoggedIn={() => dispatchLoginModal({ type: 'close' })}
-            // linkIdentity errors synchronously when there's no session or
-            // when the identity is already attached elsewhere — reset
-            // pending React state so the modal exits its spinner.
-            onAuthFailed={() => {
-              dispatchLoginModal({ type: 'authFailed' });
-              try {
-                localStorage.removeItem('bind_oauth_pending');
-                localStorage.removeItem('gate_oauth_pending');
-              } catch {}
-            }}
           />
         )}
 

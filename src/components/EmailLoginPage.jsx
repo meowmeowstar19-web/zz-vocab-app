@@ -1,72 +1,47 @@
 import { useState } from 'react';
-import { supabase, intentionalSignOut } from '../lib/supabase';
+import { useAuth } from '../auth/useAuth.js';
 import { UI_TEXT } from '../utils/langHelpers';
 import { validateEmailShape } from '../utils/emailValidate';
 import { usePostHog } from '@posthog/react';
-import { syncOnLogin } from '../utils/progressSync';
 import { primeAudio } from '../hooks/useAudio';
 import { getFigmaAssetUrl } from '../utils/assetUrl';
 
-// Email OTP login with two distinct paths, selected by `bindFlow`:
+// Email OTP form. UI ONLY since the state-machine migration — the two paths
+// live in the machine, selected by `bindFlow`:
 //
-//  - LOGIN (bindFlow=false): a fresh sign-in / first-time signup. We sign out
-//    any anon session and call signInWithOtp({ shouldCreateUser:true }), which
-//    mints a brand-new user (new UID) and emails an OTP under the
-//    "Confirm signup" template. Verified with type='email'.
+//  - LOGIN (bindFlow=false): auth.requestOtp → signInWithOtp
+//    ({ shouldCreateUser:true }), verified with type='email'. The guest's
+//    anon session stays LIVE through the whole flow (current SDKs' /otp
+//    ignores the stored session — the old signOut dance orphaned wardrobes);
+//    on verify the machine merges the guest scope into the account.
 //
-//  - BIND (bindFlow=true): a guest is converting their anonymous account into
-//    a real email-backed one. We call updateUser({ email }) on the LIVE anon
-//    session, which PRESERVES the anon UID, then verify with
-//    type='email_change'. Because the UID is unchanged, syncOnLogin's bind
-//    branch merges progress in place (fromScope === toScope) — there is no
-//    scope migration and no signout machinery to coordinate.
+//  - BIND (bindFlow=true): auth.bindEmail → updateUser({ email }) on the
+//    live anon session, PRESERVING the uid; verified with
+//    type='email_change'. Zero migration by construction.
 //
 //    Dashboard prerequisite: updateUser({ email }) triggers Supabase's
 //    "Change Email Address" template, NOT "Confirm signup". Copy the
-//    Confirm-signup body into the Change-Email slot (keep {{ .Token }}) so the
-//    OTP still arrives.
+//    Confirm-signup body into the Change-Email slot (keep {{ .Token }}).
 //
-// After bind auth succeeds we run syncOnLogin *inline* — if the target account
-// already has cloud progress, we sign out, keep the user on this form, and
-// surface an in-form error so they can change the email and retry. Without
-// this, App.jsx's global onAuthStateChange listener would catch the rejection
-// after the modal has already closed.
-export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bindFlow = false }) {
+// `initialEmail` / `initialStep` let a machine-restored flow (page killed
+// mid-OTP; BOOT revives OTP_PENDING/BINDING from the snapshot) mount
+// straight on the verify pane with the address prefilled.
+export default function EmailLoginPage({
+  onBack, onLogin, nativeLang = 'en', bindFlow = false,
+  surface = 'settings', initialEmail = '', initialStep = 'email',
+}) {
   const posthog = usePostHog();
+  const auth = useAuth();
   const t = UI_TEXT[nativeLang] || UI_TEXT.en;
-  const [step, setStep] = useState('email'); // 'email' | 'verify'
-  const [email, setEmail] = useState('');
+  const [step, setStep] = useState(initialStep); // 'email' | 'verify'
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
-  const [errorKind, setErrorKind] = useState(''); // 'bind_taken' | ''
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
   const resetMessages = () => {
-    setError(''); setErrorKind(''); setInfo('');
-  };
-
-  // Runs the progress merge after a successful auth. In bind mode, if the
-  // target account already has cloud data, syncOnLogin returns rejected — we
-  // sign out, reset to guest, show the inline error, and tell the caller NOT
-  // to advance past the form.
-  const finishAuth = async (uid) => {
-    if (!bindFlow || !uid) return true;
-    try {
-      const result = await syncOnLogin(uid);
-      if (result?.rejected) {
-        await intentionalSignOut();
-        setError(t.bindAccountTakenToast || 'This account is already in use. Please link a new one.');
-        setErrorKind('bind_taken');
-        setStep('email');
-        setCode('');
-        return false;
-      }
-      try { localStorage.setItem('lang_onboarded_' + uid, 'true'); } catch {}
-      return true;
-    } finally {
-      try { localStorage.removeItem('bind_inline_active'); } catch {}
-    }
+    setError(''); setInfo('');
   };
 
   const handleSendCode = async () => {
@@ -79,63 +54,8 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     }
     setLoading(true);
     try {
-      // BIND: convert the live anonymous session in place. updateUser({ email })
-      // keeps the same UID, so no signout, no scope migration, no migration
-      // flags. updateUser needs an active session (Rule A) — if somehow signed
-      // out, mint a fresh anon first.
-      if (bindFlow) {
-        const { data: { session: cur } } = await supabase.auth.getSession();
-        if (!cur) await supabase.auth.signInAnonymously();
-        const { error } = await supabase.auth.updateUser({ email: emailVal });
-        if (error) throw error;
-        setStep('verify');
-        setCode('');
-        return;
-      }
-
-      // LOGIN: signInWithOtp uses the standard "Confirm signup" verification
-      // code template (shouldCreateUser:true always mints a new email).
-      //
-      // BUT: signInWithOtp silently no-ops (returns success with no email
-      // actually sent) when an authenticated session is already active. App.jsx
-      // mints an anonymous session for every guest, so we hit that case on the
-      // login entry point too. Sign out the anon session first, then call the
-      // OTP API on a clean (unauthenticated) state.
-      //
-      // While signed out we set `app_logged_out=1` so App.jsx's anon-creation
-      // useEffect doesn't immediately re-mint a new anon between signOut and
-      // verifyOtp. We also stash the prior anon scope in
-      // `app_anon_data_to_migrate` — if the user backs out without verifying,
-      // the next anon session (created when we clear the flag) inherits the
-      // local progress via migrateScopesToAnon.
-      const { data: { session: cur } } = await supabase.auth.getSession();
-      if (cur && cur.user.is_anonymous) {
-        try { localStorage.setItem('app_anon_data_to_migrate', `u_${cur.user.id}`); } catch {}
-        try { localStorage.setItem('app_logged_out', '1'); } catch {}
-        // app_logged_out alone does NOT stop App's anon re-mint for returning
-        // users: that guard also checks `app_had_account !== '1'`, which is
-        // sticky-true once the device has ever held a real account. Without a
-        // dedicated flag, App mints a fresh anon between this signOut and
-        // verifyOtp — and that late anon sign-in can clobber the just-verified
-        // email session (dropping the user into an empty guest scope) or
-        // shuffle the guest-scope pointer so syncOnLogin reads the wrong slot.
-        try { localStorage.setItem('app_email_auth_pending', '1'); } catch {}
-        await intentionalSignOut();
-      }
-      const { error } = await supabase.auth.signInWithOtp({
-        email: emailVal,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (error) {
-        // Restore guest-able state so back-button drops the user into anon
-        // mode with their progress intact.
-        try { localStorage.removeItem('app_logged_out'); } catch {}
-        try { localStorage.removeItem('app_email_auth_pending'); } catch {}
-        throw error;
-      }
+      if (bindFlow) await auth.bindEmail(emailVal, surface);
+      else await auth.requestOtp(emailVal);
       setStep('verify');
       setCode('');
     } catch (err) {
@@ -153,35 +73,20 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
       return;
     }
     setLoading(true);
-    if (bindFlow) {
-      try { localStorage.setItem('bind_inline_active', '1'); } catch {}
-    }
     try {
-      // BIND went through updateUser({ email }), which is an email-change on the
-      // anon session → type='email_change'. LOGIN went through signInWithOtp →
-      // type='email'.
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: trimmed,
-        type: bindFlow ? 'email_change' : 'email',
-      });
-      if (error) {
-        if (/expired|invalid|incorrect/i.test(error.message)) {
-          setError(t.codeInvalid);
-          return;
-        }
-        throw error;
-      }
+      if (bindFlow) await auth.verifyBind(email, trimmed);
+      else await auth.verifyOtp(email, trimmed);
       posthog?.capture(bindFlow ? 'user_signed_up' : 'user_logged_in', { method: 'email', native_lang: nativeLang });
-      posthog?.identify(data?.user?.id || data?.session?.user?.id || email, { email, native_lang: nativeLang });
-      if (await finishAuth(data?.user?.id || data?.session?.user?.id)) onLogin();
+      posthog?.identify(email, { email, native_lang: nativeLang });
+      onLogin();
     } catch (err) {
-      setError(err.message || t.operationFailed);
+      if (/expired|invalid|incorrect/i.test(err?.message || '')) {
+        setError(t.codeInvalid);
+      } else {
+        setError(err.message || t.operationFailed);
+      }
     } finally {
       setLoading(false);
-      if (bindFlow) {
-        try { localStorage.removeItem('bind_inline_active'); } catch {}
-      }
     }
   };
 
@@ -189,23 +94,11 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     resetMessages();
     setLoading(true);
     try {
-      // Mirror the send path: bind re-issues the email-change OTP, login
-      // re-issues the signup OTP.
-      // Bind must NOT use auth.resend({type:'email_change'}): GoTrue's /resend
-      // looks the user up by their CURRENT email, and the bind user is
-      // anonymous (email empty; the address is only pending in new_email) — so
-      // it never finds them and silently 200s WITHOUT sending
-      // (anti-enumeration). Verified live on miracleZZ 2026-07-07:
-      // email_change_sent_at untouched after resend. Re-calling
-      // updateUser({email}) on the live anon session regenerates the code and
-      // actually resends.
-      const { error } = bindFlow
-        ? await supabase.auth.updateUser({ email })
-        : await supabase.auth.signInWithOtp({
-            email,
-            options: { shouldCreateUser: true },
-          });
-      if (error) throw error;
+      // Bind resend re-calls updateUser({email}) — GoTrue's /resend can't
+      // find an anonymous user by its (empty) current email and silently
+      // no-ops. The machine also restarts its local TTL to match the fresh
+      // server code. See auth/useAuth.js resendOtp for the full story.
+      await auth.resendOtp(email, bindFlow);
       setInfo(t.codeResent);
     } catch (err) {
       setError(err.message || t.operationFailed);
@@ -223,27 +116,11 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     return handleSendCode();
   };
 
-  // Back button: clear the `app_logged_out` flag we may have set in
-  // handleSendCode so App.jsx's useEffect re-mints an anonymous session
-  // (with `app_anon_data_to_migrate` carrying the prior anon's progress
-  // into the new scope). Without this, the user would land back in
-  // settings with a stale "logged out" flag suppressing guest mode.
-  //
-  // Also re-mint the anon session inline. App.jsx's anon-creation effect
-  // is gated on [authReady, session, isGuest, needsLangSetup] — none of
-  // which change when we clear app_logged_out, so the effect never re-runs.
-  // Without this explicit call, closing the modal after backing out of a
-  // sent-OTP flow leaves the app stuck on the scope-finalization placeholder
-  // (white background + tiny phone shell — looks like a white screen).
+  // Back button: tell the machine the pending flow is over (OTP_EXIT — a
+  // no-op when nothing was sent yet). It clears the persisted marker and
+  // re-verifies/restores the guest session as needed.
   const handleBack = () => {
-    try { localStorage.removeItem('app_logged_out'); } catch {}
-    try { localStorage.removeItem('app_email_auth_pending'); } catch {}
-    (async () => {
-      try {
-        const { data: { session: cur } } = await supabase.auth.getSession();
-        if (!cur) await supabase.auth.signInAnonymously();
-      } catch {}
-    })();
+    auth.exitOtp();
     onBack();
   };
 
