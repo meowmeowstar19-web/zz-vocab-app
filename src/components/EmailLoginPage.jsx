@@ -191,8 +191,16 @@ export default function EmailLoginPage({ onBack, onLogin, nativeLang = 'en', bin
     try {
       // Mirror the send path: bind re-issues the email-change OTP, login
       // re-issues the signup OTP.
+      // Bind must NOT use auth.resend({type:'email_change'}): GoTrue's /resend
+      // looks the user up by their CURRENT email, and the bind user is
+      // anonymous (email empty; the address is only pending in new_email) — so
+      // it never finds them and silently 200s WITHOUT sending
+      // (anti-enumeration). Verified live on miracleZZ 2026-07-07:
+      // email_change_sent_at untouched after resend. Re-calling
+      // updateUser({email}) on the live anon session regenerates the code and
+      // actually resends.
       const { error } = bindFlow
-        ? await supabase.auth.resend({ type: 'email_change', email })
+        ? await supabase.auth.updateUser({ email })
         : await supabase.auth.signInWithOtp({
             email,
             options: { shouldCreateUser: true },
