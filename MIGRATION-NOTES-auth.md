@@ -28,15 +28,20 @@ PW 特有(不同步):`scopedStorage.js`(用 progressSync 的合并语义实现 m
 - Email 登录不再 signOut 匿名 session(2.x SDK /otp 不看 session,miracleZZ 已验证),
   app_email_auth_pending/app_anon_data_to_migrate 的整套舞蹈作废。
 
-## 有意的行为变化(需 review)
+## 行为语义(用户 2026-07-07 确认)
 
-1. **游客登录已有账号 = 本地合并**(机器语义,most-recent-per-word),不再"云端有进度就拒绝"。
-2. **登出后 Guest Mode = 全新存档**(GUEST_CHOSEN 铸新 uid,不继承旧 anon 数据)——
+1. **Sign up(bind)到已被占用的邮箱/Google = 拒绝**——结果与旧版一致,机制换了:
+   GoTrue 的 identity_already_exists / already-registered 错误 → 弹窗错误面板,
+   不再靠"查云端有没有进度"。
+2. **Sign in 已有账号 = 原样进入该账号,不合并游客数据**。机器的 mergeScopes 效果
+   带 reason('login'|'remint');PW 的 scopedStorage 跳过 'login'(游客槽位原地留作
+   备份),只执行 'remint'(匿名号死亡重铸必须继承,防丢档)。miracleZZ 两种都合并。
+3. **登出后 Guest Mode = 全新存档**(GUEST_CHOSEN 铸新 uid,不继承旧 anon 数据)——
    与旧 PW 正常路径一致,防止已登出账号数据泄进下一个游客。
-3. 旧设备 `app_logged_out=1`(含 token 过期误设的)迁移后一次性落 WelcomePage。
-4. posthog `bind_account_success` 事件点位取消(原挂在 runSyncOrReject);
+4. 旧设备 `app_logged_out=1`(含 token 过期误设的)迁移后一次性落 WelcomePage。
+5. posthog `bind_account_success` 事件点位取消(原挂在 runSyncOrReject);
    `lang_onboarded_<uid>` 不再写(原本 write-only)。
-5. session 意外过期:机器发 notify('session-expired'),PW 暂不渲染横幅(与旧版一致)。
+6. session 意外过期:机器发 notify('session-expired'),PW 暂不渲染横幅(与旧版一致)。
 
 ## 上线闸门
 

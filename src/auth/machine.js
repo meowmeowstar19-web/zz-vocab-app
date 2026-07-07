@@ -91,7 +91,11 @@ function enterAuthed(state, session, extra = {}) {
     !state.snapshot?.explicitLogout &&
     !priorIsOtherRealAccount
   ) {
-    effects.push({ type: 'mergeScopes', from, to: newScope })
+    // reason 'login' = guest signed into an existing account. POLICY LIVES IN
+    // THE APP's scopedStorage: miracleZZ folds the guest wardrobe in; an app
+    // whose product wants "sign in = enter the account untouched" ignores
+    // 'login' and only honors 'remint' (below), which must always merge.
+    effects.push({ type: 'mergeScopes', from, to: newScope, reason: 'login' })
   }
   return {
     state: {
@@ -124,7 +128,9 @@ function enterGuestAnon(state, session) {
   const prior = state.userScope
   const next = scopeOf(session)
   if (prior && prior.startsWith('u_') && prior !== next) {
-    effects.push({ type: 'mergeScopes', from: prior, to: next })
+    // reason 'remint' = a fresh anon uid replacing a lost one — every app
+    // must merge this, or an expired/consumed session reads as a wiped game.
+    effects.push({ type: 'mergeScopes', from: prior, to: next, reason: 'remint' })
   }
   return {
     state: {

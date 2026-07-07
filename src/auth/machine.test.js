@@ -154,7 +154,7 @@ describe('OTP flow', () => {
     const r = transition(exited.state, { type: 'ANON_MINTED', session: anonSession('fresh9') })
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
     expect(r.state.userScope).toBe('u_fresh9')
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9', reason: 'remint' })
   })
 
   it('reload after a consumed session: boot re-mint inherits lastUserScope (no wardrobe reset)', () => {
@@ -164,7 +164,7 @@ describe('OTP flow', () => {
       { type: 'ANON_MINTED', session: anonSession('fresh9') },
     ])
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9', reason: 'remint' })
   })
 
   it('kill mid-OTP, reopen, verify: the account inherits the guest scope', () => {
@@ -178,7 +178,7 @@ describe('OTP flow', () => {
       ],
     )
     expect(r.state.status).toBe(STATUS.AUTHED)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_acc1' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_acc1', reason: 'login' })
   })
 
   it('OTP from the welcome page exits back to LOGGED_OUT', () => {
@@ -368,7 +368,7 @@ describe('BINDING (sign-up bind + OAuth login round trip)', () => {
       { type: 'BIND_OK', session: realSession('acc2') },
     ])
     expect(back.state.status).toBe(STATUS.AUTHED)
-    expect(find(back.effects, 'mergeScopes')).toMatchObject({ from: 'u_g7', to: 'u_acc2' })
+    expect(find(back.effects, 'mergeScopes')).toMatchObject({ from: 'u_g7', to: 'u_acc2', reason: 'login' })
   })
 
   it('another-tab switch between two REAL accounts never merges their scopes', () => {
@@ -419,7 +419,7 @@ describe('sign out & session death', () => {
       { type: 'ANON_MINTED', session: anonSession('fresh2') },
     ])
     expect(r.state.status).toBe(STATUS.GUEST_ANON)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_dead1', to: 'u_fresh2' })
+    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_dead1', to: 'u_fresh2', reason: 'remint' })
   })
 })
 

@@ -77,8 +77,10 @@ function runEffect(fx) {
       break
     case 'mergeScopes':
       // synchronous on purpose: runs before React re-renders for the new
-      // scope, so the remounted tree reads the already-merged wardrobe
-      mergeScopes(fx.from, fx.to)
+      // scope, so the remounted tree reads the already-merged wardrobe.
+      // reason ('login'|'remint') lets the app-specific implementation apply
+      // its own policy — see the comments in machine.js enterAuthed.
+      mergeScopes(fx.from, fx.to, fx.reason)
       break
     case 'supabaseSignOut':
       supabase.auth.signOut().catch(() => {})

@@ -18,10 +18,16 @@ import { readLocalSnapshot, writeLocalSnapshot, mergeSnapshots } from '../utils/
 
 const uidOf = (scope) => (scope && scope.startsWith('u_') ? scope.slice(2) : undefined);
 
-// guest → existing-account login, or dead-anon → fresh-anon re-mint: fold the
-// from-scope's wardrobe into the to-scope. The from-scope keys are left
-// untouched (cheap backup) — mirrors miracleZZ's behavior.
-export function mergeScopes(fromScope, toScope) {
+// PW POLICY (differs from miracleZZ — user decision 2026-07-07):
+//   reason 'login'  → SKIP. Signing into an existing account enters it
+//                     untouched; the guest's local slot stays where it is
+//                     (untouched backup), nothing is folded in.
+//   reason 'remint' → MERGE. A fresh anon uid replacing a lost session must
+//                     inherit the previous scope or the guest's progress
+//                     reads as wiped.
+// The from-scope keys are left untouched in both cases.
+export function mergeScopes(fromScope, toScope, reason) {
+  if (reason === 'login') return;
   if (!fromScope || !toScope || fromScope === toScope) return;
   try {
     const from = readLocalSnapshot(uidOf(fromScope), fromScope);
