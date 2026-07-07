@@ -33,9 +33,11 @@ PW 特有(不同步):`scopedStorage.js`(用 progressSync 的合并语义实现 m
 1. **Sign up(bind)到已被占用的邮箱/Google = 拒绝**——结果与旧版一致,机制换了:
    GoTrue 的 identity_already_exists / already-registered 错误 → 弹窗错误面板,
    不再靠"查云端有没有进度"。
-2. **Sign in 已有账号 = 原样进入该账号,不合并游客数据**。机器的 mergeScopes 效果
-   带 reason('login'|'remint');PW 的 scopedStorage 跳过 'login'(游客槽位原地留作
-   备份),只执行 'remint'(匿名号死亡重铸必须继承,防丢档)。miracleZZ 两种都合并。
+2. **Sign in 已有账号 = 原样进入该账号,绝不合并游客数据**(两个 app 完全一致——
+   machine 的 enterAuthed 已不发任何登录合并;游客槽位原地留存,与账号无关)。
+   唯一存在的 mergeScopes 是 reason='remint':同一游客的匿名 session 技术性死亡后
+   重铸新号时继承自己的数据(防丢档,与账号切换无关)。scopedStorage 里的
+   `if (reason === 'login') return` 只是防机器回归的保险。
 3. **登出后 Guest Mode = 全新存档**(GUEST_CHOSEN 铸新 uid,不继承旧 anon 数据)——
    与旧 PW 正常路径一致,防止已登出账号数据泄进下一个游客。
 4. 旧设备 `app_logged_out=1`(含 token 过期误设的)迁移后一次性落 WelcomePage。

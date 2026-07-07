@@ -18,14 +18,13 @@ import { readLocalSnapshot, writeLocalSnapshot, mergeSnapshots } from '../utils/
 
 const uidOf = (scope) => (scope && scope.startsWith('u_') ? scope.slice(2) : undefined);
 
-// PW POLICY (differs from miracleZZ — user decision 2026-07-07):
-//   reason 'login'  → SKIP. Signing into an existing account enters it
-//                     untouched; the guest's local slot stays where it is
-//                     (untouched backup), nothing is folded in.
-//   reason 'remint' → MERGE. A fresh anon uid replacing a lost session must
-//                     inherit the previous scope or the guest's progress
-//                     reads as wiped.
-// The from-scope keys are left untouched in both cases.
+// Semantics (user decision 2026-07-07, identical in both apps): sign-in
+// enters an account UNTOUCHED — the machine no longer emits any 'login'
+// merge, so the only mergeScopes that arrives here is reason 'remint': a
+// fresh anon uid replacing a lost session inherits the previous scope
+// (same guest, anti-data-loss — unrelated to account switching). The
+// 'login' guard below is defense-in-depth against a future machine
+// regression. The from-scope keys are left untouched (cheap backup).
 export function mergeScopes(fromScope, toScope, reason) {
   if (reason === 'login') return;
   if (!fromScope || !toScope || fromScope === toScope) return;

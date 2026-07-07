@@ -60,6 +60,14 @@ const patchSnap = (state, patch) => ({ ...state, snapshot: { ...state.snapshot, 
 
 // entering a state that owns a session scope also persists it (铁律8: next boot
 // renders from lastUserScope without waiting on the network)
+//
+// NO scope merge here — deliberate (user decision 2026-07-07). Signing INTO
+// an account enters it untouched: the guest's scope stays where it is,
+// unrelated to the account. The only path where guest data becomes account
+// data is the BIND flow, and that keeps the uid (linkIdentity/updateUser) —
+// the guest account BECOMES the real account, nothing to merge by
+// construction. The 'remint' merge in enterGuestAnon is different in kind:
+// it preserves the SAME guest's data across a technical session death.
 function enterAuthed(state, session, extra = {}) {
   const patch = {
     hadAccount: true,
@@ -70,33 +78,6 @@ function enterAuthed(state, session, extra = {}) {
     ...extra,
   }
   const effects = [fx.saveSnapshot(patch)]
-  // guest logged into an EXISTING account (uid changed): fold the guest
-  // wardrobe into the account scope (auth-design.md §七.3). The bind path
-  // keeps the uid, so it never gets here with a different id — zero-merge by
-  // construction. The pre-flow identity comes from state.session when it is a
-  // (possibly already signed-out) anon session the OTP flow held onto, and
-  // falls back to state.userScope otherwise — an OAuth round trip records the
-  // NEW session before BIND_OK fires, and a page kill mid-OTP loses the object
-  // entirely, but userScope survives both (BOOT seeds it from the snapshot).
-  // Never fold when the flow started from the welcome page (explicitLogout: a
-  // logged-out account's scope must not leak into the next login) or when the
-  // prior session is a DIFFERENT live real account (another-tab switch).
-  const newScope = scopeOf(session)
-  const prior = state.session
-  const priorIsOtherRealAccount = !!prior && !isAnon(prior) && scopeOf(prior) !== newScope
-  const from = isAnon(prior) ? scopeOf(prior) : state.userScope
-  if (
-    session?.user?.id &&
-    from && from.startsWith('u_') && from !== newScope &&
-    !state.snapshot?.explicitLogout &&
-    !priorIsOtherRealAccount
-  ) {
-    // reason 'login' = guest signed into an existing account. POLICY LIVES IN
-    // THE APP's scopedStorage: miracleZZ folds the guest wardrobe in; an app
-    // whose product wants "sign in = enter the account untouched" ignores
-    // 'login' and only honors 'remint' (below), which must always merge.
-    effects.push({ type: 'mergeScopes', from, to: newScope, reason: 'login' })
-  }
   return {
     state: {
       ...patchSnap(state, patch),

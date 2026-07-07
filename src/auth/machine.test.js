@@ -167,9 +167,9 @@ describe('OTP flow', () => {
     expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_fresh9', reason: 'remint' })
   })
 
-  it('kill mid-OTP, reopen, verify: the account inherits the guest scope', () => {
-    // pre-kill the anon session was consumed; BOOT restores the verify pane
-    // with userScope seeded from the snapshot — that scope is the identity
+  it('kill mid-OTP, reopen, verify: the account is entered UNTOUCHED (no guest merge)', () => {
+    // sign-in enters the account as-is — the guest scope stays where it is,
+    // unrelated to the account (user decision 2026-07-07)
     const r = run(
       boot(snap({ lastUserScope: 'u_anon1', otp: { email: 'a@b.c', expiresAt: NOW + 1000 } }), NOW),
       [
@@ -178,7 +178,8 @@ describe('OTP flow', () => {
       ],
     )
     expect(r.state.status).toBe(STATUS.AUTHED)
-    expect(find(r.effects, 'mergeScopes')).toMatchObject({ from: 'u_anon1', to: 'u_acc1', reason: 'login' })
+    expect(r.state.userScope).toBe('u_acc1')
+    expect(types(r.effects)).not.toContain('mergeScopes')
   })
 
   it('OTP from the welcome page exits back to LOGGED_OUT', () => {
@@ -358,17 +359,17 @@ describe('BINDING (sign-up bind + OAuth login round trip)', () => {
     expect(types(back.effects)).not.toContain('mergeScopes')
   })
 
-  it('OAuth LOGIN from a live guest merges the guest scope after the round trip', () => {
-    // the redirect wipes machine state and the return boot records the NEW
-    // session before BIND_OK — the guest identity survives only in
-    // snapshot.lastUserScope, which BOOT seeds into userScope
+  it('OAuth LOGIN from a live guest enters the account UNTOUCHED (no guest merge)', () => {
+    // sign-in never folds the guest scope in; only the bind path carries
+    // guest data into an account, and it keeps the uid (nothing to merge)
     const marker = { provider: 'google', surface: 'gate', mode: 'login', expiresAt: NOW + 1000 }
     const back = run(boot(snap({ lastUserScope: 'u_g7', bind: marker }), NOW), [
       { type: 'SESSION_RESOLVED', session: realSession('acc2') },
       { type: 'BIND_OK', session: realSession('acc2') },
     ])
     expect(back.state.status).toBe(STATUS.AUTHED)
-    expect(find(back.effects, 'mergeScopes')).toMatchObject({ from: 'u_g7', to: 'u_acc2', reason: 'login' })
+    expect(back.state.userScope).toBe('u_acc2')
+    expect(types(back.effects)).not.toContain('mergeScopes')
   })
 
   it('another-tab switch between two REAL accounts never merges their scopes', () => {
