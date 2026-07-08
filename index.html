@@ -67,6 +67,57 @@
           window.addEventListener('load', function () {
             navigator.serviceWorker.register('/sw.js').catch(function () {});
           });
+
+          // New-deploy flow: sw.js serves the cached (stale) shell for instant
+          // startup, revalidates in the background, and posts NEW_VERSION_READY
+          // when the fetched HTML differs from what it just served. By then the
+          // fresh HTML is already in the SW cache, so a plain reload applies the
+          // update instantly. Two apply paths: a tap on the pill below, or
+          // automatically on the next visibilitychange (user backgrounds the
+          // iOS standalone app and comes back — previously they had to fully
+          // quit it twice).
+          var updateReady = false;
+          var updateApplied = false;
+          var applyUpdate = function () {
+            if (updateApplied) return;
+            updateApplied = true;
+            window.location.reload();
+          };
+          var showUpdatePill = function () {
+            if (document.getElementById('sw-update-pill')) return;
+            var lang = document.documentElement.lang || 'en';
+            var label = lang.indexOf('zh') === 0 ? '有新版本，点击刷新'
+              : lang === 'ja' ? '新しいバージョン、タップで更新'
+              : 'New version — tap to refresh';
+            var btn = document.createElement('button');
+            btn.id = 'sw-update-pill';
+            btn.textContent = label;
+            // Matches the app's yellow CTA pill (#FFDF4E, 2px black border,
+            // fully rounded) — see e.g. LoginPromptModal's confirm button.
+            btn.style.cssText =
+              'position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));' +
+              'transform:translateX(-50%);z-index:2147483647;padding:10px 22px;' +
+              'background-color:#FFDF4E;border:2px solid #000;border-radius:100px;' +
+              'font-size:16px;color:#000;font-family:inherit;cursor:pointer;' +
+              'box-shadow:0 4px 12px rgba(0,0,0,0.18);white-space:nowrap;';
+            btn.addEventListener('click', applyUpdate);
+            document.body.appendChild(btn);
+          };
+          navigator.serviceWorker.addEventListener('message', function (e) {
+            if (!e.data || e.data.type !== 'NEW_VERSION_READY' || updateReady) return;
+            updateReady = true;
+            if (document.body) showUpdatePill();
+            else document.addEventListener('DOMContentLoaded', showUpdatePill);
+          });
+          // With addEventListener (as opposed to setting .onmessage) the
+          // container queues messages until told to start delivering them.
+          if (navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
+          document.addEventListener('visibilitychange', function () {
+            // Fires on both hide and show: reloading while hidden is invisible
+            // to the user; if iOS suspends us before that runs, the 'visible'
+            // firing on return applies it instead.
+            if (updateReady) applyUpdate();
+          });
         }
       }
     </script>
