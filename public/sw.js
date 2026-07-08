@@ -2,7 +2,7 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v107';
+const CACHE_VERSION = 'v108';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word-content images (local /images/ or R2 CDN). UI
@@ -236,6 +236,38 @@ function isStaticAsset(url) {
   );
 }
 
+// Compare the HTML we served from cache against what the background
+// revalidate just fetched; if the bytes differ, a new deploy landed while the
+// user was looking at the stale shell. Tell every open window so the page can
+// offer a one-tap refresh (and auto-apply on visibilitychange) instead of
+// silently waiting for the *next* cold start. Body-text comparison is the
+// reliable change signal: every deploy rewrites the hashed bundle references
+// inside index.html, while headers (Date etc.) vary on every response.
+async function notifyIfHtmlChanged(cachedRes, freshRes, resultingClientId) {
+  try {
+    const [oldHtml, newHtml] = await Promise.all([cachedRes.text(), freshRes.text()]);
+    if (oldHtml === newHtml) return;
+    const msg = { type: 'NEW_VERSION_READY' };
+    // Target the exact window this navigation created (resultingClientId).
+    // Right after a navigation that document is still "reserved" and can be
+    // invisible to clients.get()/matchAll() — matchAll may even return only
+    // the unloading previous document — so retry briefly instead of firing
+    // once into the void. The caller's waitUntil chain keeps the SW alive.
+    for (let i = 0; i < 10; i++) {
+      const win = resultingClientId ? await self.clients.get(resultingClientId) : null;
+      if (win) {
+        win.postMessage(msg);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    // Fallback: broadcast to whatever windows are visible by now.
+    (await self.clients.matchAll({ type: 'window' })).forEach((w) => w.postMessage(msg));
+  } catch (e) {
+    // Never let the notify path break the revalidate chain.
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -246,18 +278,32 @@ self.addEventListener('fetch', (event) => {
   // HTML / app shell → stale-while-revalidate. Serve the cached shell
   // instantly (first paint no longer waits on a network round-trip to the
   // origin every load), then refresh the cache in the background so the next
-  // load picks up a new deploy. The one-reload propagation lag is acceptable;
-  // the stale shell references a hashed bundle that this client already has in
-  // the permanent BUILD_CACHE (it was stored on the same prior visit), so
-  // there's no stale-HTML-vs-missing-bundle mismatch. Falls back to the
-  // precached '/' when both cache and network miss (offline first visit).
+  // load picks up a new deploy. When the revalidate brings back a *different*
+  // HTML (i.e. a new deploy), we postMessage NEW_VERSION_READY to every open
+  // window — the page (index.html) shows a "tap to refresh" pill and also
+  // auto-reloads on the next visibilitychange, so users no longer have to
+  // fully quit the iOS standalone app twice to see an update. The reload is
+  // safe and instant: the fresh HTML is already sitting in RUNTIME_CACHE by
+  // the time we notify. The stale shell served meanwhile references a hashed
+  // bundle this client already has in the permanent BUILD_CACHE (stored on
+  // the same prior visit), so there's no stale-HTML-vs-missing-bundle
+  // mismatch. Falls back to the precached '/' when both cache and network
+  // miss (offline first visit).
   if (req.mode === 'navigate' || req.destination === 'document') {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
       const cached = await cache.match(req);
+      // Clone NOW, before `cached` is handed to the page below — returning it
+      // consumes its body, and a later .text() on a consumed response throws.
+      const cachedForCompare = cached ? cached.clone() : null;
       const networkFetch = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) cache.put(req, res.clone()).catch(() => {});
+        .then(async (res) => {
+          if (res && res.status === 200) {
+            await cache.put(req, res.clone()).catch(() => {});
+            // Only meaningful when we served a stale copy above; a client
+            // that got the network response directly is already current.
+            if (cachedForCompare) await notifyIfHtmlChanged(cachedForCompare, res.clone(), event.resultingClientId);
+          }
           return res;
         })
         .catch(() => cached || caches.match('/'));
