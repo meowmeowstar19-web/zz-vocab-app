@@ -208,6 +208,20 @@ function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') dispatch({ type: 'APP_RESUMED' })
   })
+
+  // Backing out of the provider page (browser "back") restores this page from
+  // the bfcache: no reload, so boot()/getSession never re-run and the pending
+  // pane would hang forever. On a bfcache restore that lands us still in
+  // BINDING, re-resolve the session so concludeBindIfPossible can rule — a
+  // back-out carries no auth params, so it silently cancels back to the gate.
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted || store.state.status !== STATUS.BINDING) return
+    if (store.state.bind?.provider === 'email') return // email bind isn't a redirect
+    supabase.auth
+      .getSession()
+      .then(({ data }) => dispatch({ type: 'SESSION_RESOLVED', session: data?.session ?? null }))
+      .catch((error) => dispatch({ type: 'SESSION_FAILED', error }))
+  })
 }
 
 /* -------------------------------------------------------------- actions */
