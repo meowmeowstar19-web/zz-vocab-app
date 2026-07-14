@@ -210,17 +210,20 @@ function boot() {
   })
 
   // Backing out of the provider page (browser "back") restores this page from
-  // the bfcache: no reload, so boot()/getSession never re-run and the pending
-  // pane would hang forever. On a bfcache restore that lands us still in
-  // BINDING, re-resolve the session so concludeBindIfPossible can rule — a
-  // back-out carries no auth params, so it silently cancels back to the gate.
+  // the bfcache: no reload, so boot() never re-runs and the pending pane would
+  // hang forever. A bfcache restore while still BINDING is UNAMBIGUOUS — the
+  // user pressed "back", so they did NOT complete sign-in (a success always
+  // comes home as a fresh forward navigation carrying a code, never a cached
+  // back-nav). Conclude immediately as a silent cancel back to the gate. We do
+  // NOT route through concludeBindIfPossible here: its hasAuthParamsInUrl is a
+  // module-level flag frozen from an earlier page life, so a prior OAuth return
+  // can leave it stuck true — which would skip the silent-cancel branch and
+  // trip the 10s "Sign-in timed out" pane instead of exiting cleanly.
   window.addEventListener('pageshow', (e) => {
     if (!e.persisted || store.state.status !== STATUS.BINDING) return
     if (store.state.bind?.provider === 'email') return // email bind isn't a redirect
-    supabase.auth
-      .getSession()
-      .then(({ data }) => dispatch({ type: 'SESSION_RESOLVED', session: data?.session ?? null }))
-      .catch((error) => dispatch({ type: 'SESSION_FAILED', error }))
+    clearTimeout(bindConcludeTimer)
+    dispatch({ type: 'BIND_REJECTED', reason: null })
   })
 }
 
