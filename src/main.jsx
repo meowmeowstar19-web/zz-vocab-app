@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { installAntiScrape } from './utils/antiScrape';
+import { attachSessionMirror } from './auth/sessionMirror.js';
+import { supabase } from './auth/supabase.js';
 // '@posthog/react' is aliased to its slim entry in vite.config.js — the
 // default entry statically imports all of posthog-js (~190KB min), which we
 // deliberately keep OFF the startup chunks; see src/utils/lazyPosthog.js.
@@ -10,6 +12,16 @@ import { PostHogProvider } from '@posthog/react';
 import { posthogClient, loadPosthog } from './utils/lazyPosthog';
 
 installAntiScrape();
+
+// iOS Add-to-Home-Screen login handoff (auth/sessionMirror.js — byte-identical
+// core from miracleZZ): mirror the session's tokens into cookies (the only
+// storage iOS copies into a home-screen web app's container), and on a boot
+// with no persisted session redeem them — preferring the clone-session Edge
+// Function (independent session, no token rotation; falls back to the legacy
+// refreshSession exchange until that function is deployed). Wired here, at the
+// app's boot adapter layer, per the migration discipline: core stays portable,
+// each app injects its own client.
+attachSessionMirror(supabase);
 
 // Render the app FIRST — nothing analytics-related is on the open critical
 // path. The PostHogProvider just hands the lazy proxy client down via
