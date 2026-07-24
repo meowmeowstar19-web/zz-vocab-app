@@ -3,7 +3,9 @@
 // Forwards the new row to meowmeowstar19@gmail.com via Resend.
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const FROM = 'PlushieWord Feedback <feedback@plushieword.com>';
+// Sender domain moved to mukufuku.com (Resend free slot switched 2026-07-24);
+// this only appears in the header of a self-forwarded feedback email.
+const FROM = 'PlushieWord Feedback <feedback@mukufuku.com>';
 const TO = 'meowmeowstar19@gmail.com';
 
 interface FeedbackRow {
