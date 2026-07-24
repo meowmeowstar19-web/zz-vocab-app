@@ -3,7 +3,7 @@ import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { WelcomePage, LoginPromptModal, EmailLoginPage } from './login-auth-ui/index.js';
+import { WelcomePage, LoginPromptModal, EmailLoginPage, CloseX } from './login-auth-ui/index.js';
 import { useAuth } from './authSetup.js';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
@@ -854,8 +854,9 @@ export default function App() {
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
-                width: 300,
-                height: showCheckinInstallHint ? 370 : 300,
+                position: 'relative',
+                width: 'min(353px, calc(100vw - 24px))',
+                minHeight: showCheckinInstallHint ? 370 : 353,
                 backgroundColor: '#fff',
                 border: '1.5px solid #000',
                 borderRadius: 20,
@@ -863,6 +864,7 @@ export default function App() {
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
               }}
             >
+              <CloseX onClick={handleCheckin} />
               <p style={{ textAlign: 'center', fontSize: 24, fontWeight: 700, color: '#000', margin: 0 }}>
                 {t.checkinTitle || '每日打卡'}
               </p>

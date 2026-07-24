@@ -37,6 +37,32 @@ export function CloseX({ onClick, style }) {
   )
 }
 
+// The house back button — one closet style/icon site-wide (was inline in
+// EmailLoginPage). A round 30px pill over a photo bg: 1.5px stroke to match
+// every other outlined control, blur backdrop, single chevron. Caller supplies
+// positioning via `style` (absolute on full pages, in-flow inside a top bar).
+export function BackButton({ onClick, style, className, size = 30 }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Back"
+      className={className}
+      style={{
+        width: size, height: size, borderRadius: 999, padding: 0,
+        background: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(6px)',
+        border: '1.5px solid #3A2E2E', boxShadow: '0 2px 8px rgba(120,90,110,0.16)',
+        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        ...style,
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3A2E2E" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14.5 5 8 12l6.5 7" />
+      </svg>
+    </button>
+  )
+}
+
 export function SocialButton({ icon, label, onClick }) {
   const [hover, setHover] = useState(false)
   const [active, setActive] = useState(false)

@@ -3,4 +3,4 @@
 export { WelcomePage } from './WelcomePage.jsx'
 export { LoginPromptModal } from './LoginPromptModal.jsx'
 export { EmailLoginPage } from './EmailLoginPage.jsx'
-export { friendlyAuthError } from './shared.jsx'
+export { friendlyAuthError, CloseX, BackButton } from './shared.jsx'

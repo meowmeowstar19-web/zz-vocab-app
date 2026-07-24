@@ -22,6 +22,7 @@ import {
 } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
+import { CloseX } from '../login-auth-ui/shared.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -293,7 +294,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
               posthog?.capture('review_session_started', { word_count: totalLearning, native_lang: nativeLang, target_lang: targetLang });
               onStartReview();
             }}
-            className="mt-3 flex items-center justify-center bg-[#FFDF4E] text-black rounded-full border-2 border-black active:scale-95"
+            className="mt-3 flex items-center justify-center bg-[#FFDF4E] text-black rounded-full border-[1.5px] border-black active:scale-95"
             style={{ width: 113, height: 39 }}
           >
             <span className="text-[18px]">{t.review}</span>
@@ -688,9 +689,12 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl p-4 shadow-xl"
+        className="bg-white p-4 shadow-xl"
         style={{
-          width: '85%',
+          position: 'relative',
+          width: 'min(353px, calc(100vw - 24px))',
+          minHeight: 353,
+          borderRadius: 20,
           border: '1.5px solid #000',
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
@@ -698,6 +702,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         }}
         onClick={e => e.stopPropagation()}
       >
+        <CloseX onClick={onClose} />
         {imgSrc && (
           <img
             src={imgSrc}

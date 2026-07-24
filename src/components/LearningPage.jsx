@@ -18,6 +18,7 @@ import {
 } from '../utils/srs';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
+import { BackButton } from '../login-auth-ui/shared.jsx';
 
 function shuffle(arr) {
   const a = [...arr];
@@ -1391,15 +1392,13 @@ export default function LearningPage({
         <div className="relative flex flex-col h-full" style={{ zIndex: 2 }}>
           <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
-              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
-              </button>
+              <BackButton onClick={onExitReview} className="active:scale-90" />
             ) : (
               <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             )}
           </div>
           <div className="flex-1 flex items-center justify-center px-6">
-            <div className="bg-white rounded-2xl px-7 py-7 shadow-xl flex flex-col items-center text-center"
+            <div className="bg-white rounded-[20px] px-7 py-7 shadow-xl flex flex-col items-center text-center"
               style={{ border: '1.5px solid #000', maxWidth: 320 }}>
               <div className="text-4xl mb-3">{reviewRedirect === 'empty' ? '📚' : '🎉'}</div>
               <div className="text-base font-extrabold text-textMain mb-1">
@@ -1449,9 +1448,7 @@ export default function LearningPage({
           {/* ── TOP BAR (same as learning page) ── */}
           <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             {isReview ? (
-              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
-              </button>
+              <BackButton onClick={onExitReview} className="active:scale-90" />
             ) : (
               <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             )}
@@ -1460,7 +1457,7 @@ export default function LearningPage({
 
           {/* ── POPUP in the card area ── */}
           <div className="flex-1 flex items-center justify-center px-6">
-            <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
+            <div className="bg-white rounded-[20px] px-8 py-8 shadow-xl flex flex-col items-center text-center"
               style={{ border: '1.5px solid #000', maxWidth: 320 }}>
               <div className="text-5xl mb-3">🎊</div>
               <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
@@ -1506,9 +1503,7 @@ export default function LearningPage({
         {isReview && (
           <div className="relative shrink-0 flex items-center px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
             <div className="flex items-center" style={{ gap: 11 }}>
-              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
-              </button>
+              <BackButton onClick={onExitReview} className="active:scale-90" />
               <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             </div>
           </div>
@@ -1614,9 +1609,7 @@ export default function LearningPage({
         <div className="shrink-0 relative flex items-center justify-between px-5" style={{ height: 45, paddingTop: 16, zIndex: 10 }}>
           {isReview ? (
             <div className="flex items-center" style={{ gap: 11 }}>
-              <button onClick={onExitReview} className="w-[27px] h-[27px] flex items-center justify-center active:scale-90">
-                <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
-              </button>
+              <BackButton onClick={onExitReview} className="active:scale-90" />
               <CategoryButton size={48} onClick={handleOpenCategories} label={categoryBtnLabel} />
             </div>
           ) : (
@@ -2110,13 +2103,11 @@ export default function LearningPage({
                 padding: '15px 16px 15px', position: 'relative', zIndex: 3,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
               }}>
-                <button
+                <BackButton
                   onClick={() => setShowCategories(false)}
-                  className="flex items-center justify-center active:scale-90"
-                  style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)', width: 27, height: 27 }}
-                >
-                  <img src={getFigmaAssetUrl('back-button.png')} alt="返回" className="w-full h-full object-contain" />
-                </button>
+                  className="active:scale-90"
+                  style={{ position: 'absolute', left: 19, top: '50%', transform: 'translateY(-50%)' }}
+                />
                 {tabs.map(tab => {
                   const isActive = categoryTab === tab.key;
                   return (

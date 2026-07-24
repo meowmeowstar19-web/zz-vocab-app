@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { STRINGS as LOGIN_STRINGS } from '../login-auth-ui/theme.js';
+import { CloseX } from '../login-auth-ui/shared.jsx';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
@@ -779,13 +780,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           <div
             className="relative"
             style={{
-              width: 'min(353px, calc(100vw - 24px))', height: 210,
+              width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
               backgroundColor: '#fff',
               border: '1.5px solid #000',
               borderRadius: 20,
             }}
             onClick={e => e.stopPropagation()}
           >
+            <CloseX onClick={() => setShowLogoutConfirm(false)} />
             <p style={{
               position: 'absolute',
               left: 28, right: 28,
@@ -847,13 +849,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           <div
             className="relative"
             style={{
-              width: 'min(353px, calc(100vw - 24px))', height: 310,
+              width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
               backgroundColor: '#fff',
               border: '1.5px solid #000',
               borderRadius: 20,
             }}
             onClick={e => e.stopPropagation()}
           >
+            <CloseX onClick={pendingSwitch ? cancelSwitch : closePicker} />
             {pendingSwitch ? (
               <>
                 {/* Inline confirmation prompt */}
@@ -1022,7 +1025,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         >
           <div
             style={{
-              width: 'min(373px, calc(100vw - 24px))',
+              position: 'relative',
+              width: 'min(353px, calc(100vw - 24px))',
+              minHeight: 353,
               backgroundColor: '#fff',
               border: '1.5px solid #000',
               borderRadius: 20,
@@ -1031,6 +1036,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            <CloseX onClick={closeFeedbackModal} />
             <p style={{
               textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 18,
             }}>

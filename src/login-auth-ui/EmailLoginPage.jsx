@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import { useAuth } from '../authSetup.js'
 import { YELLOW, PW_FONT, asset, STRINGS } from './theme.js'
-import { friendlyAuthError } from './shared.jsx'
+import { friendlyAuthError, BackButton } from './shared.jsx'
 
 export function EmailLoginPage({ onBack, onDone, surface = 'welcome', initialStep = 'email' }) {
   const auth = useAuth()
@@ -93,19 +93,7 @@ export function EmailLoginPage({ onBack, onDone, surface = 'welcome', initialSte
       />
 
       {/* back button — closet style/icon kept consistent site-wide, original position */}
-      <button
-        onClick={handleBack}
-        style={{
-          position: 'absolute', top: 40, left: 20, zIndex: 10, width: 30, height: 30,
-          borderRadius: 999, background: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(6px)',
-          border: '1.5px solid #3A2E2E', boxShadow: '0 2px 8px rgba(120,90,110,0.16)', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3A2E2E" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14.5 5 8 12l6.5 7" />
-        </svg>
-      </button>
+      <BackButton onClick={handleBack} style={{ position: 'absolute', top: 40, left: 20, zIndex: 10 }} />
 
       <form
         onSubmit={(e) => { e.preventDefault(); step === 'verify' ? handleVerify() : handleSend() }}
