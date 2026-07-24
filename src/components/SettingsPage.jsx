@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
+import { STRINGS as LOGIN_STRINGS } from '../login-auth-ui/theme.js';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
@@ -317,14 +318,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
     let mounted = true;
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       if (!mounted) return;
-      // Suppress SIGNED_IN-type events while an OAuth bind is still being
-      // resolved — applying the OAuth user here would re-introduce the flash.
-      // SIGNED_OUT (s === null) is fine to apply; it's what restores guest UI
-      // after the rejection signOut.
       if (s?.user) {
-        try {
-          if (localStorage.getItem('bind_oauth_pending') === '1') return;
-        } catch {}
         applyUser(s.user);
       } else {
         applyUser(null);
@@ -714,59 +708,33 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         </div>
       </div>
 
-      {/* Bottom: Sign-up + Log-in link, OR Logout button. Distance from the
+      {/* Bottom: single login pill, OR Logout button. Distance from the
           last pill matches the pill-to-pill gap so the spacing rhythm is
           consistent down the page. */}
       <div className="shrink-0" style={{ paddingTop: pillGap, paddingBottom: 20 }}>
-        {/* Guest mode: small centered "Sign up" yellow button + "Already have
-            an account? Log in" link below. Both open the LoginPromptModal —
-            Sign up pre-selects the Email signup form, Log in pre-selects the
-            Email login form. Anon users (Step 1) are treated as guests here —
-            they need to sign up / bind. */}
+        {/* Guest mode: ONE yellow "Log in or sign up" pill (merged door — the
+            product has no Sign up ↔ Log in split anywhere; an existing
+            account signs in, a new address creates one). Opens the single
+            LoginPromptModal at App level. */}
         {!isRealUser && (
-          <>
-            <div className="flex justify-center">
-              <button
-                data-testid="settings-signup"
-                onClick={() => onOpenLoginPrompt?.({ flowType: 'bind', emailMode: 'signup' })}
-                className="active:scale-95 transition-transform"
-                style={{
-                  minWidth: 138, height: 48,
-                  padding: '0 22px',
-                  backgroundColor: '#FFDF4E',
-                  border: '2px solid #000',
-                  borderRadius: 100,
-                  fontSize: 20, color: '#000',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {t.signupBtn || 'Sign up'}
-              </button>
-            </div>
-
-            <p
-              className="text-center"
+          <div className="flex justify-center">
+            <button
+              data-testid="settings-login"
+              onClick={() => onOpenLoginPrompt?.()}
+              className="active:scale-95 transition-transform"
               style={{
-                marginTop: 14,
-                fontSize: 15, color: '#000', lineHeight: 1.4,
+                minWidth: 138, height: 48,
+                padding: '0 22px',
+                backgroundColor: '#FFDF4E',
+                border: '2px solid #000',
+                borderRadius: 100,
+                fontSize: 20, color: '#000',
+                whiteSpace: 'nowrap',
               }}
             >
-              {t.hasAccountAlready || 'Already have an account? '}
-              <button
-                type="button"
-                data-testid="settings-login"
-                onClick={() => onOpenLoginPrompt?.({ flowType: 'login', emailMode: 'login' })}
-                className="underline active:opacity-70"
-                style={{
-                  background: 'transparent', border: 0, padding: 0, margin: 0,
-                  color: '#000', fontSize: 15, cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {t.loginBtn || 'Log in'}
-              </button>
-            </p>
-          </>
+              {LOGIN_STRINGS.loginTitle}
+            </button>
+          </div>
         )}
 
         {/* Yellow logout pill — real (non-anon) users only. Anon guests

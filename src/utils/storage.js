@@ -24,33 +24,6 @@ export function migrateProgressToTargetOnly() {
   localStorage.setItem('vocab_progress_v2_migrated', 'true');
 }
 
-// One-time clear of the guest 5-word-gate counter for any day that pre-dates
-// the fix where logged-in usage was silently bumping it. Previously,
-// `handleWordViewed` called `addGateWord` for signed-in users too — so any
-// device that had a logged-in session on the same calendar day before the
-// fix landed could already have 4+ entries, and the first guest answer
-// would immediately trip the gate (count >= 4 → blocked from word #1).
-// Wiping the per-day gate buckets once gives every device a clean slate.
-export function migrateClearStaleGateWords() {
-  // v3 bump: an earlier boot-race let logged-in users (with React state
-  // briefly showing `session=null` before supabase resolved) bump the
-  // guest's gate_words counter. handleWordViewed now waits for `authReady`,
-  // but devices that ran the buggy code today still carry stale entries
-  // that pre-date the fix. One more wipe gives every device a clean slate.
-  if (localStorage.getItem('vocab_gate_words_v3_cleared')) return;
-  try {
-    const toRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('gate_words_') || k.startsWith('gate_dismissed_'))) {
-        toRemove.push(k);
-      }
-    }
-    for (const k of toRemove) localStorage.removeItem(k);
-  } catch {}
-  localStorage.setItem('vocab_gate_words_v3_cleared', 'true');
-}
-
 // Migrate from device-global keys (`vocab_kids_progress_${target}`) into the
 // guest's user-scoped slot (`vocab_kids_progress_guest_${target}`). Before
 // this migration, every account on a device shared the same localStorage —
@@ -79,56 +52,9 @@ export function migrateProgressToUserScope() {
   localStorage.setItem('vocab_progress_v3_migrated', 'true');
 }
 
-// Move the per-target progress/review slots from one scope to another. Skips
-// destination keys that already exist (caller's data wins) and removes the
-// source keys after copy. Used by migrateScopesToAnon below.
-function moveScopeSlots(fromScope, toScope) {
-  if (!fromScope || !toScope || fromScope === toScope) return;
-  const langs = ['en', 'ja', 'zh'];
-  for (const t of langs) {
-    const progKeyFrom = `vocab_kids_progress_${fromScope}_${t}`;
-    const progKeyTo = `vocab_kids_progress_${toScope}_${t}`;
-    const prog = localStorage.getItem(progKeyFrom);
-    if (prog && !localStorage.getItem(progKeyTo)) {
-      localStorage.setItem(progKeyTo, prog);
-    }
-    if (prog !== null) localStorage.removeItem(progKeyFrom);
-
-    const revKeyFrom = `vocab_review_states_${fromScope}_${t}`;
-    const revKeyTo = `vocab_review_states_${toScope}_${t}`;
-    const rev = localStorage.getItem(revKeyFrom);
-    if (rev && !localStorage.getItem(revKeyTo)) {
-      localStorage.setItem(revKeyTo, rev);
-    }
-    if (rev !== null) localStorage.removeItem(revKeyFrom);
-  }
-}
-
-// Step 1 of the guest-mode anonymous-session refactor: move data from the
-// legacy device-global 'guest' scope into the supabase anonymous user's
-// scope (`u_<anon_uid>`). Idempotent — per-uid flag prevents repeat work.
-//
-// Also absorbs the carry-over pointer `app_anon_data_to_migrate`: when an
-// OAuth bind is rejected (account already in use), supabase.auth.signOut()
-// destroys the anonymous session and App creates a fresh anon with a NEW
-// uid. The previous anon's local data would be orphaned without this step;
-// progressSync stashes the prior scope into `app_anon_data_to_migrate` so
-// the next anon's first migration pass pulls it back in.
-export function migrateScopesToAnon(anonUid) {
-  if (!anonUid) return;
-  const flag = `anon_migrated_${anonUid}`;
-  if (!localStorage.getItem(flag)) {
-    moveScopeSlots('guest', `u_${anonUid}`);
-    localStorage.setItem(flag, '1');
-  }
-  try {
-    const carryFrom = localStorage.getItem('app_anon_data_to_migrate');
-    if (carryFrom && carryFrom !== `u_${anonUid}`) {
-      moveScopeSlots(carryFrom, `u_${anonUid}`);
-      localStorage.removeItem('app_anon_data_to_migrate');
-    }
-  } catch {}
-}
+// (moveScopeSlots / migrateScopesToAnon are gone with the anonymous-session
+// era: the login-auth-core guest is the device's ONE persistent local 'guest'
+// slot, so there is no per-anon-uid scope left to shuffle data between.)
 
 // One-time migration from old single-language keys to new pair keys
 export function migrateOldProgress() {
@@ -264,54 +190,9 @@ export function markCheckinShown(uid) {
   } catch {}
 }
 
-// ── Guest 5-word/day login gate ──
-// Tracks distinct word IDs the user has touched today (learn + review combined).
-// Guests outside WeChat are gated when about to view their 5th distinct word.
-// Keyed by local calendar day so the limit resets at midnight.
-const GATE_DAY_KEY = (day) => `gate_words_${day}`;
-const GATE_DISMISS_KEY = (day) => `gate_dismissed_${day}`;
-
-export function getGateWordIds() {
-  try {
-    const raw = localStorage.getItem(GATE_DAY_KEY(todayLocalIso()));
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-// Returns the updated array (so callers can read the new size without a re-read).
-export function addGateWord(wordId) {
-  try {
-    const key = GATE_DAY_KEY(todayLocalIso());
-    const raw = localStorage.getItem(key);
-    const arr = raw ? JSON.parse(raw) : [];
-    if (!arr.includes(wordId)) {
-      arr.push(wordId);
-      localStorage.setItem(key, JSON.stringify(arr));
-    }
-    return arr;
-  } catch {
-    return [wordId];
-  }
-}
-
-// Tracks whether the user has dismissed the gate modal today. Once set, the
-// gate will not re-fire on subsequent new-word views until the next local
-// calendar day rolls over.
-export function isGateDismissedToday() {
-  try {
-    return localStorage.getItem(GATE_DISMISS_KEY(todayLocalIso())) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function markGateDismissedToday() {
-  try {
-    localStorage.setItem(GATE_DISMISS_KEY(todayLocalIso()), '1');
-  } catch {}
-}
+// (The old per-day gate_words counters are gone: the 5-word gate reads the
+// guest slot's learned-word count directly — see App.jsx countLearnedWords —
+// and authSetup's one-time fold purged the leftover gate_words_* keys.)
 
 // Update SRS fields on a word's progress entry
 export function updateWordSRS(wordId, srsUpdate, langKey = 'zh_en') {

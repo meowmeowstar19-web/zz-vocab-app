@@ -159,7 +159,7 @@ export function mergeSnapshots(local, cloud, opts = {}) {
 }
 
 // ── Network ────────────────────────────────────────────────────────────────
-async function pullFromCloud(uid) {
+export async function pullFromCloud(uid) {
   const { data, error } = await supabase
     .from('user_progress')
     .select('data')
@@ -172,7 +172,7 @@ async function pullFromCloud(uid) {
   return data?.data || null;
 }
 
-async function pushToCloud(uid, snap) {
+export async function pushToCloud(uid, snap) {
   const { error } = await supabase
     .from('user_progress')
     .upsert({ user_id: uid, data: snap }, { onConflict: 'user_id' });
@@ -181,8 +181,9 @@ async function pushToCloud(uid, snap) {
 }
 
 // True if the cloud snapshot has any progress entries for any target lang.
-// Used to detect "this account is already in use" during a bind attempt.
-function cloudHasProgress(cloud) {
+// authSetup's onUpgrade uses this as the server-side emptiness verdict: guest
+// data may seed ONLY an account whose cloud row is empty (蓝图 §3.1).
+export function cloudHasProgress(cloud) {
   if (!cloud) return false;
   const p = cloud.progress || {};
   for (const t of TARGETS) {
@@ -192,85 +193,31 @@ function cloudHasProgress(cloud) {
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
-// Run once when the user becomes authenticated. Pulls the cloud row, merges
-// with whatever's in localStorage, writes the merged result back to both.
-// Idempotent — safe to call on every auth event; cheap when there's no diff.
+// Run once when the user enters an account (login-auth-core status flips to
+// 'account'). Pulls the cloud row, merges with the account's own local slot,
+// writes the merged result back to both. Cloud language preferences win here
+// (fresh-device login restores the account's saved langs — mergeSnapshots'
+// plain-login branch). Idempotent and cheap when there's no diff.
 //
-// When `bind_flow_active` is set in localStorage (LoginPromptModal sets it
-// before initiating OAuth / email login), we refuse to merge if the target
-// account already has cloud progress — otherwise the guest's local data would
-// overwrite the existing account. Caller can detect this via the `rejected`
-// field on the returned object.
-//
-// The flag is NOT cleared on rejection. Supabase fires multiple auth events
-// per OAuth callback (SIGNED_IN, INITIAL_SESSION, getSession.then) and the
-// emit-initial-session path can be delayed by an internal lock — long enough
-// for the first syncOnLogin's `inFlight` promise to resolve and the next call
-// to start fresh. If we cleared early, that later call would see
-// isBindFlow=false and merge the existing account's cloud data into the
-// guest's localStorage. Leaving the flag set means every call in the same
-// auth window rejects consistently. Caller clears the flag after handling
-// the rejection.
+// The old bind-rejection apparatus (bind_flow_active / app_anon_scope /
+// rejected results) is GONE with the login-auth-core rewrite: signing in
+// enters the account untouched, and guest data moves only through authSetup's
+// onUpgrade — which seeds exclusively into a server-empty account, so there
+// is nothing left to reject.
 let inFlight = null;
 export async function syncOnLogin(uid) {
-  if (!uid) return { rejected: false };
+  if (!uid) return;
   if (inFlight) return inFlight;
   inFlight = (async () => {
-    const isBindFlow = (() => {
-      try { return localStorage.getItem('bind_flow_active') === '1'; }
-      catch { return false; }
-    })();
-    // Bind flow reads from the GUEST slot (legacy device-global scope) OR
-    // from the supabase anonymous user's scope — whichever was active when
-    // the bind was initiated. App.jsx writes `app_anon_scope` while an anon
-    // session is alive; signInWithOAuth replaces that session, so we have
-    // to snapshot the scope in localStorage before the round-trip. Plain
-    // login reads + writes the UID slot only.
-    const anonScope = (() => {
-      try { return localStorage.getItem('app_anon_scope') || ''; }
-      catch { return ''; }
-    })();
-    const fromScope = isBindFlow ? (anonScope || 'guest') : `u_${uid}`;
-    const toScope = `u_${uid}`;
     try {
+      const scope = `u_${uid}`;
       const [local, cloud] = await Promise.all([
-        Promise.resolve(readLocalSnapshot(uid, fromScope)),
+        Promise.resolve(readLocalSnapshot(uid, scope)),
         pullFromCloud(uid),
       ]);
-      if (isBindFlow && cloudHasProgress(cloud)) {
-        // Don't write anything — caller is responsible for signing out so the
-        // guest's local data survives for a retry against a different account.
-        // Flag stays set so any delayed parallel syncOnLogin call also rejects.
-        //
-        // Stash the source scope so the next anon session (App will create a
-        // fresh one after the rejection-induced signOut) can absorb the data
-        // back into its own slot. Without this, the prior anon's progress is
-        // orphaned because every anon sign-in generates a new uid.
-        if (fromScope.startsWith('u_')) {
-          try { localStorage.setItem('app_anon_data_to_migrate', fromScope); } catch {}
-        }
-        return { rejected: true, reason: 'account_in_use' };
-      }
-      const merged = mergeSnapshots(local, cloud || { progress: {}, review_states: {}, login_days: [] }, { isBindFlow });
-      writeLocalSnapshot(uid, merged, toScope);
-      // On a successful bind, the source slot (legacy 'guest' or the anon
-      // user's u_<uid>) has already been promoted into the new account —
-      // clear it so the same device starting fresh as a guest later doesn't
-      // inherit the account's data. Also drop the anon-scope pointer since
-      // the previous anonymous session is being replaced.
-      if (isBindFlow && fromScope !== toScope) {
-        clearScope(fromScope);
-        try { localStorage.removeItem('app_anon_scope'); } catch {}
-        try { localStorage.removeItem('app_anon_data_to_migrate'); } catch {}
-      }
+      const merged = mergeSnapshots(local, cloud || { progress: {}, review_states: {}, login_days: [] });
+      writeLocalSnapshot(uid, merged, scope);
       await pushToCloud(uid, merged);
-      // Successful merge — clear the bind flag so future TOKEN_REFRESHED or
-      // re-mount events for this same user aren't misinterpreted as a fresh
-      // bind attempt.
-      if (isBindFlow) {
-        try { localStorage.removeItem('bind_flow_active'); } catch {}
-      }
-      return { rejected: false };
     } finally {
       inFlight = null;
     }
@@ -278,10 +225,10 @@ export async function syncOnLogin(uid) {
   return inFlight;
 }
 
-// Wipe all per-target progress/review slots for a given scope. Used after a
-// successful guest → account bind to prevent the guest slot from being
-// re-read on a future logout-and-return-as-guest.
-function clearScope(scope) {
+// Wipe all per-target progress/review slots for a given scope. Used by
+// authSetup's onUpgrade after the guest sandbox has been consumed into a
+// freshly-created (server-empty) account.
+export function clearScope(scope) {
   for (const t of TARGETS) {
     try { localStorage.removeItem(`vocab_kids_progress_${scope}_${t}`); } catch {}
     try { localStorage.removeItem(`vocab_review_states_${scope}_${t}`); } catch {}

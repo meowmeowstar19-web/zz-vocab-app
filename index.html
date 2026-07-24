@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="google" content="notranslate" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- interactive-widget=resizes-content: when the soft keyboard opens,
+         shrink the LAYOUT viewport (so the fixed-height app shell fits above
+         the keyboard) instead of letting the browser scroll the page to
+         reveal the input — that scroll is what leaves the shell displaced
+         with a white strip after repeated failed logins. Honoured by
+         Chrome/Android; iOS Safari ignores it (handled by the keyboard-close
+         scroll reset script below). Ported from miracleZZ (4b47940). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PlushieWord" />
@@ -69,6 +76,35 @@
           });
         }
       }
+    </script>
+    <script>
+      // iOS Safari leaves the page scrolled after the on-screen keyboard
+      // closes. The app is a fixed-size shell, so that residual scroll
+      // displaces it and exposes a white strip that grows on every re-open
+      // (e.g. retrying a failed login). Force the page back to top once focus
+      // leaves the inputs or the visual viewport settles. (miracleZZ 4b47940)
+      (function () {
+        function resetScroll() {
+          requestAnimationFrame(function () {
+            window.scrollTo(0, 0);
+            if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+          });
+        }
+        window.addEventListener('focusout', function () {
+          setTimeout(function () {
+            var a = document.activeElement;
+            var typing =
+              a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
+            if (!typing) resetScroll();
+          }, 100);
+        });
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', function () {
+            if (window.visualViewport.height >= window.innerHeight - 80) resetScroll();
+          });
+        }
+        window.addEventListener('orientationchange', resetScroll);
+      })();
     </script>
     <!-- Self-hosted Nunito (see @font-face in index.css). No external
          fonts.googleapis.com request — it render-blocks and stalls in China.
