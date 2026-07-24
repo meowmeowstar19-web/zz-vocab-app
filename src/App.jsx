@@ -857,7 +857,7 @@ export default function App() {
                 width: 300,
                 height: showCheckinInstallHint ? 370 : 300,
                 backgroundColor: '#fff',
-                border: '2px solid #000',
+                border: '1.5px solid #000',
                 borderRadius: 20,
                 padding: '34px 24px 28px',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
@@ -875,7 +875,7 @@ export default function App() {
                 style={{
                   width: 140, height: 44,
                   backgroundColor: '#FFDF4E',
-                  border: '2px solid #000',
+                  border: '1.5px solid #000',
                   borderRadius: 100,
                   fontSize: 18, color: '#000',
                 }}

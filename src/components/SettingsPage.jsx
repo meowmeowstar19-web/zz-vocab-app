@@ -59,6 +59,9 @@ function ChevronDown() {
 export default function SettingsPage({ nativeLang, targetLang, onLanguageChange, onLogout, onInstallClick, pwaInstalled, bindOAuthPending = false, onOpenLoginPrompt }) {
   const posthog = usePostHog();
   const [pickerType, setPickerType] = useState(null); // 'native' | 'target' | null
+  // In-app logout confirmation pop (replaces window.confirm — pops follow the
+  // house style: white card, 1.5px border, radius 20, white Cancel + yellow OK).
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [pendingCode, setPendingCode] = useState(null);
   // { type: 'native'|'target', code: 'en'|'ja'|'zh', remainingAfter: number } — confirmation popup state
   const [pendingSwitch, setPendingSwitch] = useState(null);
@@ -507,7 +510,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   width: avatarSize, height: avatarSize,
                   flexShrink: 0,
                   padding: 0,
-                  border: '2px solid #000',
+                  border: '1.5px solid #000',
                   background: '#fff',
                   borderRadius: '50%',
                   cursor: 'pointer',
@@ -568,7 +571,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           style={{
             width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
-            border: '2px solid #000',
+            border: '1.5px solid #000',
             borderRadius: 100,
           }}
         >
@@ -589,7 +592,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           style={{
             width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
-            border: '2px solid #000',
+            border: '1.5px solid #000',
             borderRadius: 100,
           }}
         >
@@ -613,7 +616,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           style={{
             width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
-            border: '2px solid #000',
+            border: '1.5px solid #000',
             borderRadius: 100,
             cursor: pwaInstalled ? 'default' : 'pointer',
           }}
@@ -640,7 +643,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           style={{
             width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
-            border: '2px solid #000',
+            border: '1.5px solid #000',
             borderRadius: 100,
           }}
         >
@@ -663,7 +666,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           style={{
             width: '100%', maxWidth: 357, height: 50, flexShrink: 0,
             backgroundColor: 'rgba(255,255,255,0.4)',
-            border: '2px solid #000',
+            border: '1.5px solid #000',
             borderRadius: 100,
           }}
         >
@@ -726,7 +729,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 minWidth: 138, height: 48,
                 padding: '0 22px',
                 backgroundColor: '#FFDF4E',
-                border: '2px solid #000',
+                border: '1.5px solid #000',
                 borderRadius: 100,
                 fontSize: 20, color: '#000',
                 whiteSpace: 'nowrap',
@@ -743,16 +746,12 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
         {isRealUser && onLogout && (
           <div className="flex justify-center">
             <button
-              onClick={() => {
-                if (window.confirm(t.logoutConfirm || '确定要退出登录吗？')) {
-                  onLogout();
-                }
-              }}
+              onClick={() => setShowLogoutConfirm(true)}
               className="active:scale-95 transition-transform"
               style={{
                 width: 128, height: 48,
                 backgroundColor: '#FFDF4E',
-                border: '2px solid #000',
+                border: '1.5px solid #000',
                 borderRadius: 100,
                 fontSize: nativeLang === 'ja' ? 16 : 18,
                 color: '#000',
@@ -767,6 +766,73 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
 
       </div>{/* /content scale wrapper */}
       </div>{/* /scroll layer */}
+
+      {/* Logout confirmation pop — house style (mirrors the language-switch
+          confirmation card): white card, 1.5px border, radius 20, white
+          Cancel + yellow confirm. Replaces the old window.confirm. */}
+      {showLogoutConfirm && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div
+            className="relative"
+            style={{
+              width: 'min(353px, calc(100vw - 24px))', height: 210,
+              backgroundColor: '#fff',
+              border: '1.5px solid #000',
+              borderRadius: 20,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <p style={{
+              position: 'absolute',
+              left: 28, right: 28,
+              top: '50%', transform: 'translateY(-50%)',
+              marginTop: -28,
+              textAlign: 'center',
+              fontSize: 18, color: '#000',
+              lineHeight: 1.6,
+            }}>
+              {t.logoutConfirm || '确定要退出登录吗？'}
+            </p>
+            <div style={{
+              position: 'absolute',
+              left: 0, right: 0, bottom: 28,
+              display: 'flex', justifyContent: 'center', gap: 16,
+            }}>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="active:scale-95"
+                style={{
+                  width: 110, height: 39,
+                  backgroundColor: '#fff',
+                  border: '1.5px solid #000',
+                  borderRadius: 100,
+                  fontSize: 16, color: '#000',
+                }}
+              >
+                {t.cancel || '取消'}
+              </button>
+              <button
+                onClick={() => { setShowLogoutConfirm(false); onLogout(); }}
+                className="active:scale-95"
+                style={{
+                  width: 130, height: 39,
+                  backgroundColor: '#FFDF4E',
+                  border: '1.5px solid #000',
+                  borderRadius: 100,
+                  fontSize: nativeLang === 'ja' ? 15 : 18,
+                  color: '#000',
+                }}
+              >
+                {t.logout || '退出登录'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Language picker modal — content swaps to a confirmation prompt
           when the user is on a capped path and has selected a different language. */}
@@ -783,7 +849,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             style={{
               width: 'min(353px, calc(100vw - 24px))', height: 310,
               backgroundColor: '#fff',
-              border: '2px solid #000',
+              border: '1.5px solid #000',
               borderRadius: 20,
             }}
             onClick={e => e.stopPropagation()}
@@ -814,7 +880,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                     style={{
                       width: 110, height: 39,
                       backgroundColor: '#fff',
-                      border: '2px solid #000',
+                      border: '1.5px solid #000',
                       borderRadius: 100,
                       fontSize: 16, color: '#000',
                     }}
@@ -827,7 +893,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                     style={{
                       width: 130, height: 39,
                       backgroundColor: '#FFDF4E',
-                      border: '2px solid #000',
+                      border: '1.5px solid #000',
                       borderRadius: 100,
                       fontSize: 18, color: '#000',
                     }}
@@ -890,7 +956,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                               width: 22, height: 22,
                               borderRadius: '50%',
                               backgroundColor: '#FFDF4E',
-                              border: '2px solid #000',
+                              border: '1.5px solid #000',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -922,7 +988,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                     bottom: 34,
                     width: 130, height: 39,
                     backgroundColor: '#FFDF4E',
-                    border: '2px solid #000',
+                    border: '1.5px solid #000',
                     borderRadius: 100,
                     fontSize: 18, color: '#000',
                   }}
@@ -958,7 +1024,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
             style={{
               width: 'min(373px, calc(100vw - 24px))',
               backgroundColor: '#fff',
-              border: '2px solid #000',
+              border: '1.5px solid #000',
               borderRadius: 20,
               padding: '30px 24px 28px',
               display: 'flex', flexDirection: 'column',
@@ -980,7 +1046,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               style={{
                 width: '100%',
                 minHeight: 120,
-                border: '2px solid #000',
+                border: '1.5px solid #000',
                 borderRadius: 16,
                 padding: '12px 14px',
                 fontSize: 15, color: '#000',
@@ -1014,7 +1080,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   {/* Inner div clips the rounded image; X sits on the outer */}
                   <div style={{
                     width: '100%', height: '100%',
-                    border: '2px solid #000',
+                    border: '1.5px solid #000',
                     borderRadius: 12,
                     overflow: 'hidden',
                     backgroundColor: '#fff',
@@ -1034,7 +1100,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                       position: 'absolute', top: -8, right: -8,
                       width: 22, height: 22,
                       borderRadius: '50%',
-                      border: '2px solid #000',
+                      border: '1.5px solid #000',
                       backgroundColor: '#fff',
                       color: '#000',
                       fontSize: 14, lineHeight: 1,
@@ -1056,7 +1122,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   className="active:scale-95"
                   style={{
                     aspectRatio: '1 / 1',
-                    border: '2px dashed #000',
+                    border: '1.5px dashed #000',
                     borderRadius: 12,
                     backgroundColor: '#fff',
                     color: '#000',
@@ -1097,7 +1163,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 style={{
                   width: 110, height: 39,
                   backgroundColor: '#fff',
-                  border: '2px solid #000',
+                  border: '1.5px solid #000',
                   borderRadius: 100,
                   fontSize: 16, color: '#000',
                 }}
@@ -1111,7 +1177,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 style={{
                   width: 130, height: 39,
                   backgroundColor: '#FFDF4E',
-                  border: '2px solid #000',
+                  border: '1.5px solid #000',
                   borderRadius: 100,
                   fontSize: 18, color: '#000',
                 }}

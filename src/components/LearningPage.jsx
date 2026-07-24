@@ -1400,7 +1400,7 @@ export default function LearningPage({
           </div>
           <div className="flex-1 flex items-center justify-center px-6">
             <div className="bg-white rounded-2xl px-7 py-7 shadow-xl flex flex-col items-center text-center"
-              style={{ border: '2px solid #000', maxWidth: 320 }}>
+              style={{ border: '1.5px solid #000', maxWidth: 320 }}>
               <div className="text-4xl mb-3">{reviewRedirect === 'empty' ? '📚' : '🎉'}</div>
               <div className="text-base font-extrabold text-textMain mb-1">
                 {completedCatNameRef.current ? `「${completedCatNameRef.current}」` : ''}{headline}
@@ -1461,7 +1461,7 @@ export default function LearningPage({
           {/* ── POPUP in the card area ── */}
           <div className="flex-1 flex items-center justify-center px-6">
             <div className="bg-white rounded-2xl px-8 py-8 shadow-xl flex flex-col items-center text-center"
-              style={{ border: '2px solid #000', maxWidth: 320 }}>
+              style={{ border: '1.5px solid #000', maxWidth: 320 }}>
               <div className="text-5xl mb-3">🎊</div>
               <div className="text-xl font-extrabold text-textMain mb-1">{t.allDone}</div>
               {completedCatNameRef.current && (
@@ -1473,14 +1473,14 @@ export default function LearningPage({
                 <button
                   onClick={handleReviewAgain}
                   className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
-                  style={{ backgroundColor: '#fbf2e2', color: '#000', border: '2px solid #000' }}
+                  style={{ backgroundColor: '#fbf2e2', color: '#000', border: '1.5px solid #000' }}
                 >
                   {t.reviewAgain}
                 </button>
                 <button
                   onClick={handleLearnNew}
                   className="px-5 py-2.5 rounded-full text-sm font-bold active:scale-95"
-                  style={{ backgroundColor: '#FFDF4E', color: '#000', border: '2px solid #000' }}
+                  style={{ backgroundColor: '#FFDF4E', color: '#000', border: '1.5px solid #000' }}
                 >
                   {t.learnNew}
                 </button>
@@ -2039,7 +2039,7 @@ export default function LearningPage({
             <div style={{
               position: 'relative',
               width: '100%', boxSizing: 'border-box', backgroundColor: '#fbf2e2',
-              border: `2px solid ${isSelected ? '#FFDF4E' : '#000'}`,
+              border: `1.5px solid ${isSelected ? '#FFDF4E' : '#000'}`,
               borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center',
               padding: '4px 6px 8px',
             }}>
@@ -2058,7 +2058,7 @@ export default function LearningPage({
               {/* Progress bar — own row (Figma 472:339/340; 75.27 / 107.8 ≈ 70% of card) */}
               <div style={{
                 width: '75%', marginTop: 10, height: 9, borderRadius: 100,
-                backgroundColor: '#ffffff', border: '1px solid #000',
+                backgroundColor: '#ffffff', border: '1.5px solid #000',
                 position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
               }}>
                 <div style={{
@@ -2081,7 +2081,7 @@ export default function LearningPage({
               <div style={{
                 position: 'absolute', top: -8, right: -8,
                 width: 22, height: 22, borderRadius: '50%',
-                backgroundColor: '#FFDF4E', border: '2px solid #000',
+                backgroundColor: '#FFDF4E', border: '1.5px solid #000',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 zIndex: 5,
               }}>
@@ -2149,7 +2149,7 @@ export default function LearningPage({
                   fixed-bottom confirm button gets clipped by the parent overflow-hidden. */}
               <div className="flex-1 relative" style={{
                 margin: '0 13px 15px',
-                border: '2px solid #000', borderRadius: 10,
+                border: '1.5px solid #000', borderRadius: 10,
                 minHeight: 0,
                 overflow: 'hidden',
               }}>
@@ -2307,7 +2307,7 @@ export default function LearningPage({
                   className="flex items-center justify-center active:scale-95"
                   style={{
                     width: 158, height: 51, borderRadius: 100,
-                    backgroundColor: '#FFDF4E', border: '2px solid #000',
+                    backgroundColor: '#FFDF4E', border: '1.5px solid #000',
                     position: 'relative', zIndex: 1,
                   }}
                 >

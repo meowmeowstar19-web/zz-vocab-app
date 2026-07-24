@@ -691,6 +691,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         className="bg-white rounded-2xl p-4 shadow-xl"
         style={{
           width: '85%',
+          border: '1.5px solid #000',
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
           transition: 'opacity 0.2s ease, transform 0.2s ease',
@@ -740,7 +741,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         <button
           onClick={onClose}
           className="mt-4 mx-auto block active:scale-95"
-          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '2px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
+          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
         >
           {t.close}
         </button>
