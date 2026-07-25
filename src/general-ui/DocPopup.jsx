@@ -1,48 +1,30 @@
-// 服务条款/隐私协议弹窗 (fetch local HTML → render) — 从 login-auth-ui/shared.jsx
-// 原样抽出的共享件（2026-07-25 用户拍板）。
-// ⚠️ 这个弹窗的样式是定稿设计，**不套 popKit 房规**：黑遮罩、圆角 16 无描边卡、
-// 顶栏标题+分割线、右侧透明整条 X 热区。移植/统一房规时不许动它（见
-// general-ui-porting-no-blanket-rules）。自包含零依赖，两仓逐字节拷。
+// 服务条款/隐私协议弹窗 (fetch local HTML → render) — general-ui 共享件。
+// 式样（2026-07-25 用户拍板 v2，取代同日"保留旧样"的 v1）：popKit 框（紫 scrim +
+// 白卡描边圆角 24 + 右上 PopClose + MODAL_TITLE）+ **永远长框**——卡高撑满
+// 手机屏（scrim 的 24px padding 即四周边距），无论从整页 login 还是
+// LoginPromptModal 里点开都一样高，不许出现内容多短框就短的小框。
+// ⚠️ 挂载契约：必须挂在整屏容器层级（它的 inset:0 要覆盖整个手机屏）；
+// 别塞进小卡片 div 里，否则会被卡片困成小框（就是当初的 bug）。
+// scrim 点击自带 stopPropagation——挂在别的 pop 的 scrim 里也不会把宿主 pop 关掉。
+import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, PopClose } from './popKit.jsx'
+
 export function DocPopup({ doc, loading, onClose, width = 340 }) {
   if (!doc) return null
   return (
     <div
-      style={{
-        position: 'absolute', inset: 0, zIndex: 70, display: 'flex',
-        alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)',
-      }}
-      onClick={onClose}
+      style={{ ...MODAL_SCRIM, zIndex: 70 }}
+      onClick={(e) => { e.stopPropagation(); onClose() }}
     >
       <div
         style={{
-          position: 'relative', width, maxHeight: 'calc(100% - 40px)',
-          background: '#fff', borderRadius: 16, boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+          ...MODAL_CARD, width, height: '100%',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{
-          position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '10px 44px', borderBottom: '1px solid rgba(0,0,0,0.1)',
-        }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#3A2E2E', textAlign: 'center' }}>{doc.title}</span>
-          <button
-            type="button"
-            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onClose() }}
-            onClick={(e) => { e.stopPropagation(); onClose() }}
-            aria-label="Close"
-            style={{
-              position: 'absolute', right: 0, top: 0, bottom: 0, width: 44,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'transparent', border: 0, cursor: 'pointer', touchAction: 'manipulation',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 2 L12 12 M12 2 L2 12" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', fontSize: 13, color: '#3A2E2E', lineHeight: 1.6 }}>
+        <PopClose onClick={onClose} />
+        <p style={{ ...MODAL_TITLE, flex: '0 0 auto', padding: '20px 48px 10px' }}>{doc.title}</p>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 16px', fontSize: 13, color: '#3A2E2E', lineHeight: 1.6 }}>
           {loading && !doc.html
             ? <p style={{ color: 'rgba(58,46,46,0.5)' }}>…</p>
             : <div dangerouslySetInnerHTML={{ __html: doc.html }} />}

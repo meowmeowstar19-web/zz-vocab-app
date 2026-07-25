@@ -158,8 +158,11 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
           </div>
         )}
 
-        <DocPopup doc={legal.doc} loading={legal.docLoading} onClose={() => legal.setDoc(null)} width={300} />
       </div>
+
+      {/* DocPopup 挂在整屏 scrim 层级（不是卡片里）——挂载契约见
+          general-ui/DocPopup.jsx：塞进卡片会被困成小框，长框必须以整屏为容器 */}
+      <DocPopup doc={legal.doc} loading={legal.docLoading} onClose={() => legal.setDoc(null)} />
     </div>
   )
 }
