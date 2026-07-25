@@ -3,7 +3,8 @@ import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { WelcomePage, LoginPromptModal, EmailLoginPage, CloseX } from './login-auth-ui/index.js';
+import { WelcomePage, LoginPromptModal, EmailLoginPage } from './login-auth-ui/index.js';
+import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO, PopClose } from './general-ui/popKit.jsx';
 import { useAuth } from './authSetup.js';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
 import { syncOnLogin, pushLocalToCloud } from './utils/progressSync';
@@ -847,40 +848,30 @@ export default function App() {
         {/* Daily check-in popup — shown once per local-calendar day */}
         {checkinDay != null && (
           <div
-            className="absolute inset-0 z-50 flex items-center justify-center"
-            style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+            style={{ ...MODAL_SCRIM, zIndex: 50 }}
             onClick={handleCheckin}
           >
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
-                position: 'relative',
+                ...MODAL_CARD,
                 width: 'min(353px, calc(100vw - 24px))',
                 minHeight: showCheckinInstallHint ? 370 : 353,
-                backgroundColor: '#fff',
-                border: '1.5px solid #000',
-                borderRadius: 20,
-                padding: '34px 24px 28px',
+                padding: '30px 24px 28px',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
               }}
             >
-              <CloseX onClick={handleCheckin} />
-              <p style={{ textAlign: 'center', fontSize: 24, fontWeight: 700, color: '#000', margin: 0 }}>
+              <PopClose onClick={handleCheckin} />
+              <p style={{ ...MODAL_TITLE }}>
                 {t.checkinTitle || '每日打卡'}
               </p>
-              <p style={{ textAlign: 'center', fontSize: 18, color: '#000', lineHeight: 2.0, margin: 0, whiteSpace: 'pre-line' }}>
+              <p style={{ textAlign: 'center', fontSize: 16, color: '#3A2E2E', lineHeight: 2.0, margin: 0, whiteSpace: 'pre-line' }}>
                 {(t.checkinFmt || '累计登录第 {n} 天\nヾ(◍°∇°◍)ﾉﾞ').replace('{n}', checkinDay)}
               </p>
               <button
                 onClick={handleCheckin}
                 className="active:scale-95"
-                style={{
-                  width: 140, height: 44,
-                  backgroundColor: '#FFDF4E',
-                  border: '1.5px solid #000',
-                  borderRadius: 100,
-                  fontSize: 18, color: '#000',
-                }}
+                style={CTA_SOLO}
               >
                 {t.checkinBtn || '打卡'}
               </button>

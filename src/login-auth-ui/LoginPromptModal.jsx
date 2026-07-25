@@ -11,8 +11,9 @@
 // rejected-error pane swaps in with a yellow confirm button.
 import { useState } from 'react'
 import { useAuth } from '../authSetup.js'
-import { TOS_URL, PRIVACY_URL, YELLOW, PW_FONT, asset, STRINGS } from './theme.js'
+import { TOS_URL, PRIVACY_URL, PW_FONT, asset, STRINGS } from './theme.js'
 import { friendlyAuthError, CloseX, SocialButton, Acknowledge, DocPopup, useLegal } from './shared.jsx'
+import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO } from '../general-ui/popKit.jsx'
 import { EmailLoginPage } from './EmailLoginPage.jsx'
 
 export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
@@ -56,18 +57,13 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
 
   return (
     <div
-      style={{
-        position: 'absolute', inset: 0, zIndex: 50, display: 'flex',
-        alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)',
-        ...PW_FONT,
-      }}
+      style={{ ...MODAL_SCRIM, zIndex: 50, ...PW_FONT }}
       onClick={handleClose}
     >
       <div
         style={{
-          position: 'relative',
+          ...MODAL_CARD,
           width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
-          backgroundColor: '#fff', border: '1.5px solid #000', borderRadius: 20,
           padding: '34px 24px 28px',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
         }}
@@ -75,7 +71,7 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
       >
         {!pending && <CloseX onClick={handleClose} />}
 
-        <p style={{ fontSize: 18, color: '#3A2E2E', textAlign: 'center', fontWeight: 500, margin: 0 }}>
+        <p style={{ ...MODAL_TITLE, padding: '0 24px' }}>
           {STRINGS.loginTitle}
         </p>
 
@@ -122,13 +118,7 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
               {friendlyAuthError(error)}
             </p>
             <div style={{ flex: 1, minHeight: 24 }} />
-            <button
-              onClick={() => auth.clearError()}
-              style={{
-                width: 130, height: 39, backgroundColor: YELLOW, border: '1.5px solid #3A2E2E',
-                borderRadius: 100, fontSize: 18, color: '#3A2E2E', cursor: 'pointer',
-              }}
-            >
+            <button style={CTA_SOLO} onClick={() => auth.clearError()}>
               {STRINGS.ok}
             </button>
           </>

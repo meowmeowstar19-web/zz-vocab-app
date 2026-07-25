@@ -22,7 +22,7 @@ import {
 } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
-import { CloseX } from '../login-auth-ui/shared.jsx';
+import { MODAL_SCRIM, MODAL_CARD, PopClose } from '../general-ui/popKit.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -681,28 +681,28 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center"
       style={{
-        backgroundColor: ready ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0)',
+        ...MODAL_SCRIM, zIndex: 50,
+        // 图片预载期间遮罩透明淡入 — 自带 transition，关掉 kit 的入场动画
+        animation: 'none',
+        backgroundColor: ready ? 'rgba(80,50,70,0.34)' : 'rgba(80,50,70,0)',
         transition: 'background-color 0.2s ease',
       }}
       onClick={onClose}
     >
       <div
-        className="bg-white p-4 shadow-xl"
+        className="p-4"
         style={{
-          position: 'relative',
+          ...MODAL_CARD, animation: 'none',
           width: 'min(353px, calc(100vw - 24px))',
           minHeight: 353,
-          borderRadius: 20,
-          border: '1.5px solid #000',
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
           transition: 'opacity 0.2s ease, transform 0.2s ease',
         }}
         onClick={e => e.stopPropagation()}
       >
-        <CloseX onClick={onClose} />
+        <PopClose onClick={onClose} />
         {imgSrc && (
           <img
             src={imgSrc}
@@ -743,13 +743,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             {translatedSentence || '\u00A0'}
           </p>
         )}
-        <button
-          onClick={onClose}
-          className="mt-4 mx-auto block active:scale-95"
-          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
-        >
-          {t.close}
-        </button>
+        {/* popKit 房规「每个 pop 只有一个退出控件」：展示型 pop 的退出 =
+            右上角 PopClose，原底部黄色 Close 按钮（第二个退出口）删除 */}
       </div>
     </div>
   );

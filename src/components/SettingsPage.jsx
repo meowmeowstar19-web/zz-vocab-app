@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { STRINGS as LOGIN_STRINGS } from '../login-auth-ui/theme.js';
-import { CloseX } from '../login-auth-ui/shared.jsx';
+import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, MODAL_FOOTER, CTA_SOLO, PAIR_GHOST, PAIR_PRIMARY, PopClose } from '../general-ui/popKit.jsx';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
@@ -768,66 +768,42 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       </div>{/* /content scale wrapper */}
       </div>{/* /scroll layer */}
 
-      {/* Logout confirmation pop — house style (mirrors the language-switch
-          confirmation card): white card, 1.5px border, radius 20, white
-          Cancel + yellow confirm. Replaces the old window.confirm. */}
+      {/* Logout confirmation pop — 决策型 pop（popKit 房规）：Cancel+确认配对
+          按钮、无右上角 X；方形下限卡（minHeight 镜像 width），同 miracleZZ
+          AccountPage 的 logout confirm。Replaces the old window.confirm. */}
       {showLogoutConfirm && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          style={{ ...MODAL_SCRIM, zIndex: 50 }}
           onClick={() => setShowLogoutConfirm(false)}
         >
           <div
-            className="relative"
             style={{
-              width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
-              backgroundColor: '#fff',
-              border: '1.5px solid #000',
-              borderRadius: 20,
+              ...MODAL_CARD,
+              width: 'min(320px, calc(100vw - 24px))',
+              minHeight: 'min(320px, calc(100vw - 24px))',
+              boxSizing: 'border-box', padding: '26px 22px 22px',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center',
             }}
             onClick={e => e.stopPropagation()}
           >
-            <CloseX onClick={() => setShowLogoutConfirm(false)} />
             <p style={{
-              position: 'absolute',
-              left: 28, right: 28,
-              top: '50%', transform: 'translateY(-50%)',
-              marginTop: -28,
-              textAlign: 'center',
-              fontSize: 18, color: '#000',
-              lineHeight: 1.6,
+              textAlign: 'center', fontSize: 16, color: '#3A2E2E',
+              lineHeight: 1.6, margin: '4px 0 6px',
             }}>
               {t.logoutConfirm || '确定要退出登录吗？'}
             </p>
-            <div style={{
-              position: 'absolute',
-              left: 0, right: 0, bottom: 28,
-              display: 'flex', justifyContent: 'center', gap: 16,
-            }}>
+            <div style={{ ...MODAL_FOOTER, marginTop: 18 }}>
               <button
                 onClick={() => setShowLogoutConfirm(false)}
                 className="active:scale-95"
-                style={{
-                  width: 110, height: 39,
-                  backgroundColor: '#fff',
-                  border: '1.5px solid #000',
-                  borderRadius: 100,
-                  fontSize: 16, color: '#000',
-                }}
+                style={PAIR_GHOST}
               >
                 {t.cancel || '取消'}
               </button>
               <button
                 onClick={() => { setShowLogoutConfirm(false); onLogout(); }}
                 className="active:scale-95"
-                style={{
-                  width: 130, height: 39,
-                  backgroundColor: '#FFDF4E',
-                  border: '1.5px solid #000',
-                  borderRadius: 100,
-                  fontSize: nativeLang === 'ja' ? 15 : 18,
-                  color: '#000',
-                }}
+                style={PAIR_PRIMARY}
               >
                 {t.logout || '退出登录'}
               </button>
@@ -841,22 +817,19 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {pickerType && (
         <div
           data-testid="settings-lang-picker"
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          style={{ ...MODAL_SCRIM, zIndex: 50 }}
           onClick={pendingSwitch ? cancelSwitch : closePicker}
         >
           {/* Card — centered both axes */}
           <div
-            className="relative"
             style={{
+              ...MODAL_CARD,
               width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
-              backgroundColor: '#fff',
-              border: '1.5px solid #000',
-              borderRadius: 20,
             }}
             onClick={e => e.stopPropagation()}
           >
-            <CloseX onClick={pendingSwitch ? cancelSwitch : closePicker} />
+            {/* 决策态（切换确认）无 X —— popKit 房规：决策 pop 只有配对按钮 */}
+            {!pendingSwitch && <PopClose onClick={closePicker} />}
             {pendingSwitch ? (
               <>
                 {/* Inline confirmation prompt */}
@@ -866,7 +839,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   top: '50%', transform: 'translateY(-50%)',
                   marginTop: -28,
                   textAlign: 'center',
-                  fontSize: 18, color: '#000',
+                  fontSize: 16, color: '#3A2E2E',
                   lineHeight: 1.6,
                 }}>
                   {(t.languageSwitchConfirm || '切换后只剩 {n} 次切换机会，确认要切换吗？')
@@ -874,32 +847,20 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                 </p>
                 <div style={{
                   position: 'absolute',
-                  left: 0, right: 0, bottom: 34,
-                  display: 'flex', justifyContent: 'center', gap: 16,
+                  left: 22, right: 22, bottom: 22,
+                  display: 'flex', gap: 10, justifyContent: 'center',
                 }}>
                   <button
                     onClick={cancelSwitch}
                     className="active:scale-95"
-                    style={{
-                      width: 110, height: 39,
-                      backgroundColor: '#fff',
-                      border: '1.5px solid #000',
-                      borderRadius: 100,
-                      fontSize: 16, color: '#000',
-                    }}
+                    style={PAIR_GHOST}
                   >
                     {t.cancel || '取消'}
                   </button>
                   <button
                     onClick={confirmSwitch}
                     className="active:scale-95"
-                    style={{
-                      width: 130, height: 39,
-                      backgroundColor: '#FFDF4E',
-                      border: '1.5px solid #000',
-                      borderRadius: 100,
-                      fontSize: 18, color: '#000',
-                    }}
+                    style={PAIR_PRIMARY}
                   >
                     {t.ok || '确认'}
                   </button>
@@ -907,10 +868,11 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               </>
             ) : (
               <>
-                {/* Title */}
+                {/* Title — popKit MODAL_TITLE，位置对齐 30px 顶距（同表单 pop 的
+                    padding-top 30） */}
                 <p style={{
-                  position: 'absolute', top: 38, left: 16, right: 16,
-                  textAlign: 'center', fontSize: 18, color: '#000',
+                  ...MODAL_TITLE,
+                  position: 'absolute', top: 30, left: 16, right: 16,
                 }}>
                   {pickerType === 'native' ? pickerTitles.native : pickerTitles.target}
                 </p>
@@ -982,18 +944,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   })}
                 </div>
 
-                {/* Confirm button — centered */}
+                {/* Confirm button — centered, popKit CTA_SOLO */}
                 <button
                   onClick={handleConfirm}
-                  className="absolute active:scale-95"
+                  className="active:scale-95"
                   style={{
-                    left: '50%', transform: 'translateX(-50%)',
-                    bottom: 34,
-                    width: 130, height: 39,
-                    backgroundColor: '#FFDF4E',
-                    border: '1.5px solid #000',
-                    borderRadius: 100,
-                    fontSize: 18, color: '#000',
+                    ...CTA_SOLO,
+                    position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+                    bottom: 28,
                   }}
                 >
                   {t.ok}
@@ -1019,27 +977,20 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
       {showFeedbackModal && (
         <div
           data-testid="settings-feedback-modal"
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+          style={{ ...MODAL_SCRIM, zIndex: 50 }}
           onClick={closeFeedbackModal}
         >
           <div
             style={{
-              position: 'relative',
-              width: 'min(353px, calc(100vw - 24px))',
-              minHeight: 353,
-              backgroundColor: '#fff',
-              border: '1.5px solid #000',
-              borderRadius: 20,
+              ...MODAL_CARD,
+              width: 'min(373px, calc(100vw - 24px))',
               padding: '30px 24px 28px',
               display: 'flex', flexDirection: 'column',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <CloseX onClick={closeFeedbackModal} />
-            <p style={{
-              textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 18,
-            }}>
+            <PopClose onClick={closeFeedbackModal} />
+            <p style={{ ...MODAL_TITLE, margin: '0 0 18px' }}>
               {t.feedbackTitle || '意见反馈'}
             </p>
 
@@ -1106,9 +1057,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                       position: 'absolute', top: -8, right: -8,
                       width: 22, height: 22,
                       borderRadius: '50%',
-                      border: '1.5px solid #000',
+                      border: '1.5px solid #3A2E2E',
                       backgroundColor: '#fff',
-                      color: '#000',
+                      color: '#3A2E2E',
                       fontSize: 14, lineHeight: 1,
                       cursor: 'pointer',
                       padding: 0,
@@ -1128,10 +1079,10 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
                   className="active:scale-95"
                   style={{
                     aspectRatio: '1 / 1',
-                    border: '1.5px dashed #000',
+                    border: '1.5px dashed #3A2E2E',
                     borderRadius: 12,
                     backgroundColor: '#fff',
-                    color: '#000',
+                    color: '#3A2E2E',
                     fontSize: 28, lineHeight: 1,
                     cursor: 'pointer',
                     padding: 0,
@@ -1160,33 +1111,14 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               </p>
             )}
 
-            <div style={{
-              display: 'flex', justifyContent: 'center', gap: 16, marginTop: 18,
-            }}>
-              <button
-                onClick={closeFeedbackModal}
-                className="active:scale-95"
-                style={{
-                  width: 110, height: 39,
-                  backgroundColor: '#fff',
-                  border: '1.5px solid #000',
-                  borderRadius: 100,
-                  fontSize: 16, color: '#000',
-                }}
-              >
-                {t.cancel || '取消'}
-              </button>
+            {/* 表单型 pop（popKit 房规）：右上角 X 即退出，无 Cancel；
+                唯一居中 CTA = 发送（同 general-ui FeedbackPill） */}
+            <div style={{ ...MODAL_FOOTER, marginTop: 18 }}>
               <button
                 onClick={handleFeedbackSend}
                 disabled={feedbackSending}
                 className="active:scale-95 disabled:opacity-50"
-                style={{
-                  width: 130, height: 39,
-                  backgroundColor: '#FFDF4E',
-                  border: '1.5px solid #000',
-                  borderRadius: 100,
-                  fontSize: 18, color: '#000',
-                }}
+                style={CTA_SOLO}
               >
                 {feedbackSending ? '...' : (t.send || '发送')}
               </button>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePostHog } from '@posthog/react';
 import { getInstallAssetUrl } from '../utils/assetUrl';
+import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, MODAL_FOOTER, CTA_SOLO, PopClose } from '../general-ui/popKit.jsx';
 
 // Renders a tip string, turning every "chrome://apps" occurrence into a
 // highlighted pill that copies the URL to the clipboard on click.
@@ -114,25 +115,23 @@ export function useInstallPrompt(nativeLang, t) {
 
   const modalNode = installModal ? (
     <div
-      className="absolute inset-0 z-[60] flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
+      style={{ ...MODAL_SCRIM, zIndex: 60 }}
       onClick={() => setInstallModal(null)}
     >
       <div
         style={{
+          ...MODAL_CARD,
           width: 320,
-          backgroundColor: '#fff',
-          border: '2px solid #000',
-          borderRadius: 20,
           padding: '26px 22px 22px',
           display: 'flex', flexDirection: 'column',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <p style={{ textAlign: 'center', fontSize: 18, color: '#000', marginBottom: 14 }}>
+        <PopClose onClick={() => setInstallModal(null)} />
+        <p style={{ ...MODAL_TITLE, margin: '0 0 14px' }}>
           {t.installIosTitle || '添加到主屏幕'}
         </p>
-        <p style={{ textAlign: 'center', fontSize: 15, color: '#000', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+        <p style={{ textAlign: 'center', fontSize: 15, color: '#3A2E2E', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
           {renderTipWithCode(
             installModal === 'ios'
               ? (isIOSNonSafari
@@ -182,17 +181,11 @@ export function useInstallPrompt(nativeLang, t) {
             }}
           />
         )}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 18 }}>
+        <div style={{ ...MODAL_FOOTER, marginTop: 18 }}>
           <button
             onClick={() => setInstallModal(null)}
             className="active:scale-95"
-            style={{
-              width: 130, height: 39,
-              backgroundColor: '#FFDF4E',
-              border: '2px solid #000',
-              borderRadius: 100,
-              fontSize: 18, color: '#000',
-            }}
+            style={CTA_SOLO}
           >
             {t.iKnow || (t.ok || '确认')}
           </button>
