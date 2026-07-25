@@ -3,7 +3,7 @@
 // file touches auth state — pure presentational helpers + the legal hook.
 import { useEffect, useState } from 'react'
 import { STRINGS } from './theme.js'
-import { PopClose, BACK_BTN, MODAL_SCRIM, MODAL_CARD, MODAL_TITLE } from '../general-ui/popKit.jsx'
+import { PopClose, BACK_BTN } from '../general-ui/popKit.jsx'
 
 // GoTrue's raw errors are terse and offer no next step. For the "this social
 // login / email already belongs to someone else" family, keep the wording but
@@ -115,30 +115,9 @@ export function Acknowledge({ checked, setChecked, name, url, openDoc }) {
   )
 }
 
-// 服务条款/隐私协议弹窗 (fetch local HTML → render) — 表单/展示型 pop：
-// popKit 框（紫 scrim + 白卡描边圆角 24）+ 右上角 PopClose，标题 MODAL_TITLE。
-export function DocPopup({ doc, loading, onClose, width = 340 }) {
-  if (!doc) return null
-  return (
-    <div style={{ ...MODAL_SCRIM, zIndex: 70 }} onClick={onClose}>
-      <div
-        style={{
-          ...MODAL_CARD, width, maxHeight: 'calc(100% - 40px)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <PopClose onClick={onClose} />
-        <p style={{ ...MODAL_TITLE, padding: '20px 48px 10px' }}>{doc.title}</p>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 16px', fontSize: 13, color: '#3A2E2E', lineHeight: 1.6 }}>
-          {loading && !doc.html
-            ? <p style={{ color: 'rgba(58,46,46,0.5)' }}>…</p>
-            : <div dangerouslySetInnerHTML={{ __html: doc.html }} />}
-        </div>
-      </div>
-    </div>
-  )
-}
+// 服务条款/隐私协议弹窗 — 定稿设计原样住在 general-ui/DocPopup.jsx（07-25 拍板
+// 抽出共享），这里只 re-export 维持老 import 面不变。它不套 popKit 房规。
+export { DocPopup } from '../general-ui/DocPopup.jsx'
 
 // shared hook: legal checkboxes + doc popup + toast
 export function useLegal() {
