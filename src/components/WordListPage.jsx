@@ -22,7 +22,7 @@ import {
 } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
-import { MODAL_SCRIM, MODAL_CARD, PopClose } from '../general-ui/popKit.jsx';
+import { MODAL_SCRIM, MODAL_CARD } from '../general-ui/popKit.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -702,7 +702,6 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         }}
         onClick={e => e.stopPropagation()}
       >
-        <PopClose onClick={onClose} />
         {imgSrc && (
           <img
             src={imgSrc}
@@ -743,8 +742,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             {translatedSentence || '\u00A0'}
           </p>
         )}
-        {/* 底部黄色 Close 是本 pop 的有意设计（点开单词看完即关的主动线），
-            不适用 popKit「一个 pop 只留一个退出控件」房规 — 移植/统一时不得删除 */}
+        {/* 用户定稿(07-25)：本 pop 的唯一退出控件 = 底部黄色 Close（右上角 X
+            已按用户要求去掉）— 移植/统一时不得删除或改回 X */}
         <button
           onClick={onClose}
           className="mt-4 mx-auto block active:scale-95"
