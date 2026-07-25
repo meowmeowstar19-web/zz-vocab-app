@@ -2,14 +2,14 @@
 // Every pop in the host app (and this module's own pops) composes from these
 // tokens; an app never redeclares a card border, a Cancel colour or a title
 // size locally. Copied byte-for-byte between apps like the rest of general-ui —
-// the one theme colour (YELLOW) comes from config.js.
+// the theme values (YELLOW, BTN_FONT_SIZE) come from config.js.
 //
 // THE X / CANCEL RULE (用户拍板 07-23): every pop has exactly ONE exit control.
 //   · decision pops (buy / spend / log out / destructive confirm)
 //       → paired footer buttons PAIR_GHOST (Cancel) + PAIR_PRIMARY, NO top-right X
 //   · form / content pops (feedback, avatar, rename, guides, packs, reveals)
 //       → top-right <PopClose /> + at most one centred CTA_SOLO, NO Cancel
-import { YELLOW } from './config.js'
+import { YELLOW, BTN_FONT_SIZE } from './config.js'
 import { Icon } from './icons.jsx'
 
 /* ------------------------------------------------------------------ fonts */
@@ -39,7 +39,7 @@ if (typeof document !== 'undefined' && !document.getElementById('gui-pop-kit')) 
 export const BTN = {
   height: 42, boxSizing: 'border-box', borderRadius: 999,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-  fontSize: 13.5, fontWeight: 600, letterSpacing: 0.3, whiteSpace: 'nowrap',
+  fontSize: BTN_FONT_SIZE, fontWeight: 600, letterSpacing: 0.3, whiteSpace: 'nowrap',
   fontFamily: 'inherit',
 }
 export const BTN_S = { ...BTN, width: 104 } // inline / on-art pills (banner status, gift Claim)
