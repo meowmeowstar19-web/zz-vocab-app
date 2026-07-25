@@ -743,8 +743,15 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
             {translatedSentence || '\u00A0'}
           </p>
         )}
-        {/* popKit 房规「每个 pop 只有一个退出控件」：展示型 pop 的退出 =
-            右上角 PopClose，原底部黄色 Close 按钮（第二个退出口）删除 */}
+        {/* 底部黄色 Close 是本 pop 的有意设计（点开单词看完即关的主动线），
+            不适用 popKit「一个 pop 只留一个退出控件」房规 — 移植/统一时不得删除 */}
+        <button
+          onClick={onClose}
+          className="mt-4 mx-auto block active:scale-95"
+          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
+        >
+          {t.close}
+        </button>
       </div>
     </div>
   );
