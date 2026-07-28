@@ -83,9 +83,38 @@ migrateOldProgress();
 migrateProgressToTargetOnly();
 migrateProgressToUserScope();
 
-// The selected learning category persists indefinitely across sessions/logins —
-// returning users always resume on their last-chosen category (never auto-reset
-// to "all"). See `learningCategory` init below (reads `app_learning_category`).
+// ── Learning theme (category) memory ─────────────────────────────────────────
+// Whatever theme the user was on when they left the app is the theme they come
+// back to — on BOTH Learn and Review, across sessions and logins. Two rules
+// keep that true:
+//   1. Only an explicit user pick writes to storage. LearningPage's automatic
+//      fallbacks (review auto-redirect when a theme has nothing left to review,
+//      进阶 lock-out) pass `{ persist: false }`, so a screen-local switch to
+//      "all" can never erase the saved theme.
+//   2. The memory expires after 14 days of NOT opening the app. Every launch
+//      re-stamps `app_learning_category_ts`; if the stamp is older than 14 days
+//      the theme falls back to "all" (a returning-after-two-weeks user starts
+//      from the full pool rather than a half-finished theme).
+const CATEGORY_MEMORY_MS = 14 * 24 * 60 * 60 * 1000;
+const CATEGORY_KEY = 'app_learning_category';
+const CATEGORY_TS_KEY = 'app_learning_category_ts';
+
+// Runs ONCE per app launch (module scope — immune to StrictMode double-invoke).
+function loadLearningCategoryOnBoot() {
+  let cat = 'all';
+  try {
+    const saved = localStorage.getItem(CATEGORY_KEY);
+    const ts = Number(localStorage.getItem(CATEGORY_TS_KEY) || 0);
+    // No stamp yet = pre-14-day-rule install: honour the saved theme and start
+    // its clock now instead of expiring it on sight.
+    const expired = saved && ts > 0 && Date.now() - ts > CATEGORY_MEMORY_MS;
+    cat = (!saved || expired) ? 'all' : saved;
+    if (cat !== saved) localStorage.setItem(CATEGORY_KEY, cat);
+    localStorage.setItem(CATEGORY_TS_KEY, String(Date.now()));
+  } catch { /* storage blocked (private mode) → session-only default */ }
+  return cat;
+}
+const bootLearningCategory = loadLearningCategoryOnBoot();
 
 // Detect browser language → default native lang for first-time visitors.
 // Used pre-login (Welcome / Email pages) so unsaved users see localized UI.
@@ -564,17 +593,22 @@ export default function App() {
     setCheckinDay(null);
   };
   // Persist category/level filters across tab switches AND page refreshes
-  const [learningCategory, setLearningCategory] = useState(() => localStorage.getItem('app_learning_category') || 'all');
+  const [learningCategory, setLearningCategory] = useState(bootLearningCategory);
   const [learningLevel, setLearningLevel] = useState(() => localStorage.getItem('app_learning_level') || 'beginner');
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
 
-  const handleCategoryChange = (cat) => {
+  // persist:false = an automatic, session-only fallback (see comment near the
+  // migrations above). The in-memory state still switches so the current screen
+  // works, but the saved theme survives to the next launch.
+  const handleCategoryChange = (cat, { persist = true } = {}) => {
     setLearningCategory(cat);
-    localStorage.setItem('app_learning_category', cat);
+    if (!persist) return;
+    localStorage.setItem(CATEGORY_KEY, cat);
+    localStorage.setItem(CATEGORY_TS_KEY, String(Date.now()));
   };
-  const handleLevelChange = (lvl) => {
+  const handleLevelChange = (lvl, { persist = true } = {}) => {
     setLearningLevel(lvl);
-    localStorage.setItem('app_learning_level', lvl);
+    if (persist) localStorage.setItem('app_learning_level', lvl);
   };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
@@ -586,6 +620,14 @@ export default function App() {
   // fallback, which isn't a real install path.
   const showCheckinInstallHint = !pwaInstalled && installAvailable;
 
+  // Review can force the in-memory category to "all" for its own session (a
+  // theme with nothing left to review auto-redirects). That override dies with
+  // the review screen — Learn goes back to the theme the user actually saved.
+  const restoreSavedCategory = () => {
+    const saved = localStorage.getItem(CATEGORY_KEY) || 'all';
+    setLearningCategory(prev => (prev === saved ? prev : saved));
+  };
+
   const handleTabClick = (tab) => {
     // Tab click is a user gesture — unlock audio so subsequent auto-speaks
     // play on iOS Safari. `replay: false` because the user is switching
@@ -594,7 +636,7 @@ export default function App() {
     // The deferred slot is drained inside primeAudio so it can't fire later.
     primeAudio({ replay: false });
     posthog?.capture('tab_switched', { tab, native_lang: nativeLang, target_lang: targetLang });
-    if (reviewMode) setReviewMode(false);
+    if (reviewMode) { setReviewMode(false); restoreSavedCategory(); }
     setPage(tab);
     if (tab === 'wordlist') setWordListRefreshKey(k => k + 1);
   };
@@ -605,6 +647,7 @@ export default function App() {
 
   const handleExitReview = () => {
     setReviewMode(false);
+    restoreSavedCategory();
     setPage('wordlist');
     setWordListRefreshKey(k => k + 1);
   };

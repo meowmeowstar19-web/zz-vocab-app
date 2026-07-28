@@ -218,10 +218,13 @@ export default function LearningPage({
   // Safety: if a persisted session is in 进阶 mode but the user is no longer
   // unlocked (switched away from zh→en, or signed out), reset to the normal
   // word mode so the pool never ends up empty / broken.
+  // persist:false — the lock-out is about the *current* language pair, not a
+  // preference change. Keeping the saved 进阶 choice on disk means switching
+  // back to zh→en restores it instead of silently downgrading the user to "all".
   useEffect(() => {
     if (isDevMode && !devUnlocked) {
-      onCategoryChange?.('all');
-      onLevelChange?.('all');
+      onCategoryChange?.('all', { persist: false });
+      onLevelChange?.('all', { persist: false });
     }
   }, [isDevMode, devUnlocked, onCategoryChange, onLevelChange]);
 
@@ -334,7 +337,10 @@ export default function LearningPage({
     reviewRedirectTimerRef.current = setTimeout(() => {
       reviewRedirectTimerRef.current = null;
       setReviewRedirect(null);
-      onCategoryChange?.('all');
+      // persist:false — "nothing left to review in this theme" is a fact about
+      // the review queue, not a theme change the user asked for. Writing it
+      // through would wipe the saved theme and drop Learn back to "all" too.
+      onCategoryChange?.('all', { persist: false });
     }, 1500);
   }, [onCategoryChange]);
 
