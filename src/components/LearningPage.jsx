@@ -184,6 +184,11 @@ export default function LearningPage({
   refreshKey = 0,
   // Logged-in user's email — gates the dev-only 进阶 mode (whitelist).
   userEmail = '',
+  // True while the auth core is still resolving the session (boot renders
+  // optimistically before getSession() lands, so `userEmail` is '' for the
+  // first few hundred ms even for a signed-in user). Anything that keys off
+  // the email must wait for this to clear — see the 进阶 lock-out below.
+  authPending = false,
 }) {
   const posthog = usePostHog();
   const langKey = `${nativeLang}_${targetLang}`; // for session identity + sentence cache
@@ -218,15 +223,21 @@ export default function LearningPage({
   // Safety: if a persisted session is in 进阶 mode but the user is no longer
   // unlocked (switched away from zh→en, or signed out), reset to the normal
   // word mode so the pool never ends up empty / broken.
+  // authPending guard: on every launch the auth core paints first and resolves
+  // getSession() a moment later, so `userEmail` (and with it devUnlocked) is
+  // empty on the first render even for the whitelisted signed-in user. Without
+  // this guard the lock-out fired on EVERY boot and knocked 进阶 back to
+  // all/Words — the "app forgets my theme and tab" bug.
   // persist:false — the lock-out is about the *current* language pair, not a
   // preference change. Keeping the saved 进阶 choice on disk means switching
   // back to zh→en restores it instead of silently downgrading the user to "all".
   useEffect(() => {
+    if (authPending) return;
     if (isDevMode && !devUnlocked) {
       onCategoryChange?.('all', { persist: false });
       onLevelChange?.('all', { persist: false });
     }
-  }, [isDevMode, devUnlocked, onCategoryChange, onLevelChange]);
+  }, [authPending, isDevMode, devUnlocked, onCategoryChange, onLevelChange]);
 
   const [showCategories, _setShowCategories] = useState(false);
   const setShowCategories = useCallback((val) => {

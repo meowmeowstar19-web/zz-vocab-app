@@ -825,6 +825,10 @@ export default function App() {
               requestNextWord={requestNextWord}
               refreshKey={progressRefreshKey}
               userEmail={session?.user?.email || ''}
+              // 'loading' = boot hasn't resolved getSession yet; 'authenticating'
+              // = a login flow is mid-air. Either way `userEmail` is not yet
+              // trustworthy, so LearningPage must not act on it.
+              authPending={auth.status === 'loading' || auth.status === 'authenticating'}
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>
