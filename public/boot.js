@@ -205,6 +205,8 @@ var BOOT = {
       'entry chunk:     ' + entryChunkStatus(),
       'errors caught:   ' + (captured.length ? captured.length : 'none'),
       'localStorage:    ' + storageProbe(),
+      'login session:   ' + sessionProbe(),
+      'mirror cookies:  ' + cookieProbe(),
       'PWA handoff:     ' + handoffProbe(),
       'display-mode:    ' + displayModeProbe(),
       'online:          ' + (navigator.onLine ? 'yes' : 'no'),
@@ -237,6 +239,36 @@ var BOOT = {
   function storageProbe() {
     try { localStorage.setItem('__boot', '1'); localStorage.removeItem('__boot'); return 'writable'; }
     catch (e) { return 'BLOCKED (' + (e && e.name) + ')'; }
+  }
+  // Is a Supabase session stored in THIS container, and is its access token
+  // still inside its lifetime? (An expired access token is not a verdict — the
+  // refresh token may still revive it; 'absent' is the only sure "signed out".)
+  // Presence + expiry ONLY — no token material ever appears on the panel.
+  function sessionProbe() {
+    try {
+      var key = null;
+      for (var i = 0; i < localStorage.length; i += 1) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') === k.length - 11) { key = k; break; }
+      }
+      if (!key) return 'ABSENT — this container is not signed in';
+      var exp = (JSON.parse(localStorage.getItem(key)) || {}).expires_at;
+      if (!exp) return 'present (no expiry readable)';
+      var mins = Math.round((exp * 1000 - Date.now()) / 60000);
+      return mins >= 0
+        ? 'LIVE (access token fresh for ' + mins + 'm)'
+        : 'present, access token stale ' + (-mins) + 'm (refresh may revive it)';
+    } catch (e) { return 'unreadable (' + (e && e.name) + ')'; }
+  }
+  // Are the handoff cookies stamped in THIS container's jar? Lengths only.
+  function cookieProbe() {
+    try {
+      var rt = document.cookie.match(/(?:^|; )la_rt=([^;]*)/);
+      var at = document.cookie.match(/(?:^|; )la_at=([^;]*)/);
+      if (!rt && !at) return 'NONE — nothing here to hand off to a new icon';
+      return 'la_rt ' + (rt ? 'yes(' + rt[1].length + 'ch)' : 'MISSING')
+        + ' · la_at ' + (at ? 'yes(' + at[1].length + 'ch)' : 'MISSING');
+    } catch (e) { return 'unreadable (' + (e && e.name) + ')'; }
   }
   // Outcome of the last Add-to-Home-Screen login handoff, written by
   // login-auth-core/sessionMirror.js. Every failure on that path is swallowed
