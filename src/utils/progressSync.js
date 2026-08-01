@@ -39,6 +39,26 @@ export function readLocalSnapshot(uid, scope) {
     const n = localStorage.getItem('app_native');
     const tg = localStorage.getItem('app_target');
     if (n || tg) preferences = { nativeLang: n || null, targetLang: tg || null };
+    // Learn settings (category theme + level) ride along ONLY with an
+    // explicit-pick stamp (`app_learning_pick_ts`, written by App.jsx when the
+    // user picks; merged newest-pick-wins). The stamp is the safety: every
+    // boot self-writes a default category ('all'), so an unstamped value is
+    // indistinguishable from "never chose" — a fresh A2HS container pushing
+    // its boot-written 'all' must never overwrite the account's real picks.
+    // Backfill: devices with picks that predate the stamp get an "ancient"
+    // pick (1), which any real stamp beats — level and a non-'all' category
+    // only ever exist as explicit picks, so they're safe to vote; a bare
+    // 'all' is not (it's exactly what a fresh boot writes).
+    const cat = localStorage.getItem('app_learning_category');
+    const lvl = localStorage.getItem('app_learning_level');
+    let pickedAt = Number(localStorage.getItem('app_learning_pick_ts') || 0);
+    if (!pickedAt && (lvl || (cat && cat !== 'all'))) pickedAt = 1;
+    if (pickedAt && (cat || lvl)) {
+      preferences = {
+        ...(preferences || {}),
+        learn: { category: cat || null, level: lvl || null, pickedAt },
+      };
+    }
   } catch {}
   return {
     progress,
@@ -73,6 +93,15 @@ export function writeLocalSnapshot(uid, snap, scope) {
       }
       if (snap.preferences.targetLang) {
         localStorage.setItem('app_target', snap.preferences.targetLang);
+      }
+      // Same restore-don't-wipe contract as the langs: only fields the cloud
+      // actually carries are written; a missing learn blob leaves the
+      // device's own picks (and their stamp) alone.
+      const learn = snap.preferences.learn;
+      if (learn) {
+        if (learn.category) localStorage.setItem('app_learning_category', learn.category);
+        if (learn.level) localStorage.setItem('app_learning_level', learn.level);
+        if (learn.pickedAt) localStorage.setItem('app_learning_pick_ts', String(learn.pickedAt));
       }
     } catch {}
   }
@@ -155,6 +184,17 @@ export function mergeSnapshots(local, cloud, opts = {}) {
       targetLang: cloudPrefs.targetLang || null,
     };
   }
+  // Learn settings (category/level) are their own contest, independent of the
+  // lang branches above: NEWEST explicit pick wins, wherever it was made. A
+  // side with no pick simply has no vote (so a fresh A2HS container can't
+  // dethrone the account's picks with its boot defaults); a tie (two ancient
+  // backfills) settles on the cloud so every device converges to one value.
+  const lLearn = localPrefs?.learn;
+  const cLearn = cloudPrefs?.learn;
+  const learn = !lLearn ? cLearn
+    : !cLearn ? lLearn
+    : (lLearn.pickedAt || 0) > (cLearn.pickedAt || 0) ? lLearn : cLearn;
+  if (learn) out.preferences = { ...(out.preferences || {}), learn };
   return out;
 }
 
@@ -257,7 +297,15 @@ export async function pushLocalToCloud(uid) {
   const empty = { progress: {}, review_states: {}, login_days: [] };
   const merged = mergeSnapshots(local, cloud || empty);
   if (local.preferences && (local.preferences.nativeLang || local.preferences.targetLang)) {
-    merged.preferences = local.preferences;
+    // Langs only — the learn settings keep the merge's newest-pick verdict.
+    // Overwriting the whole block here used to be fine when langs were all it
+    // held; now it would let a device with no learn picks silently drop the
+    // account's saved ones from the cloud row.
+    merged.preferences = {
+      ...merged.preferences,
+      nativeLang: local.preferences.nativeLang || null,
+      targetLang: local.preferences.targetLang || null,
+    };
   }
   writeLocalSnapshot(uid, merged, `u_${uid}`);
   await pushToCloud(uid, merged);

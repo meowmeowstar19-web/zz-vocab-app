@@ -98,6 +98,10 @@ migrateProgressToUserScope();
 const CATEGORY_MEMORY_MS = 14 * 24 * 60 * 60 * 1000;
 const CATEGORY_KEY = 'app_learning_category';
 const CATEGORY_TS_KEY = 'app_learning_category_ts';
+// Stamped ONLY by an explicit user pick of category/level (never by the boot
+// defaults below) — progressSync ships the learn settings with this stamp and
+// merges newest-pick-wins, so the picks follow the account across devices.
+const LEARN_PICK_TS_KEY = 'app_learning_pick_ts';
 
 // Runs ONCE per app launch (module scope — immune to StrictMode double-invoke).
 function loadLearningCategoryOnBoot() {
@@ -404,6 +408,12 @@ export default function App() {
           // before the account (and its saved langs) landed — the account's
           // answer arriving is what un-asks the question.
           setNeedsLangSetup(!n);
+          // Learn settings restored the same way (the boot initializers ran
+          // against the empty container, so hand the merged values to state).
+          const cat = localStorage.getItem(CATEGORY_KEY);
+          const lvl = localStorage.getItem('app_learning_level');
+          if (cat) setLearningCategory(cat);
+          if (lvl) setLearningLevel(lvl);
         } catch {}
       })
       .catch(() => {})
@@ -610,15 +620,28 @@ export default function App() {
   // persist:false = an automatic, session-only fallback (see comment near the
   // migrations above). The in-memory state still switches so the current screen
   // works, but the saved theme survives to the next launch.
+  //
+  // An explicit pick also earns the learn settings their cloud vote: the pick
+  // stamp is what readLocalSnapshot ships (newest pick wins across devices —
+  // boot-written defaults carry no stamp, so a fresh A2HS container can never
+  // overwrite the account's real picks with 'all'/'beginner'), and the dirty
+  // event gets it flushed by the same heartbeat/pagehide as the progress data.
+  const stampLearnPick = () => {
+    try { localStorage.setItem(LEARN_PICK_TS_KEY, String(Date.now())); } catch {}
+    window.dispatchEvent(new Event('app:progress-changed'));
+  };
   const handleCategoryChange = (cat, { persist = true } = {}) => {
     setLearningCategory(cat);
     if (!persist) return;
     localStorage.setItem(CATEGORY_KEY, cat);
     localStorage.setItem(CATEGORY_TS_KEY, String(Date.now()));
+    stampLearnPick();
   };
   const handleLevelChange = (lvl, { persist = true } = {}) => {
     setLearningLevel(lvl);
-    if (persist) localStorage.setItem('app_learning_level', lvl);
+    if (!persist) return;
+    localStorage.setItem('app_learning_level', lvl);
+    stampLearnPick();
   };
 
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
