@@ -206,6 +206,7 @@ var BOOT = {
       'errors caught:   ' + (captured.length ? captured.length : 'none'),
       'localStorage:    ' + storageProbe(),
       'login session:   ' + sessionProbe(),
+      'account:         ' + accountProbe(),
       'mirror cookies:  ' + cookieProbe(),
       'PWA handoff:     ' + handoffProbe(),
       'display-mode:    ' + displayModeProbe(),
@@ -214,7 +215,10 @@ var BOOT = {
       'UA:              ' + navigator.userAgent,
     ];
     if (captured.length) lines.push('', '--- errors ---', captured.join('\n\n'));
+    var prev = document.getElementById('boot-diag');
+    if (prev) prev.remove();
     var box = document.createElement('div');
+    box.id = 'boot-diag';
     box.setAttribute(
       'style',
       'position:fixed;inset:0;z-index:99999;background:#fff;color:#111;' +
@@ -258,6 +262,23 @@ var BOOT = {
       return mins >= 0
         ? 'LIVE (access token fresh for ' + mins + 'm)'
         : 'present, access token stale ' + (-mins) + 'm (refresh may revive it)';
+    } catch (e) { return 'unreadable (' + (e && e.name) + ')'; }
+  }
+  // WHICH account this container is signed into — the question that settles a
+  // "why is this icon a guest" report in one screenshot. Masked local part;
+  // the domain plus three letters is enough to tell two identities apart.
+  function accountProbe() {
+    try {
+      for (var i = 0; i < localStorage.length; i += 1) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') === k.length - 11) {
+          var email = ((JSON.parse(localStorage.getItem(k)) || {}).user || {}).email || '';
+          if (!email) return 'session present, no email readable';
+          var at = email.indexOf('@');
+          return email.slice(0, Math.min(3, at)) + '…' + email.slice(at);
+        }
+      }
+      return '(no login in this container)';
     } catch (e) { return 'unreadable (' + (e && e.name) + ')'; }
   }
   // Are the handoff cookies stamped in THIS container's jar? Lengths only.
@@ -334,6 +355,36 @@ var BOOT = {
     captured.push(m);
     showBootError(m);
   });
+
+  // ── In-app diagnostic trigger ─────────────────────────────────────────────
+  // A home-screen (standalone) container has no address bar, so ?diag=1 is
+  // unreachable exactly where diagnosis matters most. Five quick taps in the
+  // top-left corner (120×120) paint the same panel — deliberate enough that
+  // players never hit it, URL-free so any container can answer for itself.
+  (function () {
+    var taps = 0;
+    var lastTap = 0;
+    var lastTouch = 0;
+    function count(x, y) {
+      if (x > 120 || y > 120) { taps = 0; return; }
+      var now = Date.now();
+      taps = now - lastTap < 1200 ? taps + 1 : 1;
+      lastTap = now;
+      if (taps >= 5) {
+        taps = 0;
+        paintDiag(document.getElementById('root'));
+      }
+    }
+    window.addEventListener('touchstart', function (e) {
+      lastTouch = Date.now();
+      var t = e.touches && e.touches[0];
+      if (t) count(t.clientX, t.clientY);
+    }, true);
+    window.addEventListener('mousedown', function (e) {
+      if (Date.now() - lastTouch < 700) return; // synthetic mouse after touch
+      count(e.clientX, e.clientY);
+    }, true);
+  })();
 
   // ── Install-prompt stash ──────────────────────────────────────────────────
   // Capture the PWA install prompt before React mounts (Chrome fires it once,
