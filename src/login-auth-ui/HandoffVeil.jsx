@@ -10,7 +10,7 @@
 // still holds the mirror cookie is that boot in flight — logout and dead
 // tokens both clear the cookie, so a true guest never has one. Decided ONCE at
 // mount; a cookie appearing later means a login just happened here, not a
-// handoff. Pure presentation — this component never touches auth state.
+// handoff. Pure presentation — this module never touches auth state.
 //
 // It leaves on whichever comes first:
 //   · the account lands (isAccountScope flips; the host tree usually remounts
@@ -19,6 +19,11 @@
 //     failure, the attempt is over and the state we're in is final;
 //   · the timeout — a hung network must not spin forever. Release into guest;
 //     an unresolved handoff kept its cookies, so the next boot retries.
+//
+// The detection lives in useHandoffPending so a host can defer its OWN
+// boot-time decisions on the same signal (PlushieWord holds the language
+// picker with it: the picker's key is device-local, so the empty container
+// would ask again even though the account about to land carries the answer).
 import { useEffect, useState } from 'react'
 import { useAuth } from '../authSetup.js'
 import { readMirror, HANDOFF_LOG_KEY } from '../login-auth-core/index.js'
@@ -35,19 +40,26 @@ const readNote = () => {
   }
 }
 
-export function HandoffVeil({ style }) {
+// True from mount until the handoff concludes (account lands / outcome note /
+// timeout). False forever on boots that never had a handoff in flight.
+export function useHandoffPending() {
   const auth = useAuth()
   const [active, setActive] = useState(() => !auth.isAccountScope && !!readMirror(document))
-  const show = active && !auth.isAccountScope
+  const pending = active && !auth.isAccountScope
   useEffect(() => {
-    if (!show) return
+    if (!pending) return
     const before = readNote()
     const deadline = Date.now() + TIMEOUT_MS
     const id = setInterval(() => {
       if (readNote() !== before || Date.now() >= deadline) setActive(false)
     }, POLL_MS)
     return () => clearInterval(id)
-  }, [show])
+  }, [pending])
+  return pending
+}
+
+export function HandoffVeil({ style }) {
+  const show = useHandoffPending()
   if (!show) return null
   return (
     <div style={{ ...MODAL_SCRIM, ...style }} role="status" aria-label="Loading">

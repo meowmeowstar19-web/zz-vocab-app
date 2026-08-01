@@ -3,7 +3,7 @@ import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { WelcomePage, LoginPromptModal, EmailLoginPage, HandoffVeil } from './login-auth-ui/index.js';
+import { WelcomePage, LoginPromptModal, EmailLoginPage, HandoffVeil, useHandoffPending } from './login-auth-ui/index.js';
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO, PopClose } from './general-ui/popKit.jsx';
 import { useAuth } from './authSetup.js';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
@@ -165,6 +165,11 @@ export default function App() {
   // optimistic scope, so the common path never remounts and nothing flickers.
   const auth = useAuth();
   const session = auth.session;
+  // True while the A2HS cookie handoff is still deciding who we are (mount-once
+  // check; released by the account landing, the outcome note, or its timeout —
+  // see login-auth-ui/HandoffVeil.jsx). Boot-time decisions that depend on
+  // identity (the language picker below) wait for this to settle.
+  const handoffPending = useHandoffPending();
   // Single source of truth for the LoginPromptModal: null, or { surface } —
   // 'gate' (5-word gate on Learn) or 'settings' (Settings entries). All flow
   // internals (OAuth pending spinner, errors, email pane) live inside the
@@ -393,7 +398,12 @@ export default function App() {
           const tg = localStorage.getItem('app_target');
           if (n) setNativeLang(n);
           if (tg) setTargetLang(tg);
-          if (!n) setNeedsLangSetup(true);
+          // Both directions. A cloud restore must DISMISS a pending picker,
+          // not just a missing pick raise one: on the A2HS first open the
+          // container has no app_native, so needsLangSetup latched true
+          // before the account (and its saved langs) landed — the account's
+          // answer arriving is what un-asks the question.
+          setNeedsLangSetup(!n);
         } catch {}
       })
       .catch(() => {})
@@ -765,15 +775,19 @@ export default function App() {
   // that haven't picked a language yet. Brand-new visitors land here as
   // their entry screen; completing it promotes them to guest mode and they
   // drop straight into Learn (no Welcome page).
-  if (needsLangSetup) {
+  //
+  // The picker is an IDENTITY-dependent decision, so it waits out the two
+  // boot windows where the missing app_native is not yet an answer: the A2HS
+  // cookie handoff (the account about to land carries the saved langs) and
+  // the cloud merge right after it (syncOnLogin restores them; its .then
+  // re-decides needsLangSetup both ways). During those the main shell renders
+  // under the HandoffVeil instead — browser boots never enter either window
+  // (no mirror cookie as a guest, app_native always set before a login).
+  if (needsLangSetup && !handoffPending && !syncInFlight) {
     return (
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-full max-w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
-          {/* A2HS first-open: a fresh container has no app_native either, so
-              the picker is what renders during the ~1s cookie handoff — keep
-              the spinner over it until the account (and its saved langs) land. */}
-          <HandoffVeil style={{ zIndex: 60 }} />
         </div>
       </div>
     );
