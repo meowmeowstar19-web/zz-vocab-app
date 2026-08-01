@@ -1134,7 +1134,7 @@ describe('boot with window/document — URL verdicts, bfcache, resume retry', ()
     expect(core.getState().flow?.kind).toBe('otp')
   })
 
-  it('a failed getSession retries when the app becomes visible; a settled one does not re-query', async () => {
+  it('a failed getSession retries when the app becomes visible; a settled ACCOUNT does not re-query', async () => {
     const b = stubBrowser()
     saveSnapshot({ hadAccount: true, lastUserScope: 'u_me' }, NOW)
     const fc = fakeClient()
@@ -1149,9 +1149,44 @@ describe('boot with window/document — URL verdicts, bfcache, resume retry', ()
     await tick()
     expect(core.getState().status).toBe('account') // retry landed the account
     const queries = fc.calls.getSession
-    b.fireDoc('visibilitychange') // settled — no more polling
+    b.fireDoc('visibilitychange') // a live account owns the screen — no polling
     await tick()
     expect(fc.calls.getSession).toBe(queries)
+  })
+
+  it('a session that landed while the page was frozen is adopted on the next wake — a settled GUEST re-asks (iOS 速冻 mid-handoff)', async () => {
+    const b = stubBrowser()
+    const fc = fakeClient()
+    const core = makeCore(fc)
+    core.boot()
+    await tick()
+    expect(core.getState().status).toBe('guest') // clean first verdict: plain guest
+    // iOS froze the page during the Add-to-Home-Screen handoff's ~1s exchange:
+    // supabase-js persisted the redeemed session, but the SIGNED_IN event
+    // thawed into a page whose verdict had already settled as guest. The wake
+    // re-ask is what adopts the parked login (2026-08-01 sticky-guest icon).
+    fc.setSession(realSession('meo'))
+    b.fireDoc('visibilitychange')
+    await tick()
+    expect(core.getState().status).toBe('account')
+    expect(core.getState().scope).toBe('u_meo')
+  })
+
+  it('a settled guest with still no session re-asks harmlessly on wake (welcome gate stays put)', async () => {
+    const b = stubBrowser()
+    saveSnapshot({ hadAccount: true, explicitLogout: true, lastUserScope: 'u_old' }, NOW)
+    const fc = fakeClient()
+    const core = makeCore(fc)
+    core.boot()
+    await tick()
+    expect(core.getState().status).toBe('guest')
+    expect(core.getState().atWelcome).toBe(true)
+    const queries = fc.calls.getSession
+    b.fireDoc('visibilitychange')
+    await tick()
+    expect(fc.calls.getSession).toBe(queries + 1) // it DOES ask again now
+    expect(core.getState().status).toBe('guest') // and nothing moves
+    expect(core.getState().atWelcome).toBe(true)
   })
 })
 

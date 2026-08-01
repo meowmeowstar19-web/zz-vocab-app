@@ -413,9 +413,21 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
     })
 
     if (typeof document !== 'undefined') {
-      // a boot whose getSession failed/hung retries on the next app wake
+      // Re-ask "am I signed in" on every app wake unless a live account or an
+      // in-flight login flow already owns the screen. Two duties:
+      //  - a boot whose getSession failed/hung retries (the original duty);
+      //  - a NON-account presentation adopts a session that landed in storage
+      //    while the page was FROZEN. iOS deep-freezes a just-added home-screen
+      //    app mid-handoff (user opens it, glances at the 1s exchange window,
+      //    switches away): the clone completes and supabase-js persists the
+      //    session, but the SIGNED_IN event thaws into a page that already
+      //    settled its verdict as 'guest' — and a settled verdict used to mean
+      //    "never ask again", so the icon sat on the guest frame forever
+      //    (2026-08-01, reported as "无论怎么等都是 guest"). getSession here is
+      //    a local read — re-asking on wake costs nothing.
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible' || sessionSettled) return
+        if (document.visibilityState !== 'visible') return
+        if (sessionSettled && (state.status === 'account' || state.status === 'authenticating')) return
         client.auth
           .getSession()
           .then(({ data }) => resolveSession(data?.session ?? null))
