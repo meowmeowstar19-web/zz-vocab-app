@@ -3,7 +3,7 @@ import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { WelcomePage, LoginPromptModal, EmailLoginPage } from './login-auth-ui/index.js';
+import { WelcomePage, LoginPromptModal, EmailLoginPage, HandoffVeil } from './login-auth-ui/index.js';
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO, PopClose } from './general-ui/popKit.jsx';
 import { useAuth } from './authSetup.js';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
@@ -770,6 +770,10 @@ export default function App() {
       <div className="w-screen bg-white flex items-center justify-center font-cute overflow-hidden" style={{ height: vpH }}>
         <div className="w-full max-w-[402px] h-[841px] overflow-hidden sm:rounded-[2rem] relative" style={{ maxHeight: vpH }}>
           <LanguageSetupPage onComplete={handleLangSetupComplete} nativeLang={nativeLang} />
+          {/* A2HS first-open: a fresh container has no app_native either, so
+              the picker is what renders during the ~1s cookie handoff — keep
+              the spinner over it until the account (and its saved langs) land. */}
+          <HandoffVeil style={{ zIndex: 60 }} />
         </div>
       </div>
     );
@@ -1011,6 +1015,11 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* A2HS first-open: the ~1s guest window while the mirror cookie is
+            being redeemed gets a spinner over the page instead of a guest
+            shell that flips into the account (login-auth-ui/HandoffVeil.jsx). */}
+        <HandoffVeil style={{ zIndex: 60 }} />
 
         {/* post-login greeting toast (account-created / welcome-back) */}
         {noticeToast && (

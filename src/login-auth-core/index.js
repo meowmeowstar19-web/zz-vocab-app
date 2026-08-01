@@ -4,7 +4,7 @@
 // nothing in here knows which app it is serving. Porting contract: README.md.
 export { createAuthCore, OTP_TTL_MS, OAUTH_TTL_MS, WATCHDOG_MS } from './store.js'
 export { createUseAuth } from './useAuth.js'
-export { attachSessionMirror, readMirror, MIRROR_COOKIE, ACCESS_COOKIE, CLONE_FN } from './sessionMirror.js'
+export { attachSessionMirror, readMirror, MIRROR_COOKIE, ACCESS_COOKIE, CLONE_FN, HANDOFF_LOG_KEY } from './sessionMirror.js'
 export { createIdentity, oauthAvatarOf } from './identity.js'
 export { loadSnapshot, saveSnapshot, clearSnapshot, defaultSnapshot, SNAPSHOT_KEY } from './snapshot.js'
 export {
