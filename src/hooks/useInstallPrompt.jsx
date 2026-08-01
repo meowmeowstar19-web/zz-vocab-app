@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { usePostHog } from '@posthog/react';
 import { getInstallAssetUrl } from '../utils/assetUrl';
+import { waitForInstallPrompt, useInstallPromptReady } from '../general-ui/installPrompt.js';
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, MODAL_FOOTER, CTA_SOLO, PopClose } from '../general-ui/popKit.jsx';
 
 // Renders a tip string, turning every "chrome://apps" occurrence into a
@@ -57,46 +58,17 @@ export function useInstallPrompt(nativeLang, t) {
   // the user can follow). On other desktops the flow only works if Chrome has
   // fired `beforeinstallprompt` — otherwise the fallback modal just tells the
   // user to wipe a stale install. Callers use this to decide whether to even
-  // surface an install nudge.
-  const [deferredReady, setDeferredReady] = useState(
-    typeof window !== 'undefined' && !!window.__deferredInstallPrompt
-  );
-  useEffect(() => {
-    const onReady = () => setDeferredReady(!!window.__deferredInstallPrompt);
-    const onInstalled = () => setDeferredReady(false);
-    window.addEventListener('installpromptready', onReady);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('installpromptready', onReady);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
-  }, []);
+  // surface an install nudge. (Prompt machinery is the shared pwa-kit layer —
+  // general-ui/installPrompt.js; this file owns only PW's guide modal.)
+  const deferredReady = useInstallPromptReady();
   const installAvailable = isIOS || isAndroid || isSafariDesktop || deferredReady;
-
-  const waitForPrompt = (ms) => new Promise((resolve) => {
-    if (window.__deferredInstallPrompt) { resolve(window.__deferredInstallPrompt); return; }
-    let done = false;
-    const onReady = () => {
-      if (done) return;
-      done = true;
-      window.removeEventListener('installpromptready', onReady);
-      resolve(window.__deferredInstallPrompt || null);
-    };
-    window.addEventListener('installpromptready', onReady);
-    setTimeout(() => {
-      if (done) return;
-      done = true;
-      window.removeEventListener('installpromptready', onReady);
-      resolve(window.__deferredInstallPrompt || null);
-    }, ms);
-  });
 
   const openInstall = async () => {
     posthog?.capture('install_prompt_clicked', { platform: isIOS ? 'ios' : isAndroid ? 'android' : 'desktop', native_lang: nativeLang });
     // iOS Safari/Chrome don't support beforeinstallprompt at all — go
     // straight to the manual instructions.
     if (!isIOS) {
-      const dp = await waitForPrompt(700);
+      const dp = await waitForInstallPrompt(700);
       if (dp) {
         try {
           dp.prompt();

@@ -9,15 +9,18 @@
 // (see the watchdog test in login-auth-core/store.test.js).
 import { describe, it, expect, beforeEach } from 'vitest'
 
-import {
-  displayNameOf,
-  cacheIdentity,
-  cachedAvatarOf,
-  NAME_KEY,
-  NAME_CACHE_KEY,
-  AVATAR_CACHE_KEY,
-} from './identity.js'
+import { createIdentity } from './identity.js'
 import { setScope } from './scope.js'
+
+// app-neutral test keys — the factory binds whatever the host app passes
+const NAME_KEY = 'app.name.v1'
+const NAME_CACHE_KEY = 'app.nameCache.v1'
+const AVATAR_CACHE_KEY = 'app.avatarCache.v1'
+const { displayNameOf, cacheIdentity, cachedAvatarOf } = createIdentity({
+  nameKey: NAME_KEY,
+  nameCacheKey: NAME_CACHE_KEY,
+  avatarCacheKey: AVATAR_CACHE_KEY,
+})
 
 function fakeLS() {
   const m = new Map()

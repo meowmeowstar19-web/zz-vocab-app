@@ -40,72 +40,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <script>
-      // Capture the install prompt before React mounts; Chrome only fires this
-      // once and very early. Stash it on window for SettingsPage to consume.
-      window.addEventListener('beforeinstallprompt', function (e) {
-        e.preventDefault();
-        window.__deferredInstallPrompt = e;
-        window.dispatchEvent(new Event('installpromptready'));
-      });
-      window.addEventListener('appinstalled', function () {
-        window.__deferredInstallPrompt = null;
-        window.dispatchEvent(new Event('appinstalled-custom'));
-      });
-      // Register service worker so Chrome treats us as installable
-      // and so static assets are cached for offline / fast loads.
-      // NEVER in local dev: a stale SW serves a cached shell that masks a
-      // stopped/restarting dev server, showing a half-broken page (shell
-      // loads, word images blank) instead of a clear connection error.
-      if ('serviceWorker' in navigator) {
-        var isLocalDev =
-          ['localhost', '127.0.0.1', '0.0.0.0'].indexOf(location.hostname) !== -1 ||
-          location.port === '5174';
-        if (isLocalDev) {
-          navigator.serviceWorker.getRegistrations().then(function (regs) {
-            regs.forEach(function (r) { r.unregister(); });
-          });
-          if (window.caches) {
-            caches.keys().then(function (keys) {
-              keys.forEach(function (k) { caches.delete(k); });
-            });
-          }
-        } else {
-          window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js').catch(function () {});
-          });
-        }
-      }
-    </script>
-    <script>
-      // iOS Safari leaves the page scrolled after the on-screen keyboard
-      // closes. The app is a fixed-size shell, so that residual scroll
-      // displaces it and exposes a white strip that grows on every re-open
-      // (e.g. retrying a failed login). Force the page back to top once focus
-      // leaves the inputs or the visual viewport settles. (miracleZZ 4b47940)
-      (function () {
-        function resetScroll() {
-          requestAnimationFrame(function () {
-            window.scrollTo(0, 0);
-            if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
-          });
-        }
-        window.addEventListener('focusout', function () {
-          setTimeout(function () {
-            var a = document.activeElement;
-            var typing =
-              a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
-            if (!typing) resetScroll();
-          }, 100);
-        });
-        if (window.visualViewport) {
-          window.visualViewport.addEventListener('resize', function () {
-            if (window.visualViewport.height >= window.innerHeight - 80) resetScroll();
-          });
-        }
-        window.addEventListener('orientationchange', resetScroll);
-      })();
-    </script>
+    <!-- Pre-React boot layer (pwa-kit): install-prompt stash, service-worker
+         registration (with dev unregister), iOS keyboard-scroll reset,
+         persistent-storage request, stale-cache self-heal and the ?diag=1
+         panel. Lives as an external stable-named file so a future CSP can't
+         silently kill it and a stale cached index still pulls fresh boot
+         logic. The <html lang> bootstrap above deliberately stays inline —
+         it must run before first paint and is app logic, not kit machinery.
+         Must load before the app module below. -->
+    <script src="/boot.js"></script>
     <!-- Self-hosted Nunito (see @font-face in index.css). No external
          fonts.googleapis.com request — it render-blocks and stalls in China.
          Preload so the one 38KB woff2 starts downloading immediately. -->

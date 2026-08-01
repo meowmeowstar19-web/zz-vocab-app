@@ -1,15 +1,12 @@
 // clone-session — the server half of the PWA login handoff (see
-// src/auth/sessionMirror.js for the whole story). Ported from miracleZZ
-// (supabase/functions/clone-session, battle-tested there 2026-07-22); the ONLY
-// intended divergence is ALLOWED_ORIGIN.
+// src/login-auth-core/sessionMirror.js for the whole story; pwa-kit:
+// docs/pwa-kit.md). This file is byte-copied between apps — the per-app
+// origin allowlist lives in config.ts.
 //
-// ⚠️ NOT DEPLOYED YET. When deploying to PW's Supabase project, use
-//   supabase functions deploy clone-session --no-verify-jwt
-// — PW's anon key is the new sb_publishable_ format (NOT a JWT), so an
-// unauthenticated functions.invoke (the PWA-first-open case, exactly when this
-// function matters) would be rejected by the verify_jwt gate. The function
-// does its own auth via the tokens in the body; until it is deployed, the
-// frontend cleanly falls back to the legacy refreshSession path.
+// ⚠️ Deploys by hand ONLY (`npm run deploy:functions`) — Edge Functions do
+// not ride the git auto-deploy. A project whose anon key is not a JWT
+// (sb_publishable_…) must deploy with --no-verify-jwt, or the gateway
+// rejects the unauthenticated first-open invoke this function exists for.
 //
 // A freshly added iOS home-screen app inherits ONLY cookies, so the frontend
 // mirrors the session's tokens into two cookies and, on a boot with no
@@ -29,40 +26,45 @@
 //      The rotated session it returns is deliberately discarded — and NEVER
 //      signed out, since revoking it would kill the family the browser uses.
 //
-// CORS: browsers may call this from the production origin only. (Origin checks
-// don't gate curl — but neither would anything else here: the caller must
-// already hold valid tokens, which are the actual credential.)
+// CORS: browsers may call this from a known app origin only (config.ts).
+// Origin checks don't gate curl — but neither would anything else here: the
+// caller must already hold valid tokens, which are the actual credential.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { ALLOWED_ORIGINS } from './config.ts'
 
-const ALLOWED_ORIGIN = 'https://plushieword.com'
-const CORS = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  Vary: 'Origin',
+const FALLBACK_ORIGIN = ALLOWED_ORIGINS[0]
+
+function corsFor(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : FALLBACK_ORIGIN,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  }
 }
 
-function json(status: number, body: unknown): Response {
+function json(req: Request, status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
+    headers: { ...corsFor(req), 'Content-Type': 'application/json' },
   })
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
-  if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' })
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsFor(req) })
+  if (req.method !== 'POST') return json(req, 405, { error: 'method_not_allowed' })
 
   let body: { access_token?: unknown; refresh_token?: unknown }
   try {
     body = await req.json()
   } catch {
-    return json(400, { error: 'bad_json' })
+    return json(req, 400, { error: 'bad_json' })
   }
   const accessToken = typeof body?.access_token === 'string' ? body.access_token : null
   const refreshToken = typeof body?.refresh_token === 'string' ? body.refresh_token : null
-  if (!accessToken && !refreshToken) return json(400, { error: 'no_token' })
+  if (!accessToken && !refreshToken) return json(req, 400, { error: 'no_token' })
 
   const url = Deno.env.get('SUPABASE_URL')!
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
@@ -81,12 +83,12 @@ Deno.serve(async (req) => {
     const { data, error } = await anon.auth.refreshSession({ refresh_token: refreshToken })
     if (!error && data?.user?.email) email = data.user.email
   }
-  if (!email) return json(401, { error: 'unauthorized' })
+  if (!email) return json(req, 401, { error: 'unauthorized' })
 
   // generateLink only MINTS the OTP hash — no email is sent, no session is
   // touched. verifyOtp on the client side is what opens the new family.
   const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
   const tokenHash = data?.properties?.hashed_token
-  if (error || !tokenHash) return json(500, { error: 'generate_failed' })
-  return json(200, { token_hash: tokenHash })
+  if (error || !tokenHash) return json(req, 500, { error: 'generate_failed' })
+  return json(req, 200, { token_hash: tokenHash })
 })

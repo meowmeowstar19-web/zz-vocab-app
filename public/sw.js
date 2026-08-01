@@ -2,7 +2,7 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v111';
+const CACHE_VERSION = 'v112';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word-content images (local /images/ or R2 CDN). UI
@@ -68,12 +68,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Skip the SW entirely for Supabase / API / analytics calls — those must hit the network.
+// Skip the SW entirely for Supabase / API / analytics calls — those must hit
+// the network. /boot.js too: the boot layer is designed to stay fresh even
+// under a poisoned HTML cache (pwa-kit), so the SW must never serve it stale.
 function shouldBypass(url) {
   return (
     url.hostname.includes('supabase.co') ||
     url.hostname.includes('supabase.in') ||
-    url.pathname.startsWith('/api/')
+    url.pathname.startsWith('/api/') ||
+    url.pathname === '/boot.js'
   );
 }
 

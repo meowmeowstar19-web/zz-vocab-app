@@ -1,0 +1,22 @@
+{
+  "headers": [
+    {
+      "source": "/boot.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, must-revalidate" }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/clone-session",
+      "destination": "https://bxqdrcseetaywwcssxsn.supabase.co/functions/v1/clone-session"
+    }
+  ]
+}

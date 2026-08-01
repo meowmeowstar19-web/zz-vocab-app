@@ -33,6 +33,10 @@ export const ICONS = {
     { d: 'M8.6 8.2a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0-6.8 0Z' },
     { d: 'M4.8 19.4c1.6-3.4 4.3-5.1 7.2-5.1s5.6 1.7 7.2 5.1' },
   ],
+  clock: [ // countdown mark — plain circle + two hands, no emoji
+    { d: 'M4.5 12a7.5 7.5 0 1 0 15 0a7.5 7.5 0 1 0-15 0Z' },
+    { d: 'M12 7.3V12l3.1 1.9' },
+  ],
   code: [ // </> dev mark
     { d: 'M9 8 5 12l4 4' },
     { d: 'M15 8l4 4-4 4' },

@@ -4,7 +4,7 @@
 // One idea: identity and data are fully divorced. This module only knows
 // "who are you" — guest or account, the Supabase session, login/logout, the
 // upgrade event, and the current storage scope name. It knows NOTHING about
-// coins/wardrobe/miraclezz. Zero game imports, zero React, zero styling.
+// the host app's data. Zero app imports, zero React, zero styling.
 //
 // A guest is a PURE LOCAL sandbox: no server identity at all. There is no
 // anonymous sign-in, no minting, no session keep-alive — the whole

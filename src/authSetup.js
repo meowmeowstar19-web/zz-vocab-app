@@ -119,8 +119,24 @@ export const useAuth = createUseAuth(core)
 // iOS Add-to-Home-Screen handoff (core/sessionMirror.js): keep a refresh-token
 // cookie beside the localStorage session so a freshly added PWA — which
 // inherits ONLY cookies — restores the login instead of booting as a guest.
-// The clone-session Edge Function (supabase/functions/clone-session) is the
-// preferred path once deployed (MUST be deployed with --no-verify-jwt: PW's
-// anon key is sb_publishable_, not a JWT); until then the mirror falls back to
-// refreshSession, which miracleZZ verified lossless.
-attachSessionMirror(supabase)
+// A redeemed session surfaces through the client's normal auth events, which
+// the core is already listening to; no-op where there is no document (tests).
+//
+// No allowRefreshFallback: PW runs with refresh-token rotation ON (dashboard
+// 实查 2026-08-01), so spending the mirrored token when the clone-session
+// function is unreachable would rotate a token the phone's browser still holds
+// and get the whole family revoked — every container logged out a day later
+// (miracleZZ hit this twice). A missed handoff (one re-login) is the cheaper
+// failure. Flip it on ONLY if rotation is ever turned off in the dashboard.
+//
+// cloneEndpoint is the SAME-ORIGIN route (vercel.json rewrites it to the Edge
+// Function), so the handoff never depends on a CORS check clearing. Without
+// the rewrite (localhost dev) the fetch just 404s and the direct
+// functions.invoke answers. The function MUST be deployed with --no-verify-jwt
+// (PW's anon key is sb_publishable_, not a JWT — `npm run deploy:functions`
+// has it baked in); an undeployed/misdeployed function reads as UNAVAILABLE
+// and the mirror simply retries next boot, cookies intact.
+attachSessionMirror(supabase, undefined, {
+  cloneEndpoint: '/api/clone-session',
+  cloneApiKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+})

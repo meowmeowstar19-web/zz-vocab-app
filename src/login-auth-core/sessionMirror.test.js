@@ -1,9 +1,13 @@
 // sessionMirror — the iOS Add-to-Home-Screen handoff cookies. Covers all three
 // duties: keeping the cookies in lockstep with auth events, redeeming them on
 // a boot whose localStorage session didn't survive the copy (only cookies do),
-// and preferring the clone-session Edge Function path (independent session, no
-// token rotation) with refreshSession as the fallback safety net.
-import { describe, it, expect, vi } from 'vitest'
+// and cloning an INDEPENDENT session through the clone-session Edge Function.
+//
+// The sharpest tests here are the ones asserting refreshSession is NOT called.
+// Rotating the mirrored token revokes the whole family and logs out every
+// container a day later, so a clone path that merely fails must degrade to "no
+// handoff", never to "rotate and hope".
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import {
   attachSessionMirror,
@@ -12,6 +16,7 @@ import {
   MIRROR_COOKIE,
   ACCESS_COOKIE,
   CLONE_FN,
+  HANDOFF_LOG_KEY,
 } from './sessionMirror.js'
 
 // Minimal document.cookie fake: assignment parses name=value + Max-Age=0 as
@@ -131,6 +136,13 @@ describe('event mirroring', () => {
   })
 })
 
+// supabase-js shapes an Edge Function's non-2xx as a FunctionsHttpError whose
+// .context is the raw Response; a transport failure carries no status at all.
+// The body matters as much as the status — only the function's own
+// {"error":"unauthorized"} condemns the tokens.
+const httpError = (status, body = {}) =>
+  Object.assign(new Error(`http ${status}`), { context: { status, json: async () => body } })
+
 describe('boot redemption — clone path', () => {
   const cookies = () => {
     const doc = fakeDoc()
@@ -154,29 +166,46 @@ describe('boot redemption — clone path', () => {
     expect(readMirror(doc)).toBe('rt-mir') // live cookies stay (rewrite arrives via events)
   })
 
-  it('invoke error → falls back to refreshSession with the mirrored token', async () => {
+  // THE regression test. A CORS-blocked invoke (exactly what the 2026-07-24
+  // domain rename produced: the deployed function still allowed the dead
+  // origin) must NOT spend the mirrored refresh token — that rotation is what
+  // revoked the family and logged the phone out of both containers days later.
+  it('invoke blocked by CORS → no rotation, cookies survive for the next boot', async () => {
     const doc = cookies()
     const client = fakeClient({
-      invokeResult: { data: null, error: new Error('cors') },
+      invokeResult: { data: null, error: new Error('Failed to fetch') }, // no status: transport
       refreshResult: { data: { session: { user: {} } }, error: null },
     })
     await attachSessionMirror(client, doc)
     expect(client.calls.verifyOtp).toEqual([])
-    expect(client.calls.refreshSession).toEqual([{ refresh_token: 'rt-mir' }])
-    expect(readMirror(doc)).toBe('rt-mir')
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe('rt-mir') // retried once the function is fixed
+    expect(readMirror(doc, ACCESS_COOKIE)).toBe('at-mir')
   })
 
-  it('invoke throwing (network down) is swallowed into the same fallback', async () => {
+  it('invoke throwing (network down) is swallowed the same way', async () => {
     const doc = cookies()
     const client = fakeClient({
       invokeResult: new Error('fetch failed'),
       refreshResult: { data: { session: { user: {} } }, error: null },
     })
     await attachSessionMirror(client, doc)
-    expect(client.calls.refreshSession).toEqual([{ refresh_token: 'rt-mir' }])
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe('rt-mir')
   })
 
-  it('token_hash arrives but verifyOtp rejects → fallback still runs', async () => {
+  it('a 5xx is the function breaking, not the tokens → kept, still no rotation', async () => {
+    const doc = cookies()
+    const client = fakeClient({
+      invokeResult: { data: null, error: httpError(500) },
+      refreshResult: { data: { session: { user: {} } }, error: null },
+    })
+    await attachSessionMirror(client, doc)
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe('rt-mir')
+  })
+
+  it('token_hash arrives but verifyOtp rejects → retried later, never rotated', async () => {
     const doc = cookies()
     const client = fakeClient({
       invokeResult: { data: { token_hash: 'hash1' }, error: null },
@@ -185,30 +214,151 @@ describe('boot redemption — clone path', () => {
     })
     await attachSessionMirror(client, doc)
     expect(client.calls.verifyOtp.length).toBe(1)
-    expect(client.calls.refreshSession).toEqual([{ refresh_token: 'rt-mir' }])
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe('rt-mir')
   })
 
-  it('clone AND fallback both dead → every mirror cookie is cleared', async () => {
+  it('a 401 IS the server rejecting the tokens → every mirror cookie is cleared', async () => {
     const doc = cookies()
-    const client = fakeClient({
-      invokeResult: { data: null, error: new Error('500') },
-      refreshResult: { data: { session: null }, error: new Error('invalid') },
-    })
+    const client = fakeClient({ invokeResult: { data: null, error: httpError(401, { error: 'unauthorized' }) } })
     await attachSessionMirror(client, doc)
+    expect(client.calls.refreshSession).toEqual([])
     expect(readMirror(doc)).toBe(null)
     expect(readMirror(doc, ACCESS_COOKIE)).toBe(null)
   })
 
-  it('access cookie only (no refresh token): clone is attempted, no fallback possible', async () => {
+  it('access cookie only (no refresh token): clone is attempted, nothing to rotate anyway', async () => {
     const doc = fakeDoc()
     writeMirror(doc, 'at-only', ACCESS_COOKIE)
-    const client = fakeClient({ invokeResult: { data: null, error: new Error('401') } })
+    const client = fakeClient({ invokeResult: { data: null, error: httpError(401, { error: 'unauthorized' }) } })
     await attachSessionMirror(client, doc)
     expect(client.calls.invoke).toEqual([
       [CLONE_FN, { body: { access_token: 'at-only', refresh_token: undefined } }],
     ])
     expect(client.calls.refreshSession).toEqual([])
     expect(readMirror(doc, ACCESS_COOKIE)).toBe(null) // dead handoff never retries
+  })
+
+  it('allowRefreshFallback opts a rotation-free project back into the exchange', async () => {
+    const doc = cookies()
+    const client = fakeClient({
+      invokeResult: { data: null, error: new Error('Failed to fetch') },
+      refreshResult: { data: { session: { user: {} } }, error: null },
+    })
+    await attachSessionMirror(client, doc, { allowRefreshFallback: true })
+    expect(client.calls.refreshSession).toEqual([{ refresh_token: 'rt-mir' }])
+  })
+})
+
+describe('same-origin transport', () => {
+  const cookies = () => {
+    const doc = fakeDoc()
+    writeMirror(doc, 'rt-mir')
+    writeMirror(doc, 'at-mir', ACCESS_COOKIE)
+    return doc
+  }
+  const PROXY = { cloneEndpoint: '/api/clone-session', cloneApiKey: 'anon-jwt' }
+  const stubFetch = (impl) => {
+    const spy = vi.fn(impl)
+    vi.stubGlobal('fetch', spy)
+    return spy
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is preferred over invoke, and carries the anon key the gateway wants', async () => {
+    const doc = cookies()
+    const fetchSpy = stubFetch(async () => ({ ok: true, status: 200, json: async () => ({ token_hash: 'h1' }) }))
+    const client = fakeClient({
+      invokeResult: { data: { token_hash: 'from-invoke' }, error: null },
+      verifyResult: { data: { session: { user: {} } }, error: null },
+    })
+    await attachSessionMirror(client, doc, PROXY)
+
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe('/api/clone-session')
+    expect(init.headers.Authorization).toBe('Bearer anon-jwt')
+    expect(JSON.parse(init.body)).toEqual({ access_token: 'at-mir', refresh_token: 'rt-mir' })
+    expect(client.calls.invoke).toEqual([]) // never needed the cross-origin call
+    expect(client.calls.verifyOtp).toEqual([{ type: 'magiclink', token_hash: 'h1' }])
+  })
+
+  it('a host that never shipped the rewrite (404) falls through to invoke', async () => {
+    const doc = cookies()
+    stubFetch(async () => ({ ok: false, status: 404, json: async () => ({}) }))
+    const client = fakeClient({
+      invokeResult: { data: { token_hash: 'h2' }, error: null },
+      verifyResult: { data: { session: { user: {} } }, error: null },
+    })
+    await attachSessionMirror(client, doc, PROXY)
+    expect(client.calls.invoke.length).toBe(1)
+    expect(client.calls.verifyOtp).toEqual([{ type: 'magiclink', token_hash: 'h2' }])
+  })
+
+  it('a 401 through the proxy is final — the direct call would only hear the same', async () => {
+    const doc = cookies()
+    stubFetch(async () => ({ ok: false, status: 401, json: async () => ({ error: 'unauthorized' }) }))
+    const client = fakeClient({ invokeResult: { data: { token_hash: 'h3' }, error: null } })
+    await attachSessionMirror(client, doc, PROXY)
+    expect(client.calls.invoke).toEqual([])
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe(null) // dead tokens dropped
+  })
+
+  it('an endpoint that answers with HTML (SPA catch-all) is not mistaken for success', async () => {
+    const doc = cookies()
+    stubFetch(async () => ({ ok: true, status: 200, json: async () => { throw new Error('not json') } }))
+    const client = fakeClient({ invokeResult: { data: null, error: new Error('Failed to fetch') } })
+    await attachSessionMirror(client, doc, PROXY)
+    expect(client.calls.verifyOtp).toEqual([])
+    expect(client.calls.refreshSession).toEqual([])
+    expect(readMirror(doc)).toBe('rt-mir') // kept: nothing proved these tokens dead
+  })
+
+  it('the proxy alone is enough to clone — a client with no functions API still hands off', async () => {
+    const doc = cookies()
+    stubFetch(async () => ({ ok: true, status: 200, json: async () => ({ token_hash: 'h4' }) }))
+    const client = fakeClient({ verifyResult: { data: { session: { user: {} } }, error: null } })
+    await attachSessionMirror(client, doc, PROXY)
+    expect(client.calls.verifyOtp).toEqual([{ type: 'magiclink', token_hash: 'h4' }])
+    expect(client.calls.refreshSession).toEqual([]) // and it did NOT fall back to rotating
+  })
+})
+
+describe('handoff breadcrumb', () => {
+  const store = new Map()
+  beforeEach(() => {
+    store.clear()
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+      removeItem: (k) => store.delete(k),
+    })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('records the outcome and a timestamp — and never a token', async () => {
+    const doc = fakeDoc()
+    writeMirror(doc, 'rt-secret')
+    writeMirror(doc, 'at-secret', ACCESS_COOKIE)
+    const client = fakeClient({ invokeResult: { data: null, error: new Error('Failed to fetch') } })
+    await attachSessionMirror(client, doc)
+
+    const note = store.get(HANDOFF_LOG_KEY)
+    expect(note).toContain('UNREACHABLE')
+    expect(note).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(note).not.toContain('rt-secret')
+    expect(note).not.toContain('at-secret')
+  })
+
+  it('a successful clone is recorded too, so "no note" never reads as "it worked"', async () => {
+    const doc = fakeDoc()
+    writeMirror(doc, 'rt-mir')
+    const client = fakeClient({
+      invokeResult: { data: { token_hash: 'h1' }, error: null },
+      verifyResult: { data: { session: { user: {} } }, error: null },
+    })
+    await attachSessionMirror(client, doc)
+    expect(store.get(HANDOFF_LOG_KEY)).toContain('clone ok')
   })
 })
 
