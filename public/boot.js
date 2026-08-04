@@ -34,6 +34,15 @@ var BOOT = {
   // Dev ports that mean "local dev" even on a non-localhost hostname
   // (LAN-IP testing). Plain localhost/127.0.0.1/0.0.0.0 always count.
   devPorts: ['5174'],
+
+  // Hostnames that are local dev wearing a public name. The phone-testing
+  // tunnel (dev.plushieword.com → localhost:5174) is HTTPS on the default
+  // port, so BOTH other checks miss it: the hostname isn't localhost and
+  // `location.port` is ''. Without it listed here the tunnel looked like
+  // production and got the real SW registered on it, which then cached the
+  // *dev* module graph (/@vite/client, /src/*.jsx, dep hashes) — a stale or
+  // server-down visit then replays that graph and the page never mounts.
+  devHosts: ['dev.plushieword.com'],
 }
 
 /* ═════════ PORTABLE BODY — byte-copied between apps, do not edit ═════════
@@ -63,7 +72,9 @@ var BOOT = {
  *    white strip (every failed-login retry made it worse).
  *  - Service-worker registration — NEVER in local dev (a stale SW masks a
  *    stopped dev server); dev also actively unregisters strays and clears
- *    their caches, so a prod-preview session can't haunt localhost.
+ *    their caches, so a prod-preview session can't haunt localhost. "Local
+ *    dev" is hostname OR port OR `devHosts` — a tunnel that fronts the dev
+ *    server on a public HTTPS name matches none of the first two.
  */
 ;(function (cfg) {
   document.title = cfg.docTitle;
@@ -125,6 +136,15 @@ var BOOT = {
       localStorage.setItem(cfg.purgeFlagKey, cfg.purgeToken);
     }
   } catch (e) {}
+
+  // Every display mode a launch from the installed icon can land in — not just
+  // `standalone`: an Android WebAPK can come up `minimal-ui`, a `display_override`
+  // manifest `fullscreen`, an installed desktop app `window-controls-overlay`.
+  // None of them is a browser tab. Mirrors LAUNCH_MODES in installPrompt.js.
+  var LAUNCH_MODES = ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay'];
+  // Sticky "this container has launched from the icon" flag, shared with
+  // general-ui/installPrompt.js (HOME_SCREEN_KEY there) — change both together.
+  var HOME_SCREEN_KEY = 'pwa.installed.v1';
 
   // Diagnostic mode: append ?diag=1 to the URL to paint a full status panel.
   // Off for everyone else, so normal users never see it.
@@ -210,6 +230,7 @@ var BOOT = {
       'mirror cookies:  ' + cookieProbe(),
       'PWA handoff:     ' + handoffProbe(),
       'display-mode:    ' + displayModeProbe(),
+      'home screen:     ' + homeScreenProbe(),
       'online:          ' + (navigator.onLine ? 'yes' : 'no'),
       'URL:             ' + location.href,
       'UA:              ' + navigator.userAgent,
@@ -308,8 +329,25 @@ var BOOT = {
   function displayModeProbe() {
     try {
       if (navigator.standalone) return 'standalone (iOS home screen)';
-      return matchMedia('(display-mode: standalone)').matches ? 'standalone (PWA)' : 'browser tab';
+      for (var i = 0; i < LAUNCH_MODES.length; i++) {
+        if (matchMedia('(display-mode: ' + LAUNCH_MODES[i] + ')').matches) {
+          return 'standalone (PWA, display-mode: ' + LAUNCH_MODES[i] + ')';
+        }
+      }
+      return 'browser tab';
     } catch (e) { return 'unknown'; }
+  }
+  // Why the install-gated gift is (or isn't) claimable on this device: the
+  // launch verdict this boot reached, and the sticky flag it left behind.
+  function homeScreenProbe() {
+    var stamped = window.__launchedFromHomeScreen === true;
+    var marker = /[?&]source=pwa\b/.test(location.search);
+    var sticky;
+    try { sticky = localStorage.getItem(HOME_SCREEN_KEY) === '1' ? 'yes' : 'no'; }
+    catch (e) { sticky = 'unreadable'; }
+    return 'this launch: ' + (stamped ? 'FROM ICON' : 'no')
+      + ' (start_url marker: ' + (marker ? 'yes' : 'no') + ')'
+      + ' · sticky flag: ' + sticky;
   }
 
   // Turn a silent white screen into a visible, screenshottable diagnostic —
@@ -387,6 +425,34 @@ var BOOT = {
   })();
 
   // ── Install-prompt stash ──────────────────────────────────────────────────
+  // ── Home-screen launch stamp ──────────────────────────────────────────────
+  // "Did this launch come from the installed icon?" has to be answered HERE,
+  // not after React mounts, and the answer has to be written down: the
+  // manifest's `start_url` marker (`?source=pwa`) is the only signal that
+  // survives an engine whose display-mode query lies, and it is destroyed by
+  // our own cache-buster reload and URL tidy-up a few seconds later. The
+  // sticky flag also means one proven launch from the icon keeps the
+  // install-gated gift claimable — a later render, a late media query or a
+  // dropped marker can no longer un-prove it. It survives the one-time purge
+  // above on purpose (it records a fact about the device, not user data) and
+  // goes away only with the site's storage. installPrompt.js reads both
+  // halves; keep the key in sync with it.
+  (function stampHomeScreenLaunch() {
+    var fromIcon = false;
+    try {
+      if (navigator.standalone === true) fromIcon = true; // iOS Safari home-screen app
+      if (!fromIcon && window.matchMedia) {
+        for (var i = 0; i < LAUNCH_MODES.length; i++) {
+          if (matchMedia('(display-mode: ' + LAUNCH_MODES[i] + ')').matches) { fromIcon = true; break; }
+        }
+      }
+      if (!fromIcon && /[?&]source=pwa\b/.test(location.search)) fromIcon = true;
+    } catch (e) {}
+    if (!fromIcon) return;
+    window.__launchedFromHomeScreen = true;
+    try { localStorage.setItem(HOME_SCREEN_KEY, '1'); } catch (e) {}
+  })();
+
   // Capture the PWA install prompt before React mounts (Chrome fires it once,
   // very early). general-ui/installPrompt.js consumes the stash.
   window.addEventListener('beforeinstallprompt', function (e) {
@@ -434,7 +500,8 @@ var BOOT = {
   if ('serviceWorker' in navigator) {
     var isLocalDev =
       ['localhost', '127.0.0.1', '0.0.0.0'].indexOf(location.hostname) !== -1 ||
-      cfg.devPorts.indexOf(location.port) !== -1;
+      cfg.devPorts.indexOf(location.port) !== -1 ||
+      (cfg.devHosts || []).indexOf(location.hostname) !== -1;
     if (isLocalDev) {
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (r) { r.unregister(); });
