@@ -2,7 +2,7 @@
 // - Satisfies Chrome's installability requirement (must have a fetch handler)
 // - Caches static assets so the app loads instantly on repeat visits and works offline
 // Bump CACHE_VERSION on every deploy that changes the SW or invalidates caches.
-const CACHE_VERSION = 'v112';
+const CACHE_VERSION = 'v113';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 // Bounded LRU cache for word-content images (local /images/ or R2 CDN). UI
@@ -52,6 +52,10 @@ const PRECACHE_URLS = [
   // Self-hosted Nunito (latin). On the first-paint critical path (preloaded in
   // index.html) — precache so it's instant on repeat visits and works offline.
   '/fonts/nunito-latin.woff2',
+  // The boot layer. Network always wins for it (see handleBoot) — this copy
+  // exists purely as the fallback that keeps a hanging network from freezing
+  // first paint forever.
+  '/boot.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -69,15 +73,18 @@ self.addEventListener('activate', (event) => {
 });
 
 // Skip the SW entirely for Supabase / API / analytics calls — those must hit
-// the network. /boot.js too: the boot layer is designed to stay fresh even
-// under a poisoned HTML cache (pwa-kit), so the SW must never serve it stale.
+// the network. (/boot.js used to be listed here too; it now goes through
+// handleBoot, which keeps it just as fresh but bounds a hanging request.)
 function shouldBypass(url) {
   return (
     url.hostname.includes('supabase.co') ||
     url.hostname.includes('supabase.in') ||
-    url.pathname.startsWith('/api/') ||
-    url.pathname === '/boot.js'
+    url.pathname.startsWith('/api/')
   );
+}
+
+function isBootScript(url) {
+  return url.origin === self.location.origin && url.pathname === '/boot.js';
 }
 
 // Pronunciation audio, local or R2 CDN. Path is identical in both cases
@@ -246,6 +253,47 @@ function isStaticAsset(url) {
 // the fresh deploy instead of a stale shell.
 const NAV_NETWORK_TIMEOUT_MS = 2500;
 
+// Absolute ceiling for /boot.js when there is no cached copy to fall back on.
+// Generous enough for a genuinely slow first load on 3G, short enough that a
+// hung request can't hold first paint hostage.
+const BOOT_HARD_DEADLINE_MS = 10000;
+
+// /boot.js → network-first with the navigation timeout, then the cached copy.
+// The boot layer must stay FRESH (it's what rescues a poisoned HTML cache, so
+// serving it stale by default would defeat the whole design) — hence network
+// always wins whenever it answers at all. What it must NOT do is HANG: boot.js
+// is a parser-blocking <script> in <head>, so a request that neither resolves
+// nor rejects — captive portals, hospital/hotel wifi, DPI middleboxes — freezes
+// the parser before anything paints, and the page stays white for as long as
+// the network stays half-dead. (The boot layer's own blank-page watchdog can't
+// save that case: it's armed on `window.load`, which never fires while a
+// request is still in flight.) Bounding the wait costs nothing on a healthy
+// network. Genuine offline is unaffected: fetch rejects immediately and we drop
+// straight to the cache with no delay.
+async function handleBoot(req) {
+  const networkFetch = fetch(req).then((res) => {
+    if (res && res.status === 200) {
+      const copy = res.clone();
+      caches.open(STATIC_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+    }
+    return res;
+  });
+  const winner = await Promise.race([
+    networkFetch.catch(() => null),
+    new Promise((r) => setTimeout(() => r('timeout'), NAV_NETWORK_TIMEOUT_MS)),
+  ]);
+  if (winner && winner !== 'timeout') return winner;
+  const cached = await caches.match(req);
+  if (cached) return cached;
+  // Nothing cached (a version bump wiped STATIC_CACHE before its reinstall
+  // landed) — wait out the rest of the hard deadline, then fail the request so
+  // the parser moves on. A boot-less app still mounts; a frozen one never does.
+  return Promise.race([
+    networkFetch.catch(() => Response.error()),
+    new Promise((r) => setTimeout(() => r(Response.error()), BOOT_HARD_DEADLINE_MS - NAV_NETWORK_TIMEOUT_MS)),
+  ]);
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -278,6 +326,12 @@ self.addEventListener('fetch', (event) => {
       // Nothing cached to fall back on — wait out the network after all.
       return networkFetch.catch(() => caches.match('/'));
     })());
+    return;
+  }
+
+  // Boot layer → network-first with a bounded wait, cached copy as the floor.
+  if (isBootScript(url)) {
+    event.respondWith(handleBoot(req));
     return;
   }
 

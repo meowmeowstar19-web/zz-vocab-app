@@ -36,6 +36,76 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      // Hostile-network white-screen guard. MUST stay ABOVE the /boot.js tag:
+      // that's a parser-blocking script, so when its request HANGS — the
+      // network neither answers nor refuses, which is what captive portals,
+      // hospital/hotel wifi and DPI middleboxes actually do — the parser never
+      // reaches anything below it and the page stays white indefinitely. Every
+      // other safety net misses this case: the boot layer's blank-page watchdog
+      // is armed on `window.load` (never fires while a request is in flight),
+      // and the SW's own bound on /boot.js only exists once a SW is installed.
+      // This timer needs nothing but the HTML, so it survives all of that.
+      // Genuine offline never gets here: fetch rejects instantly, boot.js fails
+      // fast, and the app mounts from cache as usual.
+      (function () {
+        var STALL_MS = 12000;
+        var COPY = {
+          zh: ['连不上服务器', '这个网络似乎把 PlushieWord 拦住了 —— 医院、公司、酒店的 Wi-Fi 常有这种情况。换个网络或用手机流量再试一次。', '重试'],
+          ja: ['サーバーに接続できません', 'このネットワークが PlushieWord をブロックしているようです。別のネットワークかモバイル通信でお試しください。', '再試行'],
+          en: ['Can’t reach the server', 'This network seems to be blocking PlushieWord — hospital, office and hotel Wi-Fi often do. Try another network or mobile data.', 'Retry'],
+        };
+        function mounted() {
+          var root = document.getElementById('root');
+          return !!(root && root.childElementCount > 0);
+        }
+        setTimeout(function () {
+          try {
+            // The boot layer's own panels count as "something painted" — don't
+            // stack a second box on top of a diag readout or a boot error.
+            if (mounted() || document.getElementById('boot-diag') || document.getElementById('boot-error')) return;
+            var t = COPY[(document.documentElement.lang || 'en').slice(0, 2)] || COPY.en;
+            var box = document.createElement('div');
+            box.id = 'net-stall';
+            box.setAttribute(
+              'style',
+              'position:fixed;inset:0;z-index:99998;background:#fff;color:#3b3b3b;' +
+                'font:15px/1.6 -apple-system,system-ui,sans-serif;padding:32px 28px;' +
+                'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center'
+            );
+            var h = document.createElement('div');
+            h.setAttribute('style', 'font-size:19px;font-weight:700;margin-bottom:12px');
+            h.textContent = t[0];
+            var p = document.createElement('div');
+            p.setAttribute('style', 'max-width:300px;color:#7a7a7a');
+            p.textContent = t[1];
+            var b = document.createElement('button');
+            b.setAttribute(
+              'style',
+              'margin-top:24px;padding:12px 32px;border:1.5px solid #3b3b3b;border-radius:999px;' +
+                'background:#fff;color:#3b3b3b;font:inherit;font-weight:700;cursor:pointer'
+            );
+            b.textContent = t[2];
+            b.addEventListener('click', function () {
+              location.replace(location.origin + '/?v=' + Date.now());
+            });
+            box.appendChild(h);
+            box.appendChild(p);
+            box.appendChild(b);
+            // document.body may not exist yet — the parser can still be stuck
+            // inside <head> at this point, which is the whole reason we're here.
+            (document.body || document.documentElement).appendChild(box);
+            // If the network comes back on its own and the app mounts behind
+            // the panel, get out of its way instead of stranding the user.
+            var poll = setInterval(function () {
+              if (!mounted()) return;
+              clearInterval(poll);
+              if (box.parentNode) box.parentNode.removeChild(box);
+            }, 1000);
+          } catch (e) {}
+        }, STALL_MS);
+      })();
+    </script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
