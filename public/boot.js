@@ -142,9 +142,12 @@ var BOOT = {
   // manifest `fullscreen`, an installed desktop app `window-controls-overlay`.
   // None of them is a browser tab. Mirrors LAUNCH_MODES in installPrompt.js.
   var LAUNCH_MODES = ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay'];
-  // Sticky "this container has launched from the icon" flag, shared with
+  // "THIS launch came from the icon" flag, shared with
   // general-ui/installPrompt.js (HOME_SCREEN_KEY there) — change both together.
-  var HOME_SCREEN_KEY = 'pwa.installed.v1';
+  // sessionStorage, never localStorage: on Android and desktop Chrome the
+  // browser tab and the installed app share one localStorage, so a remembered
+  // verdict would hand the install-only gift to the browser tab too.
+  var HOME_SCREEN_KEY = 'pwa.launch.v1';
 
   // Diagnostic mode: append ?diag=1 to the URL to paint a full status panel.
   // Off for everyone else, so normal users never see it.
@@ -337,17 +340,14 @@ var BOOT = {
       return 'browser tab';
     } catch (e) { return 'unknown'; }
   }
-  // Why the install-gated gift is (or isn't) claimable on this device: the
-  // launch verdict this boot reached, and the sticky flag it left behind.
+  // Why the install-gated gift is (or isn't) claimable right now: the verdict
+  // this boot reached, and the flag it left for the rest of the launch.
   function homeScreenProbe() {
     var stamped = window.__launchedFromHomeScreen === true;
     var marker = /[?&]source=pwa\b/.test(location.search);
-    var sticky;
-    try { sticky = localStorage.getItem(HOME_SCREEN_KEY) === '1' ? 'yes' : 'no'; }
-    catch (e) { sticky = 'unreadable'; }
     return 'this launch: ' + (stamped ? 'FROM ICON' : 'no')
       + ' (start_url marker: ' + (marker ? 'yes' : 'no') + ')'
-      + ' · sticky flag: ' + sticky;
+      + ' · flag: ' + (ss(true, HOME_SCREEN_KEY) === '1' ? 'set' : 'no');
   }
 
   // Turn a silent white screen into a visible, screenshottable diagnostic —
@@ -430,13 +430,12 @@ var BOOT = {
   // not after React mounts, and the answer has to be written down: the
   // manifest's `start_url` marker (`?source=pwa`) is the only signal that
   // survives an engine whose display-mode query lies, and it is destroyed by
-  // our own cache-buster reload and URL tidy-up a few seconds later. The
-  // sticky flag also means one proven launch from the icon keeps the
-  // install-gated gift claimable — a later render, a late media query or a
-  // dropped marker can no longer un-prove it. It survives the one-time purge
-  // above on purpose (it records a fact about the device, not user data) and
-  // goes away only with the site's storage. installPrompt.js reads both
-  // halves; keep the key in sync with it.
+  // our own cache-buster reload and URL tidy-up a few seconds later. Writing
+  // the verdict down means a later render, a late media query or a dropped
+  // marker can no longer un-prove a launch that already proved itself — and
+  // sessionStorage scopes that memory to THIS launch, so it can never leak the
+  // install-gated gift into a browser tab. installPrompt.js reads both halves;
+  // keep the key in sync with it.
   (function stampHomeScreenLaunch() {
     var fromIcon = false;
     try {
@@ -450,7 +449,7 @@ var BOOT = {
     } catch (e) {}
     if (!fromIcon) return;
     window.__launchedFromHomeScreen = true;
-    try { localStorage.setItem(HOME_SCREEN_KEY, '1'); } catch (e) {}
+    ss(false, HOME_SCREEN_KEY);
   })();
 
   // Capture the PWA install prompt before React mounts (Chrome fires it once,

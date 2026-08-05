@@ -4,9 +4,11 @@
 // that isn't always `standalone`, and an iOS third-party-browser web app only
 // with the start_url marker boot.js stamped. Missing one of them reads to the
 // player as "I added it and the gift is still locked".
+import { readFileSync } from 'node:fs'
+
 import { describe, it, expect, afterEach } from 'vitest'
 
-import { isHomeScreenLaunch } from './installPrompt.js'
+import { isHomeScreenLaunch, HOME_SCREEN_KEY } from './installPrompt.js'
 
 // Minimal window stand-in — matchMedia answers true for the modes listed.
 function fakeWindow({ modes = [], standalone, stamped, search = '' } = {}) {
@@ -59,5 +61,26 @@ describe('isHomeScreenLaunch', () => {
   it('never throws where there is no window at all', () => {
     delete globalThis.window
     expect(isHomeScreenLaunch()).toBe(false)
+  })
+})
+
+describe('the remembered verdict', () => {
+  const source = readFileSync(new URL('./installPrompt.js', import.meta.url), 'utf8')
+
+  it('is held in sessionStorage, never localStorage', () => {
+    // Android and desktop Chrome give the browser tab and the installed app ONE
+    // localStorage. Remembering "launched from the icon" there would hand the
+    // install-only gift to the browser tab as well — the exact thing this gate
+    // exists to prevent. sessionStorage is per browsing context: it survives the
+    // cache-buster reload inside this container and reaches nothing else.
+    expect(source).toMatch(/sessionStorage/)
+    expect(source).not.toMatch(/localStorage/)
+  })
+
+  it('uses the same key boot.js stamps', () => {
+    // Two halves of one handshake in two files — boot.js writes it before React
+    // exists, this module reads it. Drift = the start_url signal silently lost.
+    const boot = readFileSync(new URL('../../public/boot.js', import.meta.url), 'utf8')
+    expect(boot).toContain(`HOME_SCREEN_KEY = '${HOME_SCREEN_KEY}'`)
   })
 })

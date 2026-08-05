@@ -15,12 +15,28 @@
 //   'installpromptready'             fired when the stash lands
 //   'appinstalled'                   native event; the stash is nulled on it
 //   window.__launchedFromHomeScreen  true when boot saw a home-screen launch
-//   localStorage['pwa.installed.v1'] the same verdict, made sticky
+//   sessionStorage['pwa.launch.v1']  the same verdict, held for this launch
 import { useEffect, useState } from 'react'
 
-// Sticky verdict for "this storage container has launched from the icon".
+// TWO DIFFERENT QUESTIONS, deliberately not merged:
+//
+//   useHomeScreenLaunch()  is the app running RIGHT NOW from the icon?
+//   usePwaInstalled()      does this device have the app at all?
+//
+// An install-gated REWARD must ask the first one: "a web page can't claim it,
+// the home-screen app can" is the whole rule, and on Android and desktop
+// Chrome the browser tab and the installed app share one storage container and
+// one getInstalledRelatedApps answer — so anything remembered across launches,
+// or any "is it installed" probe, leaks the reward back into the browser tab.
+// (iOS containers are separate, which is exactly why that leak is easy to miss
+// in testing.) An "Add to Home Screen" PILL wants the second one: once the
+// device has the app, offering to install it again is noise.
+
+// Verdict for "THIS launch came from the icon", kept in sessionStorage: it has
+// to survive a reload inside this container (our own ?v= cache-buster drops
+// the start_url marker) and must NOT survive into any other browsing context.
 // Shared with boot.js — change it in both.
-export const HOME_SCREEN_KEY = 'pwa.installed.v1'
+export const HOME_SCREEN_KEY = 'pwa.launch.v1'
 
 // Every display mode a home-screen launch can land in. `standalone` covers
 // the normal case, but an Android WebAPK can come up `minimal-ui`, a manifest
@@ -49,18 +65,18 @@ export function isHomeScreenLaunch() {
   return false
 }
 
-function readSticky() {
-  try { return window.localStorage.getItem(HOME_SCREEN_KEY) === '1' } catch { return false }
+function readLaunchFlag() {
+  try { return window.sessionStorage.getItem(HOME_SCREEN_KEY) === '1' } catch { return false }
 }
 
-function writeSticky() {
-  try { window.localStorage.setItem(HOME_SCREEN_KEY, '1') } catch {}
+function writeLaunchFlag() {
+  try { window.sessionStorage.setItem(HOME_SCREEN_KEY, '1') } catch {}
 }
 
 // QA/preview override (mirrors InAppBrowserBanner's ?inapp=): ?pwa=1 forces the
 // "installed" state, ?pwa=0 the browser state — lets the operator eyeball both
 // the "Add it" and "Claim" states of a gated gift without a real install.
-// Never written to the sticky flag: a forced state must not outlive the tab.
+// Never written to the launch flag: a forced state must not outlive the tab.
 function forcedOverride() {
   try {
     const forced = new URLSearchParams(window.location.search).get('pwa')
@@ -70,45 +86,32 @@ function forcedOverride() {
   return null
 }
 
-// Answer now, and remember a positive answer forever. Sticky because the
-// question the callers actually mean is "does this device have the app?", and
-// a launch that already proved it must not be un-proved by a later render, a
-// late media query, or a reload that dropped the start_url marker.
-function detect() {
-  if (isHomeScreenLaunch()) { writeSticky(); return true }
-  return readSticky()
+// Answer now, and hold a positive answer for the rest of this launch: a launch
+// that already proved itself must not be un-proved by a later render, a late
+// media query, or a reload that dropped the start_url marker.
+function detectLaunch() {
+  if (isHomeScreenLaunch()) { writeLaunchFlag(); return true }
+  return readLaunchFlag()
 }
 
-// Is this session running as an installed app? Powers "already added" pill
-// states and install-gated rewards.
+// Was THIS session opened from the home-screen icon? The gate for
+// install-only rewards. Never true in a browser tab, on any platform.
 //
-// Only ever flips to true on a POSITIVE signal — absence of
-// beforeinstallprompt is throttled by engagement heuristics, not proof.
-// getInstalledRelatedApps matches `related_applications` in the manifest
-// (Chrome desktop / Android, even from a normal browser tab).
-export function usePwaInstalled() {
-  const [installed, setInstalled] = useState(() => {
+// The answer is re-asked rather than snapshotted at mount: a cold start can
+// answer "browser tab" for a beat while the web-app container is still coming
+// up, and freezing that wrong answer for the whole session is how a player who
+// did add the icon still finds the gift locked. Media-query listeners catch the
+// flip; visibility/pageshow catch a container resumed from the page cache; the
+// timers catch an engine that flips silently.
+export function useHomeScreenLaunch() {
+  const [fromIcon, setFromIcon] = useState(() => {
     const forced = forcedOverride()
-    return forced === null ? detect() : forced
+    return forced === null ? detectLaunch() : forced
   })
   useEffect(() => {
     if (forcedOverride() !== null) return undefined
     let cancelled = false
-    const recheck = () => { if (!cancelled && detect()) setInstalled(true) }
-    if (navigator.getInstalledRelatedApps) {
-      navigator.getInstalledRelatedApps()
-        .then((apps) => { if (!cancelled && apps && apps.length > 0) setInstalled(true) })
-        .catch(() => {})
-    }
-    const onInstalled = () => { if (!cancelled) setInstalled(true) }
-    window.addEventListener('appinstalled', onInstalled)
-    // Re-ask instead of trusting the first read. A cold start can answer
-    // "browser tab" for a beat while the web-app container is still coming up,
-    // and the mount-time snapshot used to freeze that wrong answer for the
-    // whole session — the user opened from their icon and the gift stayed
-    // locked. Media-query listeners catch the flip; the visibility/pageshow
-    // hooks catch a container resumed from the page cache; the timers catch an
-    // engine that flips silently.
+    const recheck = () => { if (!cancelled && detectLaunch()) setFromIcon(true) }
     const queries = []
     if (window.matchMedia) {
       for (const mode of LAUNCH_MODES) {
@@ -125,7 +128,6 @@ export function usePwaInstalled() {
     const timers = [300, 1500, 4000].map((ms) => setTimeout(recheck, ms))
     return () => {
       cancelled = true
-      window.removeEventListener('appinstalled', onInstalled)
       document.removeEventListener('visibilitychange', recheck)
       window.removeEventListener('pageshow', recheck)
       timers.forEach(clearTimeout)
@@ -137,7 +139,33 @@ export function usePwaInstalled() {
       })
     }
   }, [])
-  return installed
+  return fromIcon
+}
+
+// Does this device have the app? Powers "already added" pill states — NOT
+// reward gates (see the two-questions note at the top: this one is true in a
+// browser tab too, which is the point for a pill and wrong for a gift).
+//
+// Only ever flips to true on a POSITIVE signal — absence of
+// beforeinstallprompt is throttled by engagement heuristics, not proof.
+// getInstalledRelatedApps matches `related_applications` in the manifest
+// (Chrome desktop / Android, even from a normal browser tab).
+export function usePwaInstalled() {
+  const fromIcon = useHomeScreenLaunch()
+  const [installed, setInstalled] = useState(false)
+  useEffect(() => {
+    if (forcedOverride() !== null) return undefined
+    let cancelled = false
+    if (navigator.getInstalledRelatedApps) {
+      navigator.getInstalledRelatedApps()
+        .then((apps) => { if (!cancelled && apps && apps.length > 0) setInstalled(true) })
+        .catch(() => {})
+    }
+    const onInstalled = () => { if (!cancelled) setInstalled(true) }
+    window.addEventListener('appinstalled', onInstalled)
+    return () => { cancelled = true; window.removeEventListener('appinstalled', onInstalled) }
+  }, [])
+  return fromIcon || installed
 }
 
 // Resolve the stashed BeforeInstallPromptEvent, waiting up to `ms` for a boot
