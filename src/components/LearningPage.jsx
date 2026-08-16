@@ -7,7 +7,7 @@ import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers'
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { speakWordByLang, speakDevPhrase, preloadAudioManifest, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
-import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates } from '../utils/storage';
+import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates, getReviewSession, saveReviewSession, clearReviewSession, REVIEW_RESUME_WINDOW_MS } from '../utils/storage';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, CATEGORY_LABELS,
@@ -336,6 +336,58 @@ export default function LearningPage({
   const reviewWordStatesRef = useRef({});  // wordId → {errorCount, sessionCorrect}
   const [reviewCard, setReviewCard] = useState(null); // {word, format}
 
+  // ── Review pass persistence ──
+  // Identity of the queue currently on disk: a saved pass is only resumable
+  // into the exact same scope it was built for. Native lang is in here because
+  // isWordAvailable filters on it; user + target already live in storageKey.
+  const reviewScopeKey = `${langKey}|${selectedCategory}|${selectedLevel}|${isPhraseMode ? 1 : 0}`;
+  // Read through a ref inside the answer/skip handlers: several of them omit
+  // selectedCategory/selectedLevel from their dep arrays (a scope change
+  // rebuilds the queue via the init effect anyway), so a captured scope key
+  // could go stale and stamp the saved pass with the wrong identity.
+  const reviewScopeKeyRef = useRef(reviewScopeKey);
+  useEffect(() => { reviewScopeKeyRef.current = reviewScopeKey; });
+
+  const persistReviewSession = useCallback(() => {
+    saveReviewSession({
+      v: 1,
+      key: reviewScopeKeyRef.current,
+      ids: reviewQueueRef.current.map(w => w.id),
+      pointer: reviewPointerRef.current,
+      updatedAt: Date.now(),
+    }, storageKey);
+  }, [storageKey]);
+
+  // Rehydrate an interrupted pass, or null to build a fresh one. `eligible` is
+  // the current in-scope pool, so words that became mastered/skipped (or moved
+  // out of scope) while away drop out and the pointer shifts back past them.
+  const restoreReviewSession = useCallback((eligible) => {
+    const saved = getReviewSession(storageKey);
+    if (!saved || saved.v !== 1 || saved.key !== reviewScopeKeyRef.current) return null;
+    if (!Array.isArray(saved.ids) || typeof saved.pointer !== 'number') return null;
+    if (Date.now() - (saved.updatedAt || 0) > REVIEW_RESUME_WINDOW_MS) return null;
+
+    const byId = new Map(eligible.map(w => [w.id, w]));
+    const queue = [];
+    let pointer = 0;
+    // Duplicates are meaningful here — a wrong answer splices the same word
+    // back in later in the queue — so walk the ids, don't dedupe them.
+    for (let i = 0; i < saved.ids.length; i++) {
+      const word = byId.get(saved.ids[i]);
+      if (!word) continue;
+      if (i < saved.pointer) pointer++;
+      queue.push(word);
+    }
+    // Pass already finished (or emptied out) → let the caller build fresh so
+    // the normal end-of-cycle rules run instead of resuming past the end.
+    if (queue.length === 0 || pointer >= queue.length) return null;
+    // Words learned since the pass started join the tail rather than waiting
+    // for the next cycle.
+    const inPass = new Set(saved.ids);
+    for (const word of eligible) if (!inPass.has(word.id)) queue.push(word);
+    return { queue, pointer };
+  }, [storageKey]);
+
   // Auto-redirect message shown in review when (a) the chosen category has no
   // learned words yet, or (b) the user finished a 2-round pass on a specific
   // category. After 1.5s we switch to "all" and let the queue rebuild.
@@ -428,6 +480,7 @@ export default function LearningPage({
     // the threshold with no outstanding errors, zero those words out so the user
     // gets a fresh pass. Partial progress is preserved — that handles the
     // "exited mid-review, resume" case required by the spec.
+    let forceFreshPass = false;
     if (categoryReviewMode) {
       const allAlreadyMastered = eligible.every(w => {
         const s = savedStates[w.id];
@@ -436,12 +489,32 @@ export default function LearningPage({
       if (allAlreadyMastered) {
         for (const w of eligible) savedStates[w.id] = { errorCount: 0, sessionCorrect: 0 };
         saveReviewWordStates(savedStates, storageKey);
+        // The states were just zeroed for a deliberate replay — resuming the
+        // old pointer here would drop the user into the middle of a pass whose
+        // premise no longer holds.
+        forceFreshPass = true;
       }
     }
     reviewWordStatesRef.current = savedStates;
+
+    // Resume an interrupted pass (same scope, within the window) instead of
+    // reshuffling from position 0 — this is what makes a reload or a trip to
+    // the word list pick up where the user left off.
+    const resumed = forceFreshPass ? null : restoreReviewSession(eligible);
+    if (resumed) {
+      reviewQueueRef.current = resumed.queue;
+      reviewPointerRef.current = resumed.pointer;
+      persistReviewSession(); // re-stamp updatedAt so the window tracks activity
+      showNextReviewCard(resumed.queue, resumed.pointer, reviewWordStatesRef.current);
+      return;
+    }
+
     const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
+    // Stamp the fresh order immediately: leaving and returning before the first
+    // answer should keep the same queue, not reshuffle it.
+    persistReviewSession();
     showNextReviewCard(queue, 0, reviewWordStatesRef.current);
   }, [effectiveIsReview, categoryReviewMode, selectedCategory, selectedLevel, langKey, reviewRedirect]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -994,6 +1067,7 @@ export default function LearningPage({
         }
         const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) {
+          clearReviewSession(storageKey); // nothing left to resume into
           if (selectedCategory !== 'all') {
             completedCatNameRef.current = catLabels[selectedCategory] || '';
             triggerReviewRedirect('empty');
@@ -1010,6 +1084,7 @@ export default function LearningPage({
             return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
           });
           if (allMastered) {
+            clearReviewSession(storageKey); // pass is finished — don't resume it
             completedCatNameRef.current = catLabels[selectedCategory] || '';
             triggerReviewRedirect('roundsDone');
             return;
@@ -1022,6 +1097,7 @@ export default function LearningPage({
         // Word states intentionally NOT reset — type (B→C→A) and error weight carries over
       }
 
+      persistReviewSession();
       showNextReviewCard(reviewQueueRef.current, reviewPointerRef.current, reviewWordStatesRef.current);
       return;
     }
@@ -1135,7 +1211,7 @@ export default function LearningPage({
     totalShownRef.current++;
     setProgress(getProgress(storageKey));
     showNextCard();
-  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard]);
+  }, [effectiveIsReview, storageKey, srsCard, wrongSelections, wrongImageIds, showNextCard, reviewCard, allWordsFiltered, showNextReviewCard, persistReviewSession]);
 
   // ── Click handlers ──
   const handleOptionClick = useCallback((option) => {
@@ -1240,6 +1316,7 @@ export default function LearningPage({
         }
         const eligible = basePool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
         if (eligible.length === 0) {
+          clearReviewSession(storageKey); // nothing left to resume into
           if (selectedCategory !== 'all') {
             completedCatNameRef.current = catLabels[selectedCategory] || '';
             triggerReviewRedirect('empty');
@@ -1257,6 +1334,7 @@ export default function LearningPage({
               return s && s.sessionCorrect >= masteredThreshold && s.errorCount === 0;
             });
             if (allMastered) {
+              clearReviewSession(storageKey); // pass is finished — don't resume it
               completedCatNameRef.current = catLabels[selectedCategory] || '';
               triggerReviewRedirect('roundsDone');
               setProgress(prog);
@@ -1268,6 +1346,9 @@ export default function LearningPage({
           reviewPointerRef.current = 0;
           // Word states kept across cycles
         }
+        // The skipped word was spliced out of the queue above — save so a
+        // resume doesn't bring it back.
+        persistReviewSession();
         showNextReviewCard(reviewQueueRef.current, reviewPointerRef.current, reviewWordStatesRef.current);
         setProgress(prog);
       }, 400);
@@ -1280,7 +1361,7 @@ export default function LearningPage({
         showNextCard();
       }, 400);
     }
-  }, [currentWord, effectiveIsReview, storageKey, nativeLang, targetLang, posthog, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard]);
+  }, [currentWord, effectiveIsReview, storageKey, nativeLang, targetLang, posthog, showNextCard, triggerAnim, allWordsFiltered, showNextReviewCard, persistReviewSession]);
 
   // Counter text
   const counterText = useMemo(() => {
@@ -1350,7 +1431,7 @@ export default function LearningPage({
       }
     }
     const eligible = pool.filter(w => prog[w.id]?.timestamp && !prog[w.id].mastered);
-    if (eligible.length === 0) { setReviewCard(null); return; }
+    if (eligible.length === 0) { clearReviewSession(storageKey); setReviewCard(null); return; }
 
     // "重新复习" = explicit fresh cycle. Zero out the review states for in-scope words
     // so each one enters in B format and must pass through B → C again to finish.
@@ -1361,9 +1442,12 @@ export default function LearningPage({
     const queue = buildReviewQueueFromWords(eligible, prog, savedStates);
     reviewQueueRef.current = queue;
     reviewPointerRef.current = 0;
+    // Overwrite the saved pass with this fresh one — an explicit restart must
+    // not leave the old pointer on disk for the next entry to resume into.
+    persistReviewSession();
     showNextReviewCard(queue, 0, savedStates);
     setProgress(prog);
-  }, [allWordsFiltered, allPoolFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard]);
+  }, [allWordsFiltered, allPoolFiltered, selectedCategory, selectedLevel, storageKey, showNextReviewCard, persistReviewSession]);
 
   // "Learn New": exit review mode for this category and jump to the "All" category,
   // so the SRS engine pulls the next batch of unlearned words from anywhere.

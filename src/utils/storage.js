@@ -125,6 +125,41 @@ export function saveReviewWordStates(states, langKey = 'guest_en') {
   localStorage.setItem(`vocab_review_states_${langKey}`, JSON.stringify(states));
 }
 
+// ── In-flight review pass (queue order + position) ──
+// The per-word states above survive re-entry, but the *pass* itself used to
+// live only in React refs: any reload (iOS discarding a backgrounded tab, PWA
+// cold start, SW update) — or simply leaving review for the word list and
+// coming back — rebuilt the queue from scratch at position 0, so the counter
+// reset to 0/N and already-answered words were re-queued. We persist the queue
+// as word ids + the pointer, and resume it if the user returns within the
+// window below. Device-local and disposable: never synced to the cloud, and
+// dropped by clearScope alongside the other per-scope slots.
+export const REVIEW_RESUME_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+export function getReviewSession(langKey = 'guest_en') {
+  try {
+    const data = localStorage.getItem(`vocab_review_session_${langKey}`);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveReviewSession(session, langKey = 'guest_en') {
+  try {
+    localStorage.setItem(`vocab_review_session_${langKey}`, JSON.stringify(session));
+  } catch {
+    // Quota / private-mode failures are not worth breaking review over — the
+    // pass just falls back to the old rebuild-from-scratch behaviour.
+  }
+}
+
+export function clearReviewSession(langKey = 'guest_en') {
+  try {
+    localStorage.removeItem(`vocab_review_session_${langKey}`);
+  } catch {}
+}
+
 // ── Cumulative login-day tracking ──
 // Counts the number of distinct calendar days (local time) the user has opened
 // the app. Stored per user id (or 'guest' when signed out) so it survives

@@ -272,6 +272,7 @@ export function clearScope(scope) {
   for (const t of TARGETS) {
     try { localStorage.removeItem(`vocab_kids_progress_${scope}_${t}`); } catch {}
     try { localStorage.removeItem(`vocab_review_states_${scope}_${t}`); } catch {}
+    try { localStorage.removeItem(`vocab_review_session_${scope}_${t}`); } catch {}
   }
 }
 
