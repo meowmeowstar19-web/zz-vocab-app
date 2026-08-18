@@ -929,29 +929,13 @@ export default function LearningPage({
     // state resets when a word cycles back (e.g. cycle rebuild → Monday again).
   }, [currentWord?.id, quizFormat, srsCard, reviewCard]);
 
-  // Phonetics
+  // Phonetics — 只认数据里标注过的音标/读音（Excel 的 ipa、phoneticMap、日文
+  // jaReading、中文 pinyin）。没标注的就空着不显示：以前这里会按空格把词组拆开
+  // 去 dictionaryapi.dev 逐词碰运气，谁先查到算谁的，于是词组会被配上其中某个
+  // 词的音标。宁可不显示，也不显示错的。
   useEffect(() => {
-    if (!currentWord) { setPhonetic(''); return; }
-    const staticPhonetic = getPhonetic(currentWord, targetLang);
-    if (staticPhonetic !== null) { setPhonetic(staticPhonetic); return; }
-    setPhonetic('');
-    if (isPhraseMode) return; // no API fallback for phrases
-    let cancelled = false;
-    const parts = currentWord.en.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
-    (async () => {
-      for (const w of parts) {
-        try {
-          const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${w}`);
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (!Array.isArray(data)) continue;
-          const p = data[0]?.phonetic || data[0]?.phonetics?.find(ph => ph.text)?.text || '';
-          if (p && !cancelled) { setPhonetic(p); return; }
-        } catch {}
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [currentWord?.id, targetLang, isPhraseMode]);
+    setPhonetic(currentWord ? (getPhonetic(currentWord, targetLang) || '') : '');
+  }, [currentWord?.id, targetLang]);
 
   // Sentence translation — translate to whichever language differs from sentenceLang
   const translationLang = sentenceLang !== nativeLang ? nativeLang : targetLang;
