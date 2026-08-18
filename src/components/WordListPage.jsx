@@ -705,7 +705,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       </p>
       {sentenceLang !== nativeLang && (
         // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
-        <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
+        // 例句和译文之间留 6（原来 4 太挤，用户要 1.5 倍）
+        <p className="text-center text-[12px] text-[#999] mt-1.5 leading-snug px-1" style={{ minHeight: 18 }}>
           {translatedSentence || '\u00A0'}
         </p>
       )}
