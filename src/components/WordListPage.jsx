@@ -682,8 +682,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
-  // ① 单词那一组：图 / 单词 / 音标 / 释义。释义是这个单词的翻译，永远紧跟着
-  // 单词走，和单词一起钉在卡顶 —— 不许扔到中间去跟例句一块儿居中。
+  // 单词那一组：图 / 单词 / 音标 / 释义。释义是这个单词的翻译，永远紧跟着单词
+  // 走；这一组和下面的例句是同一整块，一起居中，不单独钉在卡顶。
   const headContent = (
     <>
       {imgSrc && (
@@ -727,8 +727,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       </p>
       {sentenceLang !== nativeLang && (
         // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
-        // 例句和译文之间留 6（原来 4 太挤，用户要 1.5 倍）
-        <p className="text-center text-[12px] text-[#999] mt-1.5 leading-snug px-1" style={{ minHeight: 18 }}>
+        <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
           {translatedSentence || '\u00A0'}
         </p>
       )}
@@ -753,10 +752,11 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       }}
       onClick={onClose}
     >
-      {/* 三段式（用户 08-18 拍板，别再改）：
-          ① 单词组（图 / 单词 / 音标 / 释义）——位置固定，钉在卡顶
-          ② 例句 + 例句译文——占满中间剩余高度，在里头垂直居中；长了自己滚
-          ③ 关闭按钮——位置固定，钉在卡底（离底边 26，不贴边） */}
+      {/* 两段式（用户 08-18 拍板，别再改）：
+          ① 从单词到例句译文（图 / 单词 / 音标 / 释义 / 例句 / 例句译文）是**一整块**，
+             内部间距跟有图的长 pop 完全一样；这一整块在关闭按钮上方整体上下居中，
+             撑不下时自己滚动。
+          ② 关闭按钮位置固定，钉在卡底（离内容 16、离底边 26，不贴边）。 */}
       <div
         className={SCROLL_HIDE}
         style={{
@@ -774,26 +774,26 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* ① 单词组：位置固定 */}
-        <div style={{ flex: '0 0 auto' }}>{headContent}</div>
-
-        {/* ② 例句那块：占满中间，短就居中，长就自己滚。
+        {/* ① 单词 → 例句译文这一整块：占满关闭按钮以上的全部高度，整块居中。
             居中用 margin:auto 而不是 justify-content:center —— 内容撑满时 auto
             自动退化成 0，不会像后者那样把顶部截掉、滚不上去。 */}
         <div
           className={SCROLL_HIDE}
           style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
         >
-          <div style={{ width: '100%', margin: 'auto 0', padding: '8px 0' }}>{body}</div>
+          <div style={{ width: '100%', margin: 'auto 0' }}>
+            {headContent}
+            {body && <div className="mt-2">{body}</div>}
+          </div>
         </div>
 
-        {/* ③ 关闭按钮：位置固定。用户定稿(07-25)：本 pop 的唯一退出控件 = 底部
+        {/* ② 关闭按钮：位置固定。用户定稿(07-25)：本 pop 的唯一退出控件 = 底部
             黄色 Close（右上角 X 已按用户要求去掉）— 移植/统一时不得改回 X */}
         <button
           onClick={onClose}
           className="mx-auto block active:scale-95"
           style={{
-            flex: '0 0 auto',
+            flex: '0 0 auto', marginTop: 16,
             width: 148, height: 48, backgroundColor: '#FFDF4E',
             border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
           }}
