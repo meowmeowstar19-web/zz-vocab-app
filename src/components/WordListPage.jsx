@@ -660,6 +660,58 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
+  // 单词那一组：图 / 单词 / 音标 / 释义。释义是这个单词的翻译，永远紧跟着单词
+  // 走 —— 不许扔到下面去跟例句一块儿排（用户 08-18 拍板）。
+  const headContent = (
+    <>
+      {imgSrc && (
+        <img
+          src={imgSrc}
+          alt={stripRuby(displayText)}
+          className="w-full rounded-xl"
+          style={{ maxHeight: 280, objectFit: 'contain' }}
+        />
+      )}
+      <RubyText
+        text={displayText}
+        className={imgSrc ? 'block text-center mt-4' : 'block text-center'}
+        style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}
+      />
+      {/* 没标注音标的词只剩喇叭 —— 行高写死，有没有音标都不跳版 */}
+      <div className="flex items-center justify-center gap-1.5 mt-2" style={{ minHeight: 22 }}>
+        <button onClick={handleSpeak} className="active:scale-90 shrink-0">
+          <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15 }} />
+        </button>
+        {phonetic && (
+          <span
+            className="text-[15px] text-[#999]"
+            style={{ fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }}
+          >
+            {phonetic}
+          </span>
+        )}
+      </div>
+      <RubyText text={nativeText} className="block text-center text-[16px] text-[#3f3e3e] mt-2 font-medium" />
+    </>
+  );
+
+  const body = displaySentence ? (
+    <>
+      <p
+        className="text-center text-[14px] text-[#555] leading-snug px-1"
+        style={{ fontFamily: getFontFamily(sentenceLang) }}
+      >
+        {displaySentence}
+      </p>
+      {sentenceLang !== nativeLang && (
+        // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
+        <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
+          {translatedSentence || '\u00A0'}
+        </p>
+      )}
+    </>
+  ) : null;
+
   // ⚠️ 用户反复强调的死规矩：**这个 pop 最短也是正方形**（高 ≥ 宽），有图没图
   // 一样，内容再短也不许把卡压扁 —— 短内容是在方框里居中，不是让方框缩水。
   // 所以宽和高的下限是同一个值 CARD_SIDE；只有屏幕实在装不下时才让步到 100%。
@@ -678,9 +730,11 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       }}
       onClick={onClose}
     >
-      {/* 三段式：头部（图+单词+音标）与底部（关闭）位置固定，中间释义/例句
-          自己占满剩余高度 —— 内容短就在头尾之间居中，内容长就自己滚动。 */}
+      {/* 一摞内容（单词组 → 例句 → 关闭按钮）整体在方卡里垂直居中：内容短既不
+          挤在卡顶、中间也不会空出一个洞，关闭按钮永远离内容 16 —— 不许钉在卡底
+          边上（用户：太靠下）。内容长就照旧从上往下排，超出屏幕时卡自己滚动。 */}
       <div
+        className={SCROLL_HIDE}
         style={{
           ...MODAL_CARD, animation: 'none',
           width: CARD_SIDE,
@@ -688,84 +742,31 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
           maxHeight: '100%',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
-          padding: imgSrc ? 16 : '22px 16px 16px',
+          overflowY: 'auto',
+          padding: 16,
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
           transition: 'opacity 0.2s ease, transform 0.2s ease',
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* ── 头部（固定）── */}
-        <div style={{ flex: '0 0 auto' }}>
-          {imgSrc && (
-            <img
-              src={imgSrc}
-              alt={stripRuby(displayText)}
-              className="w-full rounded-xl"
-              style={{ maxHeight: 280, objectFit: 'contain' }}
-            />
-          )}
-          <RubyText
-            text={displayText}
-            className={imgSrc ? 'block text-center mt-4' : 'block text-center'}
-            style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}
-          />
-          {/* 没标注音标的词只剩喇叭 —— 行高写死，有没有音标都不跳版 */}
-          <div className="flex items-center justify-center gap-1.5 mt-2" style={{ minHeight: 22 }}>
-            <button onClick={handleSpeak} className="active:scale-90 shrink-0">
-              <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15 }} />
-            </button>
-            {phonetic && (
-              <span
-                className="text-[15px] text-[#999]"
-                style={{ fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }}
-              >
-                {phonetic}
-              </span>
-            )}
-          </div>
+        {/* 居中用 margin:auto 而不是 justify-content:center —— 内容撑满时 auto
+            自动退化成 0，不会像后者那样把顶部截掉、滚不上去。 */}
+        <div style={{ width: '100%', margin: 'auto 0' }}>
+          {headContent}
+          {body && <div style={{ marginTop: 8 }}>{body}</div>}
+          <button
+            onClick={onClose}
+            className="mx-auto block active:scale-95"
+            style={{
+              marginTop: 16,
+              width: 148, height: 48, backgroundColor: '#FFDF4E',
+              border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
+            }}
+          >
+            {t.close}
+          </button>
         </div>
-
-        {/* ── 中部（撑满剩余高度，短内容居中，长内容滚动）── */}
-        <div
-          className={SCROLL_HIDE}
-          style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
-        >
-          {/* 居中用 margin:auto 而不是 justify-content:center —— 内容撑满时
-              auto 自动退化成 0，不会像后者那样把顶部截掉滚不上去。 */}
-          <div style={{ width: '100%', margin: 'auto 0', padding: '10px 0' }}>
-            <RubyText text={nativeText} className="block text-center text-[16px] text-[#3f3e3e] font-medium" />
-            {displaySentence && (
-              <p
-                className="text-center text-[14px] text-[#555] mt-2 leading-snug px-1"
-                style={{ fontFamily: getFontFamily(sentenceLang) }}
-              >
-                {displaySentence}
-              </p>
-            )}
-            {displaySentence && sentenceLang !== nativeLang && (
-              // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
-              <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
-                {translatedSentence || '\u00A0'}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* 用户定稿(07-25)：本 pop 的唯一退出控件 = 底部黄色 Close（右上角 X
-            已按用户要求去掉）— 移植/统一时不得删除或改回 X */}
-        <button
-          onClick={onClose}
-          className="mx-auto block active:scale-95"
-          style={{
-            flex: '0 0 auto',
-            width: 148, height: 48, backgroundColor: '#FFDF4E',
-            border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
-          }}
-        >
-          {t.close}
-        </button>
       </div>
     </div>
   );
