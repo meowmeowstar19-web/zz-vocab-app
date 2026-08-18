@@ -284,7 +284,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   // Long-list affordances: the slim scrollbar (where am I in the list) and the
   // back-to-top button (shown only once we're past the first screen).
   const scrollRef = useRef(null);
-  const { overflowing, past, thumbRef, scrollToTop } = useScrollWatch(scrollRef);
+  const { past, barRef, thumbRef, scrollToTop } = useScrollWatch(scrollRef);
 
   return (
     <div className="relative h-full">
@@ -567,7 +567,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       </div>
 
       {/* ===== SLIM SCROLLBAR + BACK TO TOP ===== */}
-      <SlimScrollBar visible={overflowing} thumbRef={thumbRef} style={{ zIndex: 20 }} />
+      <SlimScrollBar barRef={barRef} thumbRef={thumbRef} style={{ zIndex: 20 }} />
       <ScrollTopButton
         visible={past}
         onClick={scrollToTop}
