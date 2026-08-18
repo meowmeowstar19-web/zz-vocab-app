@@ -12,6 +12,7 @@ export const ICONS = {
     { d: 'M8.4 8.4a1.35 1.35 0 1 0 .01 0Z', fill: true },
   ],
   back: [{ d: 'M14.5 5 8 12l6.5 7' }],
+  up: [{ d: 'M5 14.5 12 8l7 6.5' }], // the back chevron stood on end (回到顶部)
   check: [{ d: 'M5 12.4 10 17 19 6.6' }],
   close: [{ d: 'M7 7 17 17M17 7 7 17' }],
   edit: [{ d: 'M17 3.5 20.5 7 8.5 19 4 20l1-4.5L17 3.5Z' }],
