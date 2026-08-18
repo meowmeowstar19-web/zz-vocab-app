@@ -14,7 +14,6 @@ function speakWordOrDev(word, text, targetLang) {
   else speakWordByLang(text, targetLang);
 }
 import RubyText, { stripRuby } from './RubyText';
-import { phoneticMap } from '../data/phonetics';
 import {
   getWordText, getSentence, getPhonetic, isWordAvailable,
   getTranslationPair, getFontFamily, UI_TEXT, LANGUAGES, getLangName,
@@ -22,7 +21,7 @@ import {
 } from '../utils/langHelpers';
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
-import { MODAL_SCRIM, MODAL_CARD } from '../general-ui/popKit.jsx';
+import { MODAL_SCRIM, MODAL_CARD, SCROLL_HIDE } from '../general-ui/popKit.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -66,33 +65,15 @@ function prefetchTranslation(word, targetLang, nativeLang, onDone) {
     .catch(() => {});
 }
 
-function usePhonetic(wordEn, targetLang) {
-  const [phonetic, setPhonetic] = useState('');
-  useEffect(() => {
-    if (!wordEn) { setPhonetic(''); return; }
-    const word = { en: wordEn };
-    const staticP = getPhonetic(word, targetLang);
-    if (staticP !== null) { setPhonetic(staticP); return; }
-    const local = phoneticMap[wordEn];
-    if (local) { setPhonetic(local); return; }
-    setPhonetic('');
-    let cancelled = false;
-    const parts = wordEn.split(/\s+/).map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
-    (async () => {
-      for (const w of parts) {
-        try {
-          const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${w}`);
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (!Array.isArray(data)) continue;
-          const p = data[0]?.phonetic || data[0]?.phonetics?.find(ph => ph.text)?.text || '';
-          if (p && !cancelled) { setPhonetic(p); return; }
-        } catch {}
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [wordEn, targetLang]);
-  return phonetic;
+// 音标/读音只认数据里标注过的那一份（Excel 的 ipa 列 → phoneticMap → 日文
+// jaReading / 中文 pinyin），全部走 getPhonetic 这一个入口。
+// 没标注的（进阶短语等）返回空 → pop 里干脆不显示音标。
+// 旧写法是拿 dictionaryapi.dev 按空格把词组拆开逐词去查、谁先查到算谁的，而且
+// 只传了 word.en 进来（口语短语自带的 ipa 根本用不上），于是
+// "Have a falling-out" 会顶着 a 的音标 /æɪ/。宁可不显示，也不显示错的。
+function getWordPhonetic(word, targetLang) {
+  if (!word) return '';
+  return getPhonetic(word, targetLang) || '';
 }
 
 export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0, userEmail = '' }) {
@@ -653,7 +634,7 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     : '';
   const translatedSentence = staticTranslation || cachedTranslation;
 
-  const phonetic = usePhonetic(word.en, targetLang);
+  const phonetic = getWordPhonetic(word, targetLang);
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
@@ -679,6 +660,11 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
+  // 卡片高度下限：有图的卡保持原来 353 的方形观感；纯文字卡（口语/进阶短语）
+  // 用矮一档的下限，短内容不会在底下拖出一大片空白。两个值都是定值 —— 同一类
+  // pop 的标题与关闭按钮永远落在同一位置，变的只有中间那块。
+  const minCardH = imgSrc ? 353 : 250;
+
   return (
     <div
       style={{
@@ -690,64 +676,91 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       }}
       onClick={onClose}
     >
+      {/* 三段式：头部（图+单词+音标）与底部（关闭）位置固定，中间释义/例句
+          自己占满剩余高度 —— 内容短就在头尾之间居中，内容长就自己滚动。 */}
       <div
-        className="p-4"
         style={{
           ...MODAL_CARD, animation: 'none',
           width: 'min(353px, calc(100vw - 24px))',
-          minHeight: 353,
+          minHeight: `min(${minCardH}px, 100%)`,
+          maxHeight: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          padding: imgSrc ? 16 : '22px 16px 16px',
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
           transition: 'opacity 0.2s ease, transform 0.2s ease',
         }}
         onClick={e => e.stopPropagation()}
       >
-        {imgSrc && (
-          <img
-            src={imgSrc}
-            alt={stripRuby(displayText)}
-            className="w-full rounded-xl"
-            style={{ maxHeight: 280, objectFit: 'contain' }}
-          />
-        )}
-        <RubyText
-          text={displayText}
-          className="block text-center mt-4"
-          style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}
-        />
-        <div className="flex items-center justify-center gap-1.5 mt-2">
-          <button onClick={handleSpeak} className="active:scale-90 shrink-0">
-            <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15 }} />
-          </button>
-          {phonetic && (
-            <span
-              className="text-[15px] text-[#999]"
-              style={{ fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }}
-            >
-              {phonetic}
-            </span>
+        {/* ── 头部（固定）── */}
+        <div style={{ flex: '0 0 auto' }}>
+          {imgSrc && (
+            <img
+              src={imgSrc}
+              alt={stripRuby(displayText)}
+              className="w-full rounded-xl"
+              style={{ maxHeight: 280, objectFit: 'contain' }}
+            />
           )}
+          <RubyText
+            text={displayText}
+            className={imgSrc ? 'block text-center mt-4' : 'block text-center'}
+            style={{ fontSize: isTargetJa ? 26 : 22, fontFamily: targetFont, fontWeight: 900 }}
+          />
+          {/* 没标注音标的词只剩喇叭 —— 行高写死，有没有音标都不跳版 */}
+          <div className="flex items-center justify-center gap-1.5 mt-2" style={{ minHeight: 22 }}>
+            <button onClick={handleSpeak} className="active:scale-90 shrink-0">
+              <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15 }} />
+            </button>
+            {phonetic && (
+              <span
+                className="text-[15px] text-[#999]"
+                style={{ fontFamily: isTargetJa ? '"Hiragino Sans", sans-serif' : 'inherit' }}
+              >
+                {phonetic}
+              </span>
+            )}
+          </div>
         </div>
-        <RubyText text={nativeText} className="block text-center text-[16px] text-[#3f3e3e] mt-2 font-medium" />
-        {displaySentence && (
-          <p
-            className="text-center text-[14px] text-[#555] mt-2 leading-snug px-1"
-            style={{ fontFamily: getFontFamily(sentenceLang) }}
-          >
-            {displaySentence}
-          </p>
-        )}
-        {displaySentence && sentenceLang !== nativeLang && (
-          <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
-            {translatedSentence || '\u00A0'}
-          </p>
-        )}
+
+        {/* ── 中部（撑满剩余高度，短内容居中，长内容滚动）── */}
+        <div
+          className={SCROLL_HIDE}
+          style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+        >
+          {/* 居中用 margin:auto 而不是 justify-content:center —— 内容撑满时
+              auto 自动退化成 0，不会像后者那样把顶部截掉滚不上去。 */}
+          <div style={{ width: '100%', margin: 'auto 0', padding: '10px 0' }}>
+            <RubyText text={nativeText} className="block text-center text-[16px] text-[#3f3e3e] font-medium" />
+            {displaySentence && (
+              <p
+                className="text-center text-[14px] text-[#555] mt-2 leading-snug px-1"
+                style={{ fontFamily: getFontFamily(sentenceLang) }}
+              >
+                {displaySentence}
+              </p>
+            )}
+            {displaySentence && sentenceLang !== nativeLang && (
+              // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
+              <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
+                {translatedSentence || '\u00A0'}
+              </p>
+            )}
+          </div>
+        </div>
+
         {/* 用户定稿(07-25)：本 pop 的唯一退出控件 = 底部黄色 Close（右上角 X
             已按用户要求去掉）— 移植/统一时不得删除或改回 X */}
         <button
           onClick={onClose}
-          className="mt-4 mx-auto block active:scale-95"
-          style={{ width: 148, height: 48, backgroundColor: '#FFDF4E', border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000' }}
+          className="mx-auto block active:scale-95"
+          style={{
+            flex: '0 0 auto',
+            width: 148, height: 48, backgroundColor: '#FFDF4E',
+            border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
+          }}
         >
           {t.close}
         </button>
