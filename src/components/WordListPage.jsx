@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { words, categories as wordCategories } from '../data/words';
 import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { devPhrases } from '../data/devPhrases';
@@ -23,6 +23,7 @@ import {
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 import { MODAL_SCRIM, MODAL_CARD } from '../general-ui/popKit.jsx';
+import { useScrollWatch, SlimScrollBar, ScrollTopButton } from '../general-ui/scrollKit.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -274,6 +275,11 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
+  // Long-list affordances: the slim scrollbar (where am I in the list) and the
+  // back-to-top button (shown only once we're past the first screen).
+  const scrollRef = useRef(null);
+  const { overflowing, past, thumbRef, scrollToTop } = useScrollWatch(scrollRef);
+
   return (
     <div className="relative h-full">
       {/* Background — stays fixed behind scrolling content */}
@@ -281,8 +287,9 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         <img src={getFigmaAssetUrl('vocablist-background.jpg')} alt="" className="w-full h-full object-cover" />
       </div>
 
-      {/* All content scrolls together */}
-      <div className="relative z-10 h-full overflow-y-auto">
+      {/* All content scrolls together. scrollbar-hide kills the native bar —
+          SlimScrollBar below draws the one the user actually sees. */}
+      <div ref={scrollRef} className="relative z-10 h-full overflow-y-auto scrollbar-hide">
 
         {/* ===== HEADER ===== */}
         <div className="flex flex-col items-center pt-6 pb-4">
@@ -552,6 +559,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           </div>
         ))}
       </div>
+
+      {/* ===== SLIM SCROLLBAR + BACK TO TOP ===== */}
+      <SlimScrollBar visible={overflowing} thumbRef={thumbRef} style={{ zIndex: 20 }} />
+      <ScrollTopButton
+        visible={past}
+        onClick={scrollToTop}
+        label={t.backToTop}
+        style={{ position: 'absolute', right: 14, bottom: 16, zIndex: 20 }}
+      />
 
       {/* ===== IMAGE POPUP ===== */}
       {popupWord && (
