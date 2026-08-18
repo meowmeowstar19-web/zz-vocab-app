@@ -660,10 +660,12 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
-  // 卡片高度下限：有图的卡保持原来 353 的方形观感；纯文字卡（口语/进阶短语）
-  // 用矮一档的下限，短内容不会在底下拖出一大片空白。两个值都是定值 —— 同一类
-  // pop 的标题与关闭按钮永远落在同一位置，变的只有中间那块。
-  const minCardH = imgSrc ? 353 : 250;
+  // ⚠️ 用户反复强调的死规矩：**这个 pop 最短也是正方形**（高 ≥ 宽），有图没图
+  // 一样，内容再短也不许把卡压扁 —— 短内容是在方框里居中，不是让方框缩水。
+  // 所以宽和高的下限是同一个值 CARD_SIDE；只有屏幕实在装不下时才让步到 100%。
+  // 48px = MODAL_SCRIM 左右各 24 的内边距：窄屏上卡实际就这么宽，宽高同一个
+  // 算式才真的是正方形（写 24px 的话高会比宽多出 24，方不了）。
+  const CARD_SIDE = 'min(353px, calc(100vw - 48px))';
 
   return (
     <div
@@ -681,8 +683,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       <div
         style={{
           ...MODAL_CARD, animation: 'none',
-          width: 'min(353px, calc(100vw - 24px))',
-          minHeight: `min(${minCardH}px, 100%)`,
+          width: CARD_SIDE,
+          minHeight: `min(${CARD_SIDE}, 100%)`, // 正方形下限
           maxHeight: '100%',
           display: 'flex',
           flexDirection: 'column',
