@@ -153,7 +153,13 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   // Full pool — words + oral phrases (+ 进阶 phrases for the unlocked user only,
   // so dev content never reaches anyone else's totals or lists).
   const allWords = useMemo(() => {
-    return devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+    const pool = devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+    // Last line of defence: id doubles as the React list key AND the storage key.
+    // A duplicate id makes React reuse rows across sub-tabs — ghost 短语 rows stuck
+    // on top of the 单词 list, rows surviving into the empty state. Data generation
+    // already de-dups; keep the pool unique here so a bad row can never do that again.
+    const seen = new Set();
+    return pool.filter(w => !seen.has(w.id) && seen.add(w.id));
   }, [devUnlocked]);
 
   const eligibleWords = useMemo(() => {

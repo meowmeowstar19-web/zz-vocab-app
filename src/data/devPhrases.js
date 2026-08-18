@@ -2209,8 +2209,19 @@ const raw = [
   ['prerogative', '个人的权利,随你便', '原声精讲', 'It\'s your prerogative to change your mind.', '改不改主意是你的自由。'],
 ];
 
+// Stable IDs, de-duped. Two rows can normalize to the SAME id ("To top it
+// off..." vs "to top it off"), and a duplicate id is poison: React reuses it as
+// a list key (ghost rows that leak across the 单词/短语/进阶 lists) and storage
+// keys progress by it (both rows share one learned/mastered flag). First
+// occurrence keeps the plain id — existing progress stays put; later ones get -2/-3.
+const _usedIds = new Set();
 function makeId(en) {
-  return 'dev-' + en.toLowerCase().replace(/['\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const base = 'dev-' + en.toLowerCase().replace(/['\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!_usedIds.has(base)) { _usedIds.add(base); return base; }
+  let n = 2;
+  while (_usedIds.has(base + '-' + n)) n++;
+  _usedIds.add(base + '-' + n);
+  return base + '-' + n;
 }
 
 export const devPhrases = raw.map(([en, zh, category, sentence, sentenceZh]) => ({
