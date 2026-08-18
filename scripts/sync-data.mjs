@@ -1047,10 +1047,19 @@ function writeOralPhrasesJs(phrases, catOrder) {
   }
   out += `];\n\n`;
 
-  out += `// Process into objects with stable IDs\n`;
+  out += `// Process into objects with stable IDs, de-duped: two rows that normalize to\n`;
+  out += `// the same id would collide as React list keys and share one progress entry.\n`;
+  out += `// First occurrence keeps the plain id; later ones get -2/-3.\n`;
+  out += `const _usedIds = new Set();\n`;
   out += `function makeId(en) {\n`;
-  out += `  return 'oral-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
-  out += `}\n\n`;
+  out += `  const base = 'oral-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
+  out += `  if (!_usedIds.has(base)) { _usedIds.add(base); return base; }\n`;
+  out += `  let n = 2;\n`;
+  out += `  while (_usedIds.has(base + '-' + n)) n++;\n`;
+  out += `  _usedIds.add(base + '-' + n);\n`;
+  out += `  return base + '-' + n;\n`;
+  out += `}\n`;
+  out += `\n`;
   out += `export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh, ja, jaSentence, ipa, pinyin, jaReading]) => ({\n`;
   out += `  id: makeId(en),\n`;
   out += `  en, zh, category,\n`;
@@ -1132,9 +1141,21 @@ function writeDevPhrasesJs(devPhrases, devCats, words) {
   }
   out += `];\n\n`;
 
+  out += `// Stable IDs, de-duped. Two rows can normalize to the SAME id ("To top it\n`;
+  out += `// off..." vs "to top it off"), and a duplicate id is poison: React reuses it as\n`;
+  out += `// a list key (ghost rows that leak across the 单词/短语/进阶 lists) and storage\n`;
+  out += `// keys progress by it (both rows share one learned/mastered flag). First\n`;
+  out += `// occurrence keeps the plain id — existing progress stays put; later ones get -2/-3.\n`;
+  out += `const _usedIds = new Set();\n`;
   out += `function makeId(en) {\n`;
-  out += `  return 'dev-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
-  out += `}\n\n`;
+  out += `  const base = 'dev-' + en.toLowerCase().replace(/['\\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\n`;
+  out += `  if (!_usedIds.has(base)) { _usedIds.add(base); return base; }\n`;
+  out += `  let n = 2;\n`;
+  out += `  while (_usedIds.has(base + '-' + n)) n++;\n`;
+  out += `  _usedIds.add(base + '-' + n);\n`;
+  out += `  return base + '-' + n;\n`;
+  out += `}\n`;
+  out += `\n`;
   out += `export const devPhrases = raw.map(([en, zh, category, sentence, sentenceZh]) => ({\n`;
   out += `  id: makeId(en),\n`;
   out += `  en, zh, category,\n`;
@@ -1171,6 +1192,18 @@ function writeDevPhrasesJs(devPhrases, devCats, words) {
 
   writeFileSync(join(SRC_DATA, 'devPhrases.js'), out);
   log.ok(`Wrote src/data/devPhrases.js (${devPhrases.length} entries, ${devCats.length} categories)`);
+
+  // Near-duplicate rows still get unique ids (makeId suffixes them), but they are
+  // almost always an Excel slip — surface them so they can be merged at the source.
+  const seenBase = new Map();
+  for (const p of ordered) {
+    const base = p.en.toLowerCase().replace(/['\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!seenBase.has(base)) seenBase.set(base, []);
+    seenBase.get(base).push(`${p.en} (${p.category})`);
+  }
+  for (const [, rows] of seenBase) {
+    if (rows.length > 1) log.warn(`进阶 重复词条(已自动加 -2 后缀,建议在 Excel 里合并): ${rows.join('  |  ')}`);
+  }
 }
 
 // ── Generate src/data/categoryLabels.js ─────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { words, categories as wordCategories } from '../data/words';
 import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralPhrases';
 import { devPhrases } from '../data/devPhrases';
@@ -22,6 +22,7 @@ import {
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 import { MODAL_SCRIM, MODAL_CARD, SCROLL_HIDE } from '../general-ui/popKit.jsx';
+import { useScrollWatch, SlimScrollBar, ScrollTopButton } from '../general-ui/scrollKit.jsx';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -134,7 +135,13 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   // Full pool — words + oral phrases (+ 进阶 phrases for the unlocked user only,
   // so dev content never reaches anyone else's totals or lists).
   const allWords = useMemo(() => {
-    return devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+    const pool = devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+    // Last line of defence: id doubles as the React list key AND the storage key.
+    // A duplicate id makes React reuse rows across sub-tabs — ghost 短语 rows stuck
+    // on top of the 单词 list, rows surviving into the empty state. Data generation
+    // already de-dups; keep the pool unique here so a bad row can never do that again.
+    const seen = new Set();
+    return pool.filter(w => !seen.has(w.id) && seen.add(w.id));
   }, [devUnlocked]);
 
   const eligibleWords = useMemo(() => {
@@ -255,6 +262,11 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const targetFont = getFontFamily(targetLang);
   const isTargetJa = targetLang === 'ja';
 
+  // Long-list affordances: the slim scrollbar (where am I in the list) and the
+  // back-to-top button (shown only once we're past the first screen).
+  const scrollRef = useRef(null);
+  const { past, barRef, thumbRef, scrollToTop } = useScrollWatch(scrollRef);
+
   return (
     <div className="relative h-full">
       {/* Background — stays fixed behind scrolling content */}
@@ -262,8 +274,9 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         <img src={getFigmaAssetUrl('vocablist-background.jpg')} alt="" className="w-full h-full object-cover" />
       </div>
 
-      {/* All content scrolls together */}
-      <div className="relative z-10 h-full overflow-y-auto">
+      {/* All content scrolls together. scrollbar-hide kills the native bar —
+          SlimScrollBar below draws the one the user actually sees. */}
+      <div ref={scrollRef} className="relative z-10 h-full overflow-y-auto scrollbar-hide">
 
         {/* ===== HEADER ===== */}
         <div className="flex flex-col items-center pt-6 pb-4">
@@ -533,6 +546,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           </div>
         ))}
       </div>
+
+      {/* ===== SLIM SCROLLBAR + BACK TO TOP ===== */}
+      <SlimScrollBar barRef={barRef} thumbRef={thumbRef} style={{ zIndex: 20 }} />
+      <ScrollTopButton
+        visible={past}
+        onClick={scrollToTop}
+        label={t.backToTop}
+        style={{ position: 'absolute', right: 14, bottom: 16, zIndex: 20 }}
+      />
 
       {/* ===== IMAGE POPUP ===== */}
       {popupWord && (

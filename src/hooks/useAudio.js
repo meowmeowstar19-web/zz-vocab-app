@@ -19,25 +19,30 @@ function getAudioCtx() {
 // with the same function so the two always match.
 const MANIFEST_LOADERS = import.meta.glob('../data/audio-manifest/*.json');
 const _audioManifests = {}; // lang -> { audioKey: hash }
+// In-flight loads, so every caller during the download awaits the SAME import
+// instead of firing its own. Without this, the preload effect and each word
+// spoken before it resolves each kick off a separate fetch of the same chunk.
+const _manifestLoads = {}; // lang -> Promise<{ audioKey: hash }>
 
 // Load (once, cached) the audio manifest for a language. Call from language
 // selection / app startup so it's ready before the first word; safe to call
 // repeatedly. Returns the manifest map ({} if the language has no manifest).
-export async function preloadAudioManifest(lang) {
-  if (!lang) return {};
-  if (_audioManifests[lang]) return _audioManifests[lang];
+export function preloadAudioManifest(lang) {
+  if (!lang) return Promise.resolve({});
+  if (_audioManifests[lang]) return Promise.resolve(_audioManifests[lang]);
+  if (_manifestLoads[lang]) return _manifestLoads[lang];
   const loader = MANIFEST_LOADERS[`../data/audio-manifest/${lang}.json`];
-  if (!loader) return (_audioManifests[lang] = {});
-  try {
-    const mod = await loader();
-    return (_audioManifests[lang] = mod.default || mod);
-  } catch {
+  if (!loader) return Promise.resolve((_audioManifests[lang] = {}));
+  const load = loader()
+    .then((mod) => (_audioManifests[lang] = mod.default || mod))
     // Don't cache the failure: a transient network blip (e.g. flaky wifi when
     // switching language) would otherwise poison this language for the whole
     // session — every word falls back to robotic TTS until the app restarts.
     // Returning {} without caching lets the next word retry the import.
-    return {};
-  }
+    .catch(() => ({}))
+    .finally(() => { delete _manifestLoads[lang]; });
+  _manifestLoads[lang] = load;
+  return load;
 }
 
 // Single persistent <audio> element. iOS Safari only allows playback on a
@@ -70,23 +75,48 @@ let _deferredSpeak = null;
 // on the mp3 that just started.
 let _primed = false;
 
-function playRecorded(url) {
+// Bumped on every playRecorded call. The shared <audio> element's callbacks
+// are async, so a failure for a word the user already swiped past must not
+// speak over the word now on screen — only the newest generation may act.
+let _playGen = 0;
+
+// Play a recording. `onUnavailable` fires when the file itself won't play
+// (network error, 404, decode failure) — NOT when playback was merely blocked
+// by the autoplay policy, which is deferred to the next gesture instead.
+// Callers pass a TTS fallback so a single failed mp3 leaves the word spoken
+// rather than silent.
+function playRecorded(url, onUnavailable) {
   const a = getRecordedAudio();
   a.pause();
   a.currentTime = 0;
+  const gen = ++_playGen;
+  let failed = false;
+  const fail = () => {
+    // The element's `error` event and the play() rejection both fire for a
+    // broken load — report it once, and only for the current word.
+    if (failed || gen !== _playGen) return;
+    failed = true;
+    onUnavailable?.();
+  };
+  // Overwritten (not accumulated) on every call, so the previous word's
+  // handler can't linger on the shared element.
+  a.onerror = fail;
   a.src = url;
   const p = a.play();
   if (p && typeof p.catch === 'function') {
-    p.catch(() => {
-      // Likely blocked because audio wasn't unlocked yet — defer and let
-      // primeAudio replay it on the next gesture.
-      _deferredSpeak = () => {
-        const a2 = getRecordedAudio();
-        a2.pause();
-        a2.currentTime = 0;
-        a2.src = url;
-        a2.play().catch(() => {});
-      };
+    p.catch((err) => {
+      if (gen !== _playGen) return;
+      // NotAllowedError = the autoplay policy, i.e. audio isn't unlocked yet.
+      // Defer and let primeAudio replay it on the next gesture. Browsers that
+      // report no name at all get the same benefit-of-the-doubt treatment the
+      // original catch-all gave.
+      if (!err || !err.name || err.name === 'NotAllowedError') {
+        _deferredSpeak = () => playRecorded(url, onUnavailable);
+        return;
+      }
+      // Anything else (network / decode / unsupported source) means the
+      // recording is not coming — hand it to the TTS fallback.
+      fail();
     });
   }
 }
@@ -137,6 +167,9 @@ export function primeAudio({ replay = true } = {}) {
   } else if (!_primed) {
     try {
       const a = getRecordedAudio();
+      // Drop the last word's error handler before swapping src: a failure
+      // reported for the silent WAV must not fire that word's TTS fallback.
+      a.onerror = null;
       // Tiny 0-duration silent WAV; just enough to satisfy iOS's "first play
       // from gesture" check and unlock the <audio> element for later plays.
       // Do NOT attach a `.then(() => a.pause())` here: the WAV is empty so it
@@ -214,39 +247,78 @@ const TTS_MAP = { en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' };
 // `keyLang` is the language whose audioKey() casing rules name the files (e.g.
 // dev phrases are English, so files are lowercased → keyLang 'en'). `ttsLang` is
 // the SpeechSynthesis fallback locale when there's no recording.
-function speakFromManifest(text, { ns, keyLang, ttsLang }) {
-  const manifest = _audioManifests[ns];
-  // Manifest not loaded yet (e.g. very first word before preload resolved):
-  // kick off the load and fall back to TTS for this one word. Subsequent
-  // words use the recording. Don't block the UI on the async import.
-  if (!manifest) {
-    preloadAudioManifest(ns);
+// How long a word waits for a still-downloading manifest before settling for
+// TTS. The manifests are lazy chunks and the dev one is only kicked off once
+// the auth session resolves, so on a cold start the first words can arrive
+// before the index does. Waiting a beat is what keeps a launch from playing
+// robotic TTS for the first few words and the recording for the rest.
+const MANIFEST_WAIT_MS = 1500;
+
+// Bumped on every speakFromManifest call, so an async manifest arrival can
+// tell whether the word it was resolving for is still the one on screen.
+let _manifestSpeakGen = 0;
+
+// Play `text` from an already-loaded manifest, or fall back to TTS when it has
+// no recording for it (and when the recording fails to load, see playRecorded).
+function playFromManifest(manifest, text, { ns, keyLang, ttsLang }) {
+  const key = audioKey(text, keyLang);
+  const hash = manifest[key];
+  if (hash === undefined) {
     speakWord(text, ttsLang);
     return;
   }
-  const key = audioKey(text, keyLang);
-  const hash = manifest[key];
-  if (hash !== undefined) {
-    const url = getAudioUrl(ns, key, hash);
-    const now = Date.now();
-    if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
-    _lastSpeak = { text, time: now };
-    // Audio is still locked (no user gesture yet — e.g. fresh OAuth return
-    // mount before the user has tapped anything). Defer the recorded
-    // playback so primeAudio can replay it from the next gesture. Without
-    // this, playRecorded would call .play() now: on some browsers the
-    // returned promise resolves silently instead of rejecting, so the
-    // existing .catch-based fallback never sets _deferredSpeak and the
-    // first word stays silent forever.
-    if (audioStillLocked()) {
-      _deferredSpeak = () => playRecorded(url);
-      return;
-    }
-    window.speechSynthesis.cancel();
-    playRecorded(url);
+  const url = getAudioUrl(ns, key, hash);
+  const now = Date.now();
+  if (text === _lastSpeak.text && now - _lastSpeak.time < 600) return;
+  _lastSpeak = { text, time: now };
+  // The recording exists but won't play (CDN hiccup, offline blip, decode
+  // error). Speak it instead of leaving the word silent — clear the dedupe
+  // stamp first, or speakWord would swallow the retry as a repeat of the
+  // playback we just attempted for this same text.
+  const ttsFallback = () => {
+    _lastSpeak = { text: '', time: 0 };
+    speakWord(text, ttsLang);
+  };
+  // Audio is still locked (no user gesture yet — e.g. fresh OAuth return
+  // mount before the user has tapped anything). Defer the recorded
+  // playback so primeAudio can replay it from the next gesture. Without
+  // this, playRecorded would call .play() now: on some browsers the
+  // returned promise resolves silently instead of rejecting, so the
+  // existing .catch-based fallback never sets _deferredSpeak and the
+  // first word stays silent forever.
+  if (audioStillLocked()) {
+    _deferredSpeak = () => playRecorded(url, ttsFallback);
     return;
   }
-  speakWord(text, ttsLang);
+  window.speechSynthesis.cancel();
+  playRecorded(url, ttsFallback);
+}
+
+function speakFromManifest(text, opts) {
+  const manifest = _audioManifests[opts.ns];
+  const gen = ++_manifestSpeakGen;
+  if (manifest) {
+    playFromManifest(manifest, text, opts);
+    return;
+  }
+  // Manifest still downloading (very first word after launch, or the dev
+  // manifest whose preload waits on the auth session). Race the load against a
+  // short timer instead of dropping straight to TTS: on a normal connection
+  // the index lands in time and the word plays its real recording.
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled || gen !== _manifestSpeakGen) return;
+    settled = true;
+    speakWord(text, opts.ttsLang);
+  }, MANIFEST_WAIT_MS);
+  preloadAudioManifest(opts.ns).then((loaded) => {
+    clearTimeout(timer);
+    // `settled` = TTS already spoke this word; a newer generation = the user
+    // has moved on. Either way, playing now would talk over what's on screen.
+    if (settled || gen !== _manifestSpeakGen) return;
+    settled = true;
+    playFromManifest(loaded, text, opts);
+  });
 }
 
 export function speakWordByLang(text, lang) {

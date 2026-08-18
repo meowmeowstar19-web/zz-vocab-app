@@ -201,9 +201,17 @@ const raw = [
   ['Let\'s go!', '走吧', 'social', 'Doorstop kicks itself aside and shouts, "Let\'s go!"', '门挡把自己一脚踢开，喊道：“走吧！”', '<ruby>行<rt>い</rt></ruby>きましょう', 'ドアストッパーは自分をぽーんと蹴飛ばして、「行きましょう！」', '/lɛts ɡoʊ/', 'zǒu ba', 'ikimashō'],
 ];
 
-// Process into objects with stable IDs
+// Process into objects with stable IDs, de-duped: two rows that normalize to
+// the same id would collide as React list keys and share one progress entry.
+// First occurrence keeps the plain id; later ones get -2/-3.
+const _usedIds = new Set();
 function makeId(en) {
-  return 'oral-' + en.toLowerCase().replace(/['\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const base = 'oral-' + en.toLowerCase().replace(/['\u2019]+/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!_usedIds.has(base)) { _usedIds.add(base); return base; }
+  let n = 2;
+  while (_usedIds.has(base + '-' + n)) n++;
+  _usedIds.add(base + '-' + n);
+  return base + '-' + n;
 }
 
 export const oralPhrases = raw.map(([en, zh, category, sentence, sentenceZh, ja, jaSentence, ipa, pinyin, jaReading]) => ({

@@ -239,6 +239,21 @@ export default function LearningPage({
     }
   }, [authPending, isDevMode, devUnlocked, onCategoryChange, onLevelChange]);
 
+  // Safety: a saved theme can outlive the data. Deleting a category from the
+  // source xlsx (e.g. 进阶 dropped every tab but 实用词组) leaves the persisted
+  // pick pointing at a category that no longer exists — the pool filters down
+  // to zero words and the screen comes up empty. Fall back to "all" whenever
+  // the current pick isn't in the active category list.
+  // persist:false — the pick vanished with the data, not because the user
+  // changed their mind, so don't stamp it as a fresh choice for cloud sync.
+  useEffect(() => {
+    if (authPending) return;
+    if (isDevMode && !devUnlocked) return; // the lock-out above owns this case
+    if (selectedCategory === 'all') return;
+    if (activeCategories.includes(selectedCategory)) return;
+    onCategoryChange?.('all', { persist: false });
+  }, [authPending, isDevMode, devUnlocked, selectedCategory, activeCategories, onCategoryChange]);
+
   const [showCategories, _setShowCategories] = useState(false);
   const setShowCategories = useCallback((val) => {
     _setShowCategories(val);
