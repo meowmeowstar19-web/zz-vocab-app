@@ -660,8 +660,8 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
     speakWordOrDev(word, stripRuby(displayText), targetLang);
   };
 
-  // 单词那一组：图 / 单词 / 音标 / 释义。释义是这个单词的翻译，永远紧跟着单词
-  // 走 —— 不许扔到下面去跟例句一块儿排（用户 08-18 拍板）。
+  // ① 单词那一组：图 / 单词 / 音标 / 释义。释义是这个单词的翻译，永远紧跟着
+  // 单词走，和单词一起钉在卡顶 —— 不许扔到中间去跟例句一块儿居中。
   const headContent = (
     <>
       {imgSrc && (
@@ -730,9 +730,10 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       }}
       onClick={onClose}
     >
-      {/* 一摞内容（单词组 → 例句 → 关闭按钮）整体在方卡里垂直居中：内容短既不
-          挤在卡顶、中间也不会空出一个洞，关闭按钮永远离内容 16 —— 不许钉在卡底
-          边上（用户：太靠下）。内容长就照旧从上往下排，超出屏幕时卡自己滚动。 */}
+      {/* 三段式（用户 08-18 拍板，别再改）：
+          ① 单词组（图 / 单词 / 音标 / 释义）——位置固定，钉在卡顶
+          ② 例句 + 例句译文——占满中间剩余高度，在里头垂直居中；长了自己滚
+          ③ 关闭按钮——位置固定，钉在卡底（离底边 26，不贴边） */}
       <div
         className={SCROLL_HIDE}
         style={{
@@ -742,31 +743,40 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
           maxHeight: '100%',
           display: 'flex',
           flexDirection: 'column',
-          overflowY: 'auto',
-          padding: 16,
+          overflow: 'hidden',
+          padding: imgSrc ? '16px 16px 26px' : '22px 16px 26px',
           opacity: ready ? 1 : 0,
           transform: ready ? 'scale(1)' : 'scale(0.95)',
           transition: 'opacity 0.2s ease, transform 0.2s ease',
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* 居中用 margin:auto 而不是 justify-content:center —— 内容撑满时 auto
+        {/* ① 单词组：位置固定 */}
+        <div style={{ flex: '0 0 auto' }}>{headContent}</div>
+
+        {/* ② 例句那块：占满中间，短就居中，长就自己滚。
+            居中用 margin:auto 而不是 justify-content:center —— 内容撑满时 auto
             自动退化成 0，不会像后者那样把顶部截掉、滚不上去。 */}
-        <div style={{ width: '100%', margin: 'auto 0' }}>
-          {headContent}
-          {body && <div style={{ marginTop: 8 }}>{body}</div>}
-          <button
-            onClick={onClose}
-            className="mx-auto block active:scale-95"
-            style={{
-              marginTop: 16,
-              width: 148, height: 48, backgroundColor: '#FFDF4E',
-              border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
-            }}
-          >
-            {t.close}
-          </button>
+        <div
+          className={SCROLL_HIDE}
+          style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+        >
+          <div style={{ width: '100%', margin: 'auto 0', padding: '8px 0' }}>{body}</div>
         </div>
+
+        {/* ③ 关闭按钮：位置固定。用户定稿(07-25)：本 pop 的唯一退出控件 = 底部
+            黄色 Close（右上角 X 已按用户要求去掉）— 移植/统一时不得改回 X */}
+        <button
+          onClick={onClose}
+          className="mx-auto block active:scale-95"
+          style={{
+            flex: '0 0 auto',
+            width: 148, height: 48, backgroundColor: '#FFDF4E',
+            border: '1.5px solid #000', borderRadius: 100, fontSize: 18, color: '#000',
+          }}
+        >
+          {t.close}
+        </button>
       </div>
     </div>
   );
