@@ -264,6 +264,10 @@ const DEFAULT_ORAL_COVERS = {
 const DEFAULT_DEV_COVERS = {
   '日常口语': 'talk',
   '口语句型': 'book',
+  '生活': 'home',
+  '身心': 'happy',
+  '人际': 'friend',
+  '做事': 'work',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
