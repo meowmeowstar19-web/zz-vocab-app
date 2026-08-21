@@ -42,6 +42,10 @@ export const ICONS = {
     { d: 'M9 8 5 12l4 4' },
     { d: 'M15 8l4 4-4 4' },
   ],
+  search: [ // magnifier — lens + handle, drawn on the same 24 grid as the rest
+    { d: 'M4.8 10.9a6.1 6.1 0 1 0 12.2 0a6.1 6.1 0 1 0-12.2 0Z' },
+    { d: 'M15.4 15.4 20 20' },
+  ],
 }
 
 export function Icon({ name, size = 22, color = '#9a6a82', stroke = 1.8 }) {

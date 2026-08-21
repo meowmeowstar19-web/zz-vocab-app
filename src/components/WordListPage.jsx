@@ -23,6 +23,8 @@ import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 import { MODAL_SCRIM, MODAL_CARD, SCROLL_HIDE } from '../general-ui/popKit.jsx';
 import { useScrollWatch, SlimScrollBar, ScrollTopButton } from '../general-ui/scrollKit.jsx';
+import { Icon } from '../general-ui/icons.jsx';
+import { YELLOW } from '../general-ui/config.js';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -104,6 +106,39 @@ function getWordPhonetic(word, targetLang) {
   return getPhonetic(word, targetLang) || '';
 }
 
+// á → a, ō → o: pinyin tones and romaji macrons folded away, because nobody
+// types them into a search box.
+function foldMarks(s) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC');
+}
+
+// Everything one row can be found by, flattened into a single lowercase string.
+// Ruby-annotated text goes in TWICE: opened up (`<ruby>遊<rt>あそ</rt></ruby>ぶ`
+// → `遊 あそ ぶ`) so the furigana is searchable, and stripped (`遊ぶ`) so typing
+// the whole word still matches — opened-up alone breaks the word in half.
+// The phonetic column joins them folded, which is what lets a learner who
+// can't type kana or hanzi yet find 玩 by "wan" and こんにちは by "konnichiwa".
+// Only fields the user can actually read somewhere are indexed — matching on
+// data they never see makes a hit look like a bug.
+function searchHaystack(word, nativeLang, targetLang) {
+  const target = getWordText(word, targetLang) || '';
+  const native = getWordText(word, nativeLang) || '';
+  const phonetic = getPhonetic(word, targetLang) || '';
+  // Each variant only earns a slot when it actually differs — most rows have no
+  // ruby and no tone marks, and a doubled string is just index to scan.
+  const alt = (s) => { const p = stripRuby(s); return p === s ? '' : p; };
+  const folded = foldMarks(phonetic);
+  return [
+    target, alt(target),
+    native, alt(native),
+    phonetic, folded === phonetic ? '' : folded,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/<[^>]*>/g, ' ')
+    .toLowerCase();
+}
+
 export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0, userEmail = '' }) {
   const posthog = usePostHog();
   // 进阶 (dev) sub-tab: whitelisted user only, zh→en only. Personal study list,
@@ -133,6 +168,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [leavingWords, setLeavingWords] = useState(new Set());
   const [pendingMasteredWords, setPendingMasteredWords] = useState(new Map()); // wordId → newMasteredState
   const [randomKey, setRandomKey] = useState(0);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     setProgress(getProgress(langKey));
@@ -215,12 +251,26 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     ).length;
   }, [nativeLang, targetLang, galleryCat]);
 
+  // One haystack per row, rebuilt only when the tab / language changes — not on
+  // every keystroke. Hundreds of rows × a string rebuild per character is the
+  // kind of thing a cheap phone feels.
+  const searchIndex = useMemo(() => {
+    const m = new Map();
+    for (const w of subTabPool) m.set(w.id, searchHaystack(w, nativeLang, targetLang));
+    return m;
+  }, [subTabPool, nativeLang, targetLang]);
+
+  const searchQuery = query.trim().toLowerCase();
+
   const wordList = useMemo(() => {
     const prog = progress;
     const showMastered = filter === 'mastered';
     let list = subTabPool.filter(w => {
       const p = prog[w.id];
       if (!p) return false;
+      // Substring, not whole-word: typing a few characters of either language
+      // is enough to pull the row up.
+      if (searchQuery && !(searchIndex.get(w.id) || '').includes(searchQuery)) return false;
       if (showMastered) return p.mastered;
       return !!p.timestamp && !p.mastered;
     });
@@ -232,7 +282,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       stableShuffle(list, randomKey * 2 + (filter === 'reverseRandom' ? 1 : 0));
     }
     return list;
-  }, [progress, filter, randomKey, subTabPool]);
+  }, [progress, filter, randomKey, subTabPool, searchQuery, searchIndex]);
 
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
@@ -423,57 +473,73 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
             </div>
           </div>
         ) : (
-          <div className="flex mx-[14px] mt-1 mb-2">
-            {[
-              { key: 'words', label: t.wordsTab },
-              { key: 'phrases', label: t.phrasesTab },
-              // 进阶 tab — whitelisted user in zh→en only.
-              ...(devUnlocked ? [{ key: 'dev', label: '进阶' }] : []),
-            ].map((tab, idx, arr) => {
-              const active = subTab === tab.key;
-              const isLeft = idx === 0;
-              const isRight = idx === arr.length - 1;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => { setSubTab(tab.key); setRevealedWords(new Set()); }}
-                  className="flex-1 text-[14px] font-medium"
-                  style={{
-                    height: 36,
-                    borderTop: '1.5px solid #000',
-                    borderBottom: '1.5px solid #000',
-                    borderLeft: isLeft ? '1.5px solid #000' : 'none',
-                    borderRight: '1.5px solid #000',
-                    borderTopLeftRadius: isLeft ? 5 : 0,
-                    borderBottomLeftRadius: isLeft ? 5 : 0,
-                    borderTopRightRadius: isRight ? 5 : 0,
-                    borderBottomRightRadius: isRight ? 5 : 0,
-                    backgroundColor: active ? '#FFF9DF' : 'transparent',
-                    color: '#000',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+          <>
+            <div className="flex mx-[14px] mt-1 mb-2">
+              {[
+                { key: 'words', label: t.wordsTab },
+                { key: 'phrases', label: t.phrasesTab },
+                // 进阶 tab — whitelisted user in zh→en only.
+                ...(devUnlocked ? [{ key: 'dev', label: '进阶' }] : []),
+              ].map((tab, idx, arr) => {
+                const active = subTab === tab.key;
+                const isLeft = idx === 0;
+                const isRight = idx === arr.length - 1;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => { setSubTab(tab.key); setRevealedWords(new Set()); }}
+                    className="flex-1 text-[14px] font-medium"
+                    style={{
+                      height: 36,
+                      borderTop: '1.5px solid #000',
+                      borderBottom: '1.5px solid #000',
+                      borderLeft: isLeft ? '1.5px solid #000' : 'none',
+                      borderRight: '1.5px solid #000',
+                      borderTopLeftRadius: isLeft ? 5 : 0,
+                      borderBottomLeftRadius: isLeft ? 5 : 0,
+                      borderTopRightRadius: isRight ? 5 : 0,
+                      borderBottomRightRadius: isRight ? 5 : 0,
+                      backgroundColor: active ? '#FFF9DF' : 'transparent',
+                      color: '#000',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search — same width as the tab row above it, and it pins itself to
+                the top of the scroll port once the list slides past. */}
+            <StickySearchBar
+              value={query}
+              onChange={setQuery}
+              placeholder={t.searchPlaceholder}
+              clearLabel={t.close}
+              scrollRef={scrollRef}
+            />
+          </>
         )}
 
         {/* ===== WORD LIST ===== */}
         {filter !== 'vocabIllustrated' && (
         wordList.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-textSub">
+            {/* A search that found nothing is not an empty word book — say which
+                one it is, or the user goes looking for a bug in their progress. */}
             <div className="text-4xl mb-2">
-              {filter === 'mastered' ? '⚔️' : '😭'}
+              {searchQuery ? '🔍' : filter === 'mastered' ? '⚔️' : '😭'}
             </div>
             <div className="text-sm font-bold">
-              {filter === 'mastered'
-                ? (subTab === 'words' ? t.noMastered : (t.noMasteredPhrases || t.noMastered))
-                : (subTab === 'words' ? t.noLearned : (t.noLearnedPhrases || t.noLearned))
+              {searchQuery
+                ? t.noSearchResult
+                : filter === 'mastered'
+                  ? (subTab === 'words' ? t.noMastered : (t.noMasteredPhrases || t.noMastered))
+                  : (subTab === 'words' ? t.noLearned : (t.noLearnedPhrases || t.noLearned))
               }
             </div>
             <div className="text-xs mt-1 text-textLight">
-              {filter === 'mastered' ? t.masteredTip : t.learnedTip}
+              {searchQuery ? t.searchTip : filter === 'mastered' ? t.masteredTip : t.learnedTip}
             </div>
           </div>
         ) : (
@@ -601,6 +667,99 @@ function preloadImage(src) {
   const img = new Image();
   img.src = src;
   _imgPreloaded.add(src);
+}
+
+/* ── Sticky search bar ───────────────────────────────────────────
+ * Sits directly under the 单词/短语/进阶 tabs and spans exactly their width, and
+ * pins itself to the top of the scroll port once the list scrolls past — in a
+ * list hundreds of rows long, the way to search must never be scrolled away.
+ * It floats as a pill rather than a full-width bar: the rows are inset by the
+ * same 14px, so nothing but background art ever slides through the gutters.
+ * `stuck` comes off a 1px sentinel parked just above the bar instead of a
+ * scroll handler — same reasoning as scrollKit's useScrollWatch: re-rendering
+ * this page on every scroll frame is what makes a cheap phone stutter.
+ */
+const STICKY_TOP = 15;   // how far below the top edge the pinned bar floats
+
+function StickySearchBar({ value, onChange, placeholder, clearLabel, scrollRef }) {
+  const sentinelRef = useRef(null);
+  const [stuck, setStuck] = useState(false);
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([e]) => setStuck(!e.isIntersecting),
+      // The negative top margin pulls the root's edge down to exactly where the
+      // bar pins, so the shadow arrives with the pin instead of STICKY_TOP px
+      // of scrolling later.
+      { root: scrollRef.current || null, rootMargin: `-${STICKY_TOP}px 0px 0px 0px`, threshold: 0 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [scrollRef]);
+
+  return (
+    <>
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
+      <div
+        style={{
+          position: 'sticky', top: STICKY_TOP, zIndex: 30,
+          margin: '0 14px 8px',
+          height: 36, boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '0 10px',
+          // Same translucent white as the translation cover strips below, so the
+          // bar belongs to the list rather than sitting on top of it. The fill
+          // alone is see-through enough that a word scrolling underneath reads
+          // straight through the placeholder, so the backdrop behind it is
+          // blurred to a wash — same trick, same blur radius, as popKit's
+          // BACK_BTN. The bar's own colour and opacity are untouched.
+          backgroundColor: 'rgba(255,255,255,0.60)',
+          backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+          border: `1.5px solid ${focused ? YELLOW : '#000'}`,
+          borderRadius: 5,
+          // Only once it's floating over the list — a shadow on a box sitting in
+          // the flow just looks like a smudge.
+          boxShadow: stuck ? '0 2px 6px rgba(120,90,110,0.22)' : 'none',
+          transition: 'box-shadow .18s ease, border-color .15s ease',
+        }}
+      >
+        <Icon name="search" size={16} color="#8a8585" stroke={2} />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          inputMode="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          style={{
+            flex: 1, minWidth: 0, height: '100%', padding: 0,
+            border: 'none', outline: 'none', background: 'transparent',
+            fontSize: 14, color: '#000',
+          }}
+        />
+        {!!value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            aria-label={clearLabel}
+            className="shrink-0 active:scale-90"
+            style={{ padding: 0, display: 'flex', alignItems: 'center' }}
+          >
+            <Icon name="close" size={14} color="#8a8585" stroke={2.2} />
+          </button>
+        )}
+      </div>
+    </>
+  );
 }
 
 /* ── Gallery grid: 3-column image grid with translation-cover strips ── */
