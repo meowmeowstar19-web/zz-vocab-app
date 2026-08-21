@@ -909,6 +909,14 @@ export default function App() {
               userScope={userScope}
               refreshKey={wordListRefreshKey}
               userEmail={session?.user?.email || ''}
+              // Same three-term gate as LearningPage above — the word book now
+              // remembers its tabs, and the 进阶 sub-tab's lock-out must not act
+              // on a frame where `userEmail` isn't trustworthy yet.
+              authPending={
+                auth.status === 'loading' ||
+                auth.status === 'authenticating' ||
+                (auth.isAccountScope && !auth.isRealAccount)
+              }
             />
           </div>
           <div style={{ display: (page === 'settings' && !reviewMode) ? undefined : 'none', height: '100%' }}>

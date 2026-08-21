@@ -30,9 +30,9 @@ function shuffle(arr) {
 }
 
 // Text shown inside the category button's yellow pill, by native language.
-const CATEGORY_BTN_LABEL = { zh: '主题', en: 'Theme', ja: 'テーマ' };
+const CATEGORY_BTN_LABEL = { zh: '分类', en: 'Theme', ja: 'テーマ' };
 
-// Shared "主题/Theme/テーマ" top-bar button: frog-on-pill image with the
+// Shared "分类/Theme/テーマ" top-bar button: frog-on-pill image with the
 // localized label overlaid on the yellow pill. Geometry follows Figma node
 // 940:345 — a 48×43 frame (the image's native aspect, no letterboxing), font
 // 12px @ size 48, label vertically centered at 33/43 ≈ 76.7% of the height.

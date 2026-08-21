@@ -139,7 +139,29 @@ function searchHaystack(word, nativeLang, targetLang) {
     .toLowerCase();
 }
 
-export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0, userEmail = '' }) {
+/* ── Tab memory ──────────────────────────────────────────────────
+ * 主 tab（词汇图鉴/时间/随机/反向随机/已斩单词）和它底下的子 tab（单词/短语/
+ * 进阶）都记住用户上次的选择 —— 退出去再进单词本，还是原来那一套配置。
+ * 只有用户手点才写进 storage。自动回落（进阶权限没了）必须传
+ * { persist: false }：开屏那一帧 userEmail 还是空的、devUnlocked 判定为
+ * false，一次误判就会把用户存的「进阶」永久抹成「单词」（2026-07-28 主题+tab
+ * 每次开 app 被重置的老坑，见 App.jsx 顶部 handleCategoryChange 的同款注释）。
+ */
+const FILTER_KEY = 'app_wordlist_filter';
+const SUBTAB_KEY = 'app_wordlist_subtab';
+const FILTER_KEYS = ['vocabIllustrated', 'time', 'random', 'reverseRandom', 'mastered'];
+const SUBTAB_KEYS = ['words', 'phrases', 'dev'];
+
+// Anything not in the whitelist (old build, hand-edited storage) falls back to
+// the default instead of leaving the page on a tab that no longer renders.
+function readSavedTab(key, allowed, fallback) {
+  try {
+    const saved = localStorage.getItem(key);
+    return allowed.includes(saved) ? saved : fallback;
+  } catch { return fallback; }
+}
+
+export default function WordListPage({ onStartReview, nativeLang = 'zh', targetLang = 'en', userScope = 'guest', refreshKey = 0, userEmail = '', authPending = false }) {
   const posthog = usePostHog();
   // 进阶 (dev) sub-tab: whitelisted user only, zh→en only. Personal study list,
   // kept entirely separate from the public 单词 / 短语 tabs.
@@ -157,8 +179,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
   ], [t]);
 
-  const [filter, setFilter] = useState('vocabIllustrated');
-  const [subTab, setSubTab] = useState('words'); // 'words' | 'phrases'
+  const [filter, setFilterState] = useState(() => readSavedTab(FILTER_KEY, FILTER_KEYS, 'vocabIllustrated'));
+  const [subTab, setSubTabState] = useState(() => readSavedTab(SUBTAB_KEY, SUBTAB_KEYS, 'words')); // 'words' | 'phrases' | 'dev'
   const [galleryCat, setGalleryCat] = useState('all');
   const [galleryShuffleKey, setGalleryShuffleKey] = useState(0);
   const [progress, setProgress] = useState(() => getProgress(langKey));
@@ -170,6 +192,17 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [randomKey, setRandomKey] = useState(0);
   const [query, setQuery] = useState('');
 
+  // See「Tab memory」above: persist:false = an automatic, screen-only fallback.
+  const setFilter = useCallback((key) => {
+    setFilterState(key);
+    try { localStorage.setItem(FILTER_KEY, key); } catch {}
+  }, []);
+  const setSubTab = useCallback((key, { persist = true } = {}) => {
+    setSubTabState(key);
+    if (!persist) return;
+    try { localStorage.setItem(SUBTAB_KEY, key); } catch {}
+  }, []);
+
   useEffect(() => {
     setProgress(getProgress(langKey));
     setRevealedWords(new Set());
@@ -177,9 +210,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   }, [langKey]);
 
   // If the 进阶 sub-tab is active but the user is no longer unlocked, fall back.
+  // authPending guard + persist:false, both mandatory: on every launch the auth
+  // core paints before it resolves the session, so `userEmail` is '' for the
+  // first frames and devUnlocked reads false for a user who *is* whitelisted.
+  // Acting on that frame — or letting it reach storage — is what used to reset
+  // the saved tab on every app open.
   useEffect(() => {
-    if (subTab === 'dev' && !devUnlocked) setSubTab('words');
-  }, [subTab, devUnlocked]);
+    if (authPending) return;
+    if (subTab === 'dev' && !devUnlocked) setSubTab('words', { persist: false });
+  }, [authPending, subTab, devUnlocked, setSubTab]);
 
   // Preload the dev-phrases audio manifest so the first tap plays the recording
   // (not a one-off TTS fallback) — same as LearningPage does.
@@ -679,7 +718,7 @@ function preloadImage(src) {
  * scroll handler — same reasoning as scrollKit's useScrollWatch: re-rendering
  * this page on every scroll frame is what makes a cheap phone stutter.
  */
-const STICKY_TOP = 15;   // how far below the top edge the pinned bar floats
+const STICKY_TOP = 12;   // how far below the top edge the pinned bar floats
 
 function StickySearchBar({ value, onChange, placeholder, clearLabel, scrollRef }) {
   const sentinelRef = useRef(null);
