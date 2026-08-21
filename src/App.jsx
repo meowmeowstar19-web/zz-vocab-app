@@ -169,6 +169,26 @@ export default function App() {
   // optimistic scope, so the common path never remounts and nothing flickers.
   const auth = useAuth();
   const session = auth.session;
+  // 摘除 index.html 里的启动闪屏（白底 + PlushieWord 名字，见 index.html
+  // <body> 里的 #splash 注释）。App 首次挂载 = 首屏已经有真内容可画，双
+  // rAF 等首帧真正提交后淡出再 remove——不做任何图片等待，绝不网络阻塞。
+  useEffect(() => {
+    const el = document.getElementById('splash');
+    if (!el) return;
+    let done = false;
+    const dismiss = () => {
+      if (done) return;
+      done = true;
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 350);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(dismiss));
+    // rAF never fires in a HIDDEN tab (background open, iOS pre-visibility
+    // freeze) — without this fallback the splash would sit there until the
+    // tab is fronted. 600ms after mount the content is committed either way.
+    const t = setTimeout(dismiss, 600);
+    return () => clearTimeout(t);
+  }, []);
   // True while the A2HS cookie handoff is still deciding who we are (mount-once
   // check; released by the account landing, the outcome note, or its timeout —
   // see login-auth-ui/HandoffVeil.jsx). Boot-time decisions that depend on
@@ -867,9 +887,18 @@ export default function App() {
               refreshKey={progressRefreshKey}
               userEmail={session?.user?.email || ''}
               // 'loading' = boot hasn't resolved getSession yet; 'authenticating'
-              // = a login flow is mid-air. Either way `userEmail` is not yet
-              // trustworthy, so LearningPage must not act on it.
-              authPending={auth.status === 'loading' || auth.status === 'authenticating'}
+              // = a login flow is mid-air. The third term is the weak-net
+              // degraded window: the drawer belongs to an account (scope u_…)
+              // but the session hasn't been re-verified yet (watchdog fired or
+              // getSession hit a network error) — `userEmail` is '' there, and
+              // acting on it would knock the whitelisted 进阶 user back to
+              // all/Words on every weak-net launch. Either way `userEmail` is
+              // not yet trustworthy, so LearningPage must not act on it.
+              authPending={
+                auth.status === 'loading' ||
+                auth.status === 'authenticating' ||
+                (auth.isAccountScope && !auth.isRealAccount)
+              }
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>

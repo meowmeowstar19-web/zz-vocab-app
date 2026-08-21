@@ -44,6 +44,8 @@ import { loadSnapshot, saveSnapshot } from './snapshot.js'
 export const OTP_TTL_MS = 10 * 60 * 1000 // matches Supabase OTP expiry (600s)
 export const OAUTH_TTL_MS = 10 * 60 * 1000 // OAuth round-trip marker lifetime
 export const WATCHDOG_MS = 4000 // 铁律2: `loading` may hold the app ≤4s
+export const SESSION_RETRY_BASE_MS = 5000 // 1st retry after a network-failed getSession
+export const SESSION_RETRY_MAX_MS = 60_000 // retry backoff cap
 export const UPGRADE_TIMEOUT_MS = 8000 // onUpgrade is best-effort, never blocks login forever
 export const OAUTH_CONCLUDE_TIMEOUT_MS = 10_000 // dropped code exchange can't hang the pane
 // an account whose created_at is this recent announces itself as brand-new on
@@ -78,6 +80,8 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
   let sessionSettled = false // getSession reached a verdict (vs failed/hung)
   let watchdogTimer = null
   let oauthTimer = null
+  let retryTimer = null // re-asks getSession after a NETWORK-failed verdict
+  let retryDelayMs = SESSION_RETRY_BASE_MS
   let hasAuthParamsInUrl = false
   // Account entries are SERIALIZED. The old stack's enterAuthed was synchronous,
   // so "last session event wins" was atomic; the async onUpgrade await opened a
@@ -142,6 +146,7 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
       return
     }
     clearTimeout(oauthTimer) // a verdict is landing — the conclude timeout is moot
+    clearTimeout(retryTimer) // ditto for the weak-net session retry
     // "came from guest" is judged on the PERSISTED scope: until an account
     // entry completes, the snapshot still says 'guest' (or null on a fresh
     // device) — this survives the OAuth full-page redirect with no extra
@@ -267,10 +272,43 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
     })
   }
 
+  // Ask the client for the persisted session and route the verdict. A response
+  // that carries an ERROR with no session is a NETWORK failure (e.g. the access
+  // token expired and the refresh call couldn't reach the server on a weak
+  // connection) — that is an UNDECIDED verdict, not "no session": the refresh
+  // token is still on disk and a later attempt will succeed. Only a clean null
+  // (nothing persisted at all) means "definitely signed out".
+  function askSession() {
+    client.auth
+      .getSession()
+      .then(({ data, error }) => {
+        const s = data?.session ?? null
+        if (!s && error) return resolveSession(null, { failed: true })
+        resolveSession(s)
+      })
+      .catch(() => resolveSession(null, { failed: true })) // 铁律3: failures land renderable
+  }
+
+  // After a network-failed verdict, keep re-asking with capped backoff until a
+  // real verdict lands (weak-net boot must eventually recover the account
+  // WITHOUT the user having to kill and reopen the app).
+  function armSessionRetry() {
+    clearTimeout(retryTimer)
+    retryTimer = setTimeout(() => {
+      if (sessionSettled || state.status === 'account' || state.status === 'authenticating') return
+      askSession()
+    }, retryDelayMs)
+    retryDelayMs = Math.min(retryDelayMs * 2, SESSION_RETRY_MAX_MS)
+  }
+
   // getSession's verdict (or a later resolution while still unsettled)
   function resolveSession(session, { failed = false } = {}) {
     sessionSettled = !failed
     clearTimeout(watchdogTimer)
+    if (!failed) {
+      clearTimeout(retryTimer)
+      retryDelayMs = SESSION_RETRY_BASE_MS
+    }
     if (isRealSession(session)) {
       enterAccount(session)
       return
@@ -286,6 +324,21 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
     }
     if (state.status === 'account') return // a null late-resolution never demotes a live UI
     const snap = state.snapshot
+    // NETWORK failure (weak net / offline) while this device's last identity
+    // was an account: the token didn't fail — the CHECK failed. Keep playing
+    // under the optimistic u_<uid> scope in the degraded-guest presentation
+    // (exactly what the 4s watchdog produces) and keep retrying in the
+    // background; a later success enters the account with the SAME scope, so
+    // nothing remounts. Dumping to the welcome gate here was the 2026-08 弱网
+    // bug: the user tapped 游客模式 (or WeChat auto-entered it), flipped into
+    // the guest sandbox mid-session, and saw foreign progress ("已学完"),
+    // then flipped back once the network recovered. explicitLogout still wins:
+    // a logged-out device belongs at the gate regardless of connectivity.
+    if (failed && !snap?.explicitLogout && snap?.hadAccount && snap?.lastUserScope?.startsWith('u_')) {
+      if (state.status === 'loading') setState({ status: 'guest' })
+      armSessionRetry()
+      return
+    }
     if (snap?.explicitLogout) {
       setState({ status: 'guest', atWelcome: true, session: null })
       return
@@ -385,15 +438,19 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
     if (flow?.kind === 'oauth') armOAuthConcludeTimer()
 
     // 铁律2: never hold the first paint hostage — after 4s render as a guest
-    // under the optimistic scope and keep resolving in the background.
+    // under the optimistic scope and keep resolving in the background. A HUNG
+    // getSession (weak-net black hole) never reaches resolveSession, so the
+    // watchdog also arms the background retry — otherwise recovery would wait
+    // for an app backgrounding/foregrounding cycle. (Harmless if the original
+    // call later resolves: a settled verdict stands the retry down.)
     watchdogTimer = setTimeout(() => {
-      if (state.status === 'loading') setState({ status: 'guest' })
+      if (state.status === 'loading') {
+        setState({ status: 'guest' })
+        armSessionRetry()
+      }
     }, WATCHDOG_MS)
 
-    client.auth
-      .getSession()
-      .then(({ data }) => resolveSession(data?.session ?? null))
-      .catch(() => resolveSession(null, { failed: true })) // 铁律3: failures land renderable
+    askSession()
 
     client.auth.onAuthStateChange((event, session) => {
       // handlers read the LATEST state (module-level), never a closure capture.
@@ -428,10 +485,7 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') return
         if (sessionSettled && (state.status === 'account' || state.status === 'authenticating')) return
-        client.auth
-          .getSession()
-          .then(({ data }) => resolveSession(data?.session ?? null))
-          .catch(() => resolveSession(null, { failed: true }))
+        askSession()
       })
     }
 
@@ -551,6 +605,7 @@ export function createAuthCore({ client, onUpgrade, now = () => Date.now() }) {
     authEpoch++ // voids any in-flight account entry — logout must stick
     const snap = persist({ explicitLogout: true, flow: null })
     clearTimeout(oauthTimer)
+    clearTimeout(retryTimer)
     setState({
       status: 'guest',
       atWelcome: true,

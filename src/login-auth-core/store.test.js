@@ -69,6 +69,9 @@ function fakeClient() {
     fire: (event, session = null) => authCb?.(event, session),
     setSession: (s) => { getSessionImpl = async () => ({ data: { session: s } }) },
     failSession: () => { getSessionImpl = async () => { throw new Error('net') } },
+    // supabase-js's weak-net shape: an expired access token whose refresh call
+    // couldn't reach the server resolves (not rejects) with session:null + error
+    errorSession: () => { getSessionImpl = async () => ({ data: { session: null }, error: new Error('fetch failed') }) },
     hangSession: () => { getSessionImpl = () => new Promise(() => {}) },
     setOtpResult: (r) => { otpResult = r },
     setVerifyResult: (r) => { verifyResult = r },
@@ -231,15 +234,52 @@ describe('boot × session × snapshot matrix', () => {
     expect(s.scope).toBe('u_abc')
   })
 
-  it('getSession rejection → lands renderable per the same rules (铁律3)', async () => {
+  it('getSession NETWORK failure with an account snapshot → degraded play under the optimistic scope, NOT the welcome gate', async () => {
+    // 2026-08 弱网 bug: a network-failed check is an UNDECIDED verdict — the
+    // refresh token is still on disk. Dumping to the gate made the user (or
+    // WeChat's auto-chooseGuest) flip into the guest sandbox mid-session and
+    // see foreign progress; the account came back only on a later relaunch.
     saveSnapshot({ hadAccount: true, lastUserScope: 'u_me' }, NOW)
     const fc = fakeClient()
     fc.failSession()
     const core = makeCore(fc)
     core.boot()
     await tick()
+    const s = core.getState()
+    expect(s.status).toBe('guest') // renderable (铁律3), degraded
+    expect(s.atWelcome).toBe(false) // NOT the gate — nothing was decided
+    expect(s.scope).toBe('u_me') // still the account's drawer
+  })
+
+  it('network-failed verdict retries in the background and a late success enters the account (same scope, no remount)', async () => {
+    vi.useFakeTimers()
+    saveSnapshot({ hadAccount: true, lastUserScope: 'u_me' }, NOW)
+    const fc = fakeClient()
+    fc.errorSession() // resolve-with-error shape (expired token, refresh unreachable)
+    const core = makeCore(fc)
+    core.boot()
+    await vi.runOnlyPendingTimersAsync()
     expect(core.getState().status).toBe('guest')
-    expect(core.getState().atWelcome).toBe(true) // account to protect → gate
+    expect(core.getState().scope).toBe('u_me')
+    const asksBefore = fc.calls.getSession
+    // network recovers before the next retry fires
+    fc.setSession(realSession('me'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fc.calls.getSession).toBeGreaterThan(asksBefore) // it re-asked on its own
+    const s = core.getState()
+    expect(s.status).toBe('account')
+    expect(s.scope).toBe('u_me')
+  })
+
+  it('network failure after an explicit logout still lands on the welcome gate', async () => {
+    saveSnapshot({ explicitLogout: true, hadAccount: true, lastUserScope: 'u_old' }, NOW)
+    const fc = fakeClient()
+    fc.failSession()
+    const core = makeCore(fc)
+    core.boot()
+    await tick()
+    expect(core.getState().status).toBe('guest')
+    expect(core.getState().atWelcome).toBe(true) // the user chose to be logged out
   })
 
   it('an anonymous residue session (pre-rewrite build) is discarded: guest + server signOut', async () => {
@@ -1143,7 +1183,8 @@ describe('boot with window/document — URL verdicts, bfcache, resume retry', ()
     core.boot()
     await tick()
     expect(core.getState().status).toBe('guest')
-    expect(core.getState().atWelcome).toBe(true) // failure gate
+    expect(core.getState().atWelcome).toBe(false) // degraded play, not the gate
+    expect(core.getState().scope).toBe('u_me') // still the account's drawer
     fc.setSession(realSession('me')) // network is back
     b.fireDoc('visibilitychange')
     await tick()
