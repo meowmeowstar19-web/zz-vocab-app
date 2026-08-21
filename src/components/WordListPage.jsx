@@ -66,6 +66,33 @@ function prefetchTranslation(word, targetLang, nativeLang, onDone) {
     .catch(() => {});
 }
 
+// 随机顺序 = 按「词 id + 种子」算出来的固定排序号，不是当场 Math.random() 洗牌。
+// 列表是从 progress 现算的，掌握掉一个词就会换来一个新的 progress 对象、
+// useMemo 重跑一遍；以前重跑就等于重新洗一次牌，剩下的词全部换位置——用户看到的
+// 就是「挪走一个词，整张列表刷新了」。
+// 排序号只跟 (id, seed) 有关，跟列表长度无关，所以拿掉一个词，剩下的词彼此的
+// 先后完全不变：那个词自己滑走，别人各就各位。想换一批顺序只有一个途径 ——
+// 用户自己去点「随机 / 反向随机」（randomKey +1）。
+// 注意别改回 seeded Fisher-Yates：同一个种子，长度 N 和 N-1 洗出来的顺序是两回事。
+function shuffleSeedOf(id, seed) {
+  let h = ((seed >>> 0) ^ 0x9e3779b9) >>> 0;
+  const str = String(id);
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  h = (h ^ (h >>> 16)) >>> 0;
+  h = Math.imul(h, 0x7feb352d) >>> 0;
+  h = (h ^ (h >>> 15)) >>> 0;
+  return h >>> 0;
+}
+
+function stableShuffle(list, seed) {
+  return list.sort((a, b) => {
+    const d = shuffleSeedOf(a.id, seed) - shuffleSeedOf(b.id, seed);
+    return d !== 0 ? d : String(a.id) < String(b.id) ? -1 : 1;
+  });
+}
+
 // 音标/读音只认数据里标注过的那一份（Excel 的 ipa 列 → phoneticMap → 日文
 // jaReading / 中文 pinyin），全部走 getPhonetic 这一个入口。
 // 没标注的（进阶短语等）返回空 → pop 里干脆不显示音标。
@@ -202,10 +229,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     } else if (filter === 'time') {
       list.sort((a, b) => (prog[b.id]?.timestamp || 0) - (prog[a.id]?.timestamp || 0));
     } else if (filter === 'random' || filter === 'reverseRandom') {
-      for (let i = list.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [list[i], list[j]] = [list[j], list[i]];
-      }
+      stableShuffle(list, randomKey * 2 + (filter === 'reverseRandom' ? 1 : 0));
     }
     return list;
   }, [progress, filter, randomKey, subTabPool]);
@@ -485,7 +509,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
                     {/* Speaker icon */}
                     <button
                       onClick={(e) => handleSpeak(e, word)}
-                      className="shrink-0 mt-[9px] active:scale-90"
+                      className="shrink-0 mt-[7px] active:scale-90"
                     >
                       <img src={getFigmaAssetUrl('icon-speaker.png')} alt="发音" style={{ width: 19, height: 15, filter: 'brightness(0.45)' }} />
                     </button>
