@@ -867,9 +867,18 @@ export default function App() {
               refreshKey={progressRefreshKey}
               userEmail={session?.user?.email || ''}
               // 'loading' = boot hasn't resolved getSession yet; 'authenticating'
-              // = a login flow is mid-air. Either way `userEmail` is not yet
-              // trustworthy, so LearningPage must not act on it.
-              authPending={auth.status === 'loading' || auth.status === 'authenticating'}
+              // = a login flow is mid-air. The third term is the weak-net
+              // degraded window: the drawer belongs to an account (scope u_…)
+              // but the session hasn't been re-verified yet (watchdog fired or
+              // getSession hit a network error) — `userEmail` is '' there, and
+              // acting on it would knock the whitelisted 进阶 user back to
+              // all/Words on every weak-net launch. Either way `userEmail` is
+              // not yet trustworthy, so LearningPage must not act on it.
+              authPending={
+                auth.status === 'loading' ||
+                auth.status === 'authenticating' ||
+                (auth.isAccountScope && !auth.isRealAccount)
+              }
             />
           </div>
           <div style={{ display: (page === 'wordlist' && !reviewMode) ? undefined : 'none', height: '100%' }}>

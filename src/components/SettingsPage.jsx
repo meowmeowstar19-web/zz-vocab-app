@@ -307,8 +307,16 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   useEffect(() => {
     if (bindOAuthPending) return;
     let mounted = true;
-    supabase.auth.getUser().then(({ data }) => {
-      if (mounted) applyUser(data.user || null);
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      // Weak-net guard: getUser is a NETWORK call. When it fails (expired
+      // token + unreachable refresh) it returns user:null WITH an error — an
+      // undecided verdict, not "signed out". Applying that null flashed the
+      // signed-in user as 游客 on every weak-net launch. Keep the last known
+      // identity instead; a real logout reaches us through the
+      // onAuthStateChange listener below, and a recovered session re-applies
+      // the account the same way.
+      if (data?.user || !error) applyUser(data?.user || null);
     });
     return () => { mounted = false; };
   }, [bindOAuthPending, applyUser]);
