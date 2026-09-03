@@ -1007,9 +1007,12 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
 
   const body = displaySentence ? (
     <>
+      {/* 英文例句用普通 Arial，不是 LANGUAGES.en.font 的 Arial Black —— 那身黑体
+          是留给大标题词的（学习页的大词也用它）。全站别处（学习页例句、单词本
+          列表行）都带着这个 en 分支，只有这里漏了，例句就顶着一身黑体出来。 */}
       <p
         className="text-center text-[14px] text-[#555] leading-snug px-1"
-        style={{ fontFamily: getFontFamily(sentenceLang) }}
+        style={{ fontFamily: sentenceLang === 'en' ? 'Arial, sans-serif' : getFontFamily(sentenceLang) }}
       >
         {displaySentence}
       </p>
