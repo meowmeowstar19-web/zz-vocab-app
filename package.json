@@ -24,7 +24,8 @@
     "monkey:all": "playwright test --config /Users/miaofang/Desktop/data_prep/moneky-test/playwright.config.js",
     "test": "vitest run",
     "deploy:functions": "supabase functions deploy clone-session --project-ref bxqdrcseetaywwcssxsn --no-verify-jwt --use-api",
-    "check:sync": "node ../miracleZZ/webapp/tools/check-portable-sync.mjs"
+    "check:sync": "node ../miracleZZ/webapp/tools/check-portable-sync.mjs",
+    "check:dupes": "node scripts/check-dupes.mjs"
   },
   "dependencies": {
     "@posthog/react": "^1.9.0",

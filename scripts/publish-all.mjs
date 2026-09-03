@@ -62,7 +62,7 @@ const STAGE_PATHS = [
 ];
 
 const sh = (cmd) => execSync(cmd, { cwd: ROOT, encoding: 'utf8' });
-const C = { dim: (s) => `\x1b[2m${s}\x1b[0m`, b: (s) => `\x1b[1m${s}\x1b[0m`, g: (s) => `\x1b[32m${s}\x1b[0m`, y: (s) => `\x1b[33m${s}\x1b[0m` };
+const C = { dim: (s) => `\x1b[2m${s}\x1b[0m`, b: (s) => `\x1b[1m${s}\x1b[0m`, g: (s) => `\x1b[32m${s}\x1b[0m`, y: (s) => `\x1b[33m${s}\x1b[0m`, r: (s) => `\x1b[31m${s}\x1b[0m` };
 
 function run(cmd, args) {
   const r = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: false });
@@ -164,6 +164,17 @@ function bumpSwVersion() {
 
 async function main() {
   console.log('\n' + C.b('═══ 一键发布(工厂 → 线上)═══') + '\n');
+
+  // ⓪ 进阶内容体检:排重 + 机械红线。放在 ① 之前 —— 有问题的内容根本不该被
+  //    「提升」进 word-data/。红线(撞 id / 缺例句 / 缺子类 / 中文「A / B」)直接中止发布;
+  //    L2/L3 近重复是判断题,只提示不拦。详情跑 `npm run check:dupes`。
+  console.log(C.b('⓪ 进阶内容体检(排重 + 红线)'));
+  const dupes = spawnSync('node', ['scripts/check-dupes.mjs', '--quiet'],
+    { stdio: 'inherit', cwd: ROOT });
+  if (dupes.status !== 0) {
+    console.log(C.r('\n❌ 进阶内容有红线问题,已中止发布。修完 ~/Desktop/data_prep/dev-单词.xlsx 再来。'));
+    process.exit(1);
+  }
 
   // ① Promote(提升):把工厂(data_prep,草稿区)当前 xlsx 复制进 word-data/ 正本。
   //    随后 ③ sync-data 读 word-data/ 生成 words.js,所以 word-data/ 就是「最终版」=
