@@ -46,6 +46,7 @@ export const ICONS = {
     { d: 'M4.8 10.9a6.1 6.1 0 1 0 12.2 0a6.1 6.1 0 1 0-12.2 0Z' },
     { d: 'M15.4 15.4 20 20' },
   ],
+  plus: [{ d: 'M12 5.5v13M5.5 12h13' }], // "add one more" — same weight as close
 }
 
 export function Icon({ name, size = 22, color = '#9a6a82', stroke = 1.8 }) {

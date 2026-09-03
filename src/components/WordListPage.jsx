@@ -4,7 +4,8 @@ import { oralPhrases, oralCategories, ORAL_CATEGORY_LABELS } from '../data/oralP
 import { devPhrases } from '../data/devPhrases';
 import { jaData } from '../data/jaData';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
-import { getProgress, toggleMastered } from '../utils/storage';
+import { getProgress, saveProgress, toggleMastered } from '../utils/storage';
+import { useCustomWords, addCustomWords, clearDraft } from '../utils/customWords';
 import { speakWordByLang, speakDevPhrase, preloadAudioManifest } from '../hooks/useAudio';
 
 // 进阶 (dev) phrases use a dedicated audio namespace, not the shared 'en' audio —
@@ -25,6 +26,7 @@ import { MODAL_SCRIM, MODAL_CARD, SCROLL_HIDE } from '../general-ui/popKit.jsx';
 import { useScrollWatch, SlimScrollBar, ScrollTopButton } from '../general-ui/scrollKit.jsx';
 import { Icon } from '../general-ui/icons.jsx';
 import { YELLOW } from '../general-ui/config.js';
+import AddCustomWordsModal from './AddCustomWordsModal';
 
 // Look up a sentence in `lang` from the word's static data (Excel / jaData).
 function getStaticSentence(word, lang) {
@@ -39,6 +41,9 @@ function getStaticSentence(word, lang) {
 const _translationCache = new Map();
 
 function prefetchTranslation(word, targetLang, nativeLang, onDone) {
+  // 自定义词组：例句是用户自己打的英文句，用户明确说了不要中文例句、也不要
+  // 自动翻译 —— 那就连这次第三方请求都不发。
+  if (word?.custom) return;
   let sentence = getSentence(word, targetLang);
   let sentenceLang = targetLang;
   if (!sentence && targetLang === 'zh') {
@@ -191,6 +196,9 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [pendingMasteredWords, setPendingMasteredWords] = useState(new Map()); // wordId → newMasteredState
   const [randomKey, setRandomKey] = useState(0);
   const [query, setQuery] = useState('');
+  const [showAddCustom, setShowAddCustom] = useState(false);
+  // 用户自己手打的「自定义」词组 —— 跟 devPhrases 同构，进同一个 dev 池。
+  const customWords = useCustomWords(userScope);
 
   // See「Tab memory」above: persist:false = an automatic, screen-only fallback.
   const setFilter = useCallback((key) => {
@@ -237,14 +245,16 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   // Full pool — words + oral phrases (+ 进阶 phrases for the unlocked user only,
   // so dev content never reaches anyone else's totals or lists).
   const allWords = useMemo(() => {
-    const pool = devUnlocked ? [...words, ...oralPhrases, ...devPhrases] : [...words, ...oralPhrases];
+    const pool = devUnlocked
+      ? [...words, ...oralPhrases, ...devPhrases, ...customWords]
+      : [...words, ...oralPhrases];
     // Last line of defence: id doubles as the React list key AND the storage key.
     // A duplicate id makes React reuse rows across sub-tabs — ghost 短语 rows stuck
     // on top of the 单词 list, rows surviving into the empty state. Data generation
     // already de-dups; keep the pool unique here so a bad row can never do that again.
     const seen = new Set();
     return pool.filter(w => !seen.has(w.id) && seen.add(w.id));
-  }, [devUnlocked]);
+  }, [devUnlocked, customWords]);
 
   const eligibleWords = useMemo(() => {
     return allWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
@@ -344,6 +354,29 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       }, 400);
     }, 300);
   }, [progress, langKey, subTab]);
+
+  // 确认添加自定义词组。用户拍板：加完**立刻算「学习中」** —— 写进度是让这些词
+  // 马上出现在单词本列表里（也计入顶部数字、进复习队列）的唯一开关，列表本身
+  // 只显示有 progress 记录的词。
+  // 时间戳按行序递减：时间顺序是倒序排的，这样第 1 行还是排在最上面。
+  // 加完顺手切到「时间顺序」并清掉搜索词 —— 不然用户停在「已斩」或搜索结果里，
+  // 刚加的词一个都看不见，会以为没加上。
+  const handleAddCustom = useCallback((rows) => {
+    const added = addCustomWords(userScope, rows);
+    if (!added.length) return;
+    const prog = getProgress(langKey);
+    const now = Date.now();
+    added.forEach((w, i) => {
+      if (!prog[w.id]) prog[w.id] = { timestamp: now - i, mastered: false };
+    });
+    saveProgress(prog, langKey);
+    setProgress(prog);
+    clearDraft(userScope);
+    setShowAddCustom(false);
+    setQuery('');
+    setFilter('time');
+    posthog?.capture('custom_words_added', { count: added.length, native_lang: nativeLang, target_lang: targetLang });
+  }, [userScope, langKey, setFilter, posthog, nativeLang, targetLang]);
 
   const handleTapWord = useCallback((word) => {
     if (!revealedWords.has(word.id)) {
@@ -557,6 +590,30 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
               clearLabel={t.close}
               scrollRef={scrollRef}
             />
+
+            {/* 自定义添加 —— 只在「进阶」下出现，长得跟上面的搜索框同一套
+                （同高、同宽、同底色、同描边），只是换成 ＋ 和一行说明文字。
+                故意不吸顶：吸顶区一次钉两条会吃掉小半屏，而添加是低频动作。 */}
+            {subTab === 'dev' && devUnlocked && (
+              <button
+                type="button"
+                data-testid="wordlist-add-custom-btn"
+                onClick={() => setShowAddCustom(true)}
+                className="active:scale-[0.99]"
+                style={{
+                  margin: '0 14px 8px',
+                  width: 'calc(100% - 28px)', height: 36, boxSizing: 'border-box',
+                  display: 'flex', alignItems: 'center', gap: 7, padding: '0 10px',
+                  backgroundColor: 'rgba(255,255,255,0.60)',
+                  backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                  border: '1.5px solid #000', borderRadius: 5,
+                  fontSize: 14, color: '#3f3e3e', fontFamily: 'inherit',
+                }}
+              >
+                <Icon name="plus" size={16} color="#8a8585" stroke={2} />
+                自定义添加词组
+              </button>
+            )}
           </>
         )}
 
@@ -684,6 +741,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         label={t.backToTop}
         style={{ position: 'absolute', right: 14, bottom: 16, zIndex: 20 }}
       />
+
+      {/* ===== 自定义添加 POPUP ===== */}
+      {showAddCustom && (
+        <AddCustomWordsModal
+          scope={userScope}
+          onClose={() => setShowAddCustom(false)}
+          onSubmit={handleAddCustom}
+        />
+      )}
 
       {/* ===== IMAGE POPUP ===== */}
       {popupWord && (
@@ -947,8 +1013,9 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
       >
         {displaySentence}
       </p>
-      {sentenceLang !== nativeLang && (
-        // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳
+      {sentenceLang !== nativeLang && !word.custom && (
+        // 译文可能是异步查回来的：先占好一行，回来时不推着上面的内容跳。
+        // 自定义词组没有译文这一行（用户不要），连占位都不留。
         <p className="text-center text-[12px] text-[#999] mt-1 leading-snug px-1" style={{ minHeight: 18 }}>
           {translatedSentence || '\u00A0'}
         </p>

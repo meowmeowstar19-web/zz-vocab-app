@@ -5,6 +5,7 @@ import { oralPhrases, oralPhrasesShuffled, oralCategories, ORAL_CATEGORY_LABELS 
 import { devPhrases, devPhrasesShuffled, devCategories, DEV_CATEGORY_LABELS, devCategoryCovers } from '../data/devPhrases';
 import { vocabCategoryCovers, oralCategoryCovers } from '../data/categoryCovers';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
+import { useCustomWords, CUSTOM_CATEGORY } from '../utils/customWords';
 import { speakWordByLang, speakDevPhrase, preloadAudioManifest, playCorrectSound, playWrongSound, playSlaySound } from '../hooks/useAudio';
 import RubyText, { stripRuby } from './RubyText';
 import { getProgress, markWordLearned, toggleMastered, saveProgress, updateWordSRS, getReviewWordStates, saveReviewWordStates, getReviewSession, saveReviewSession, clearReviewSession, REVIEW_RESUME_WINDOW_MS } from '../utils/storage';
@@ -19,6 +20,14 @@ import {
 import { usePostHog } from '@posthog/react';
 import { getFigmaAssetUrl, getImageUrl } from '../utils/assetUrl';
 import { BackButton } from '../login-auth-ui/shared.jsx';
+
+// 「自定义」= 用户自己在单词本里手打的进阶词组，跟 Excel 出的 4 个分类并列。
+// 标签就是分类名本身（进阶只在 zh→en 下开放，三种 UI 语言都显示中文）。
+const DEV_CAT_LABELS = {
+  zh: { ...DEV_CATEGORY_LABELS.zh, [CUSTOM_CATEGORY]: CUSTOM_CATEGORY },
+  en: { ...DEV_CATEGORY_LABELS.en, [CUSTOM_CATEGORY]: CUSTOM_CATEGORY },
+  ja: { ...DEV_CATEGORY_LABELS.ja, [CUSTOM_CATEGORY]: CUSTOM_CATEGORY },
+};
 
 function shuffle(arr) {
   const a = [...arr];
@@ -206,19 +215,37 @@ export default function LearningPage({
   const isPhraseMode = isOralMode || isDevMode;
   const devUnlocked = nativeLang === 'zh' && targetLang === 'en' && canSwitchLanguageFreely(userEmail);
   const catLabels = isDevMode
-    ? (DEV_CATEGORY_LABELS[nativeLang] || DEV_CATEGORY_LABELS.zh)
+    ? (DEV_CAT_LABELS[nativeLang] || DEV_CAT_LABELS.zh)
     : isOralMode
       ? (ORAL_CATEGORY_LABELS[nativeLang] || ORAL_CATEGORY_LABELS.zh)
       : (CATEGORY_LABELS[nativeLang] || CATEGORY_LABELS.zh);
-  const activeWords = isDevMode ? devPhrases : isOralMode ? oralPhrases : words;
+  // 用户手打的自定义词组：形状跟 devPhrases 完全同构，直接并进进阶池，
+  // 队列/复习/干扰项这些逻辑一处都不用分叉。
+  const customWords = useCustomWords(userScope);
+  const devPool = useMemo(
+    () => (customWords.length ? [...devPhrases, ...customWords] : devPhrases),
+    [customWords],
+  );
+  // 洗牌版：自定义词必须跟原有词组**拌在一起**，接在尾巴上等于永远学不到。
+  const devPoolShuffled = useMemo(
+    () => (customWords.length ? shuffle([...devPhrases, ...customWords]) : devPhrasesShuffled),
+    [customWords],
+  );
+  const activeWords = isDevMode ? devPool : isOralMode ? oralPhrases : words;
   // Phase 4: the "all" scope (selectedCategory === 'all') uses the de-duplicated
   // pool — 'specific'-tier marketing words excluded, English+Chinese duplicates
   // collapsed to one representative (core preferred). Category-scoped pools use
   // the FULL `activeWords` (marketing included, no de-dup). Oral/dev have no
   // tiers, so their all-pool is just the phrase list.
-  const activeWordsShuffled = isDevMode ? devPhrasesShuffled : isOralMode ? oralPhrasesShuffled : wordsAllPoolShuffled;
-  const allPoolBase = isDevMode ? devPhrases : isOralMode ? oralPhrases : wordsAllPool;
-  const activeCategories = isDevMode ? devCategories : isOralMode ? oralCategories : categories;
+  const activeWordsShuffled = isDevMode ? devPoolShuffled : isOralMode ? oralPhrasesShuffled : wordsAllPoolShuffled;
+  const allPoolBase = isDevMode ? devPool : isOralMode ? oralPhrases : wordsAllPool;
+  // 一条自定义词都没有时不挂出「自定义」分类 —— 空分类进去就是一屏空队列。
+  // 真的挑中了又被清空，下面那条「分类不在列表里就回落 all」的保险会兜住。
+  const devCategoryList = useMemo(
+    () => (customWords.length ? [...devCategories, CUSTOM_CATEGORY] : devCategories),
+    [customWords],
+  );
+  const activeCategories = isDevMode ? devCategoryList : isOralMode ? oralCategories : categories;
 
   // Safety: if a persisted session is in 进阶 mode but the user is no longer
   // unlocked (switched away from zh→en, or signed out), reset to the normal
@@ -432,13 +459,13 @@ export default function LearningPage({
   // generation and category-scoped filtering; includes marketing words).
   const allWordsFiltered = useMemo(() => {
     return activeWords.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang, isPhraseMode]);
+  }, [nativeLang, targetLang, isPhraseMode, activeWords]);
 
   // The de-duplicated "all"-scope pool (specific tier excluded, concepts merged).
   // Used wherever the scope is global: "all" review pool + truly-all-done checks.
   const allPoolFiltered = useMemo(() => {
     return allPoolBase.filter(w => isWordAvailable(w, nativeLang, targetLang));
-  }, [nativeLang, targetLang, isPhraseMode]);
+  }, [nativeLang, targetLang, isPhraseMode, allPoolBase]);
 
   // ── Review Queue Initialization & helpers ──
   const showNextReviewCard = useCallback((queue, pointer, wordStates) => {
@@ -2095,8 +2122,8 @@ export default function LearningPage({
           if (firstWord) dynamicCatImages[cat] = firstWord.img;
         });
         const oralCats = oralCategories.filter(c => c !== 'all');
-        const devCatLabels = DEV_CATEGORY_LABELS[nativeLang] || DEV_CATEGORY_LABELS.zh;
-        const devCats = devUnlocked ? devCategories.filter(c => c !== 'all') : [];
+        const devCatLabels = DEV_CAT_LABELS[nativeLang] || DEV_CAT_LABELS.zh;
+        const devCats = devUnlocked ? devCategoryList.filter(c => c !== 'all') : [];
 
         // Progress helper: count learned / total for a word pool
         const getCatProgress = (wordPool) => {
@@ -2126,7 +2153,7 @@ export default function LearningPage({
         // Shared card renderer with progress bar (matches Figma card: ~108x auto)
         const renderCatCard = (key, imgSrc, label, isSelected, onClick, prog, decor = {}, opts = {}) => {
           const { hasLetter = false, hasStar = false, starAtTR = false } = decor;
-          const { imageContain = false } = opts;
+          const { imageContain = false, glyph = '' } = opts;
           return (
           <button key={key} ref={isSelected ? selectedCatCardRef : null} onClick={onClick} className="relative flex flex-col items-center active:scale-95" style={{ overflow: 'visible' }}>
             <div style={{
@@ -2145,7 +2172,7 @@ export default function LearningPage({
                     <img src={imgSrc} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   )
                 ) : (
-                  <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : ''}</span>
+                  <span style={{ fontSize: 44, lineHeight: 1 }}>{key === 'beginner' ? '1' : key === 'intermediate' ? '2' : key === 'advanced' ? '3' : glyph}</span>
                 )}
               </div>
               {/* Progress bar — own row (Figma 472:339/340; 75.27 / 107.8 ≈ 70% of card) */}
@@ -2354,14 +2381,14 @@ export default function LearningPage({
                   {/* === 进阶 (DEV) TAB — whitelist-only, zh→en === */}
                   {categoryTab === 'dev' && devUnlocked && (() => {
                     const devItems = [
-                      { key: 'all', label: devCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: devPhrases },
+                      { key: 'all', label: devCatLabels.all || '全部', imgSrc: getFigmaAssetUrl('all-smile-face.png'), pool: devPool },
                       ...devCats.map(cat => {
                         const imgFile = devCategoryCovers[cat];
                         return {
                           key: cat,
                           label: devCatLabels[cat] || cat,
                           imgSrc: imgFile ? getImageUrl(imgFile) : null,
-                          pool: devPhrases.filter(w => w.category === cat),
+                          pool: devPool.filter(w => w.category === cat),
                         };
                       }),
                     ];
@@ -2382,7 +2409,9 @@ export default function LearningPage({
                             item.key, item.imgSrc, item.label, isSelected,
                             () => { setPendingCategory(item.key); setPendingLevel('dev'); },
                             prog, decor,
-                            { imageContain: item.key === 'all' },
+                            // 自定义没有封面图（词是用户手打的，本来就没有配图），
+                            // 用一支笔占位 —— 「自己写进去的词」，跟别的卡一眼分得开。
+                            { imageContain: item.key === 'all', glyph: item.key === CUSTOM_CATEGORY ? '✏️' : '' },
                           );
                         })}
                       </div>
