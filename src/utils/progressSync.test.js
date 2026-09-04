@@ -161,6 +161,14 @@ describe('custom words — full cross-device sync', () => {
     ])
   })
 
+  it('同一个词在另一台设备编辑后，以 updatedAt 更新的内容为准', () => {
+    const old = { ...word('custom-shared', 'Old phrase', 10), updatedAt: 10 }
+    const edited = { ...word('custom-shared', 'Edited phrase', 10), updatedAt: 20 }
+    const local = { ...emptyCloud, custom_words: [edited] }
+    const cloud = { ...emptyCloud, custom_words: [old] }
+    expect(mergeSnapshots(local, cloud).custom_words).toEqual([edited])
+  })
+
   it('云端词条落到新设备的本地词库', () => {
     const cloudWord = word('custom-cloud', 'from cloud', 30)
     writeLocalSnapshot('u1', { ...emptyCloud, custom_words: [cloudWord] }, 'u_u1')

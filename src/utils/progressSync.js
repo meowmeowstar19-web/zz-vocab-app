@@ -162,16 +162,16 @@ function mergeReviewStates(localMap = {}, cloudMap = {}) {
   return out;
 }
 
-// Custom entries are append-only today. Union by globally-unique id so words
-// added offline on two devices both survive. Legacy slug-only ids can collide;
-// for those, the newest createdAt wins deterministically instead of letting
-// whichever device happened to push last overwrite the other at random.
+// Union by globally-unique id so words added offline on two devices both
+// survive. Edits use updatedAt; legacy entries fall back to createdAt.
 function mergeCustomWords(localWords = [], cloudWords = []) {
   const byId = new Map();
   for (const entry of [...cloudWords, ...localWords]) {
     if (!entry?.id || !entry.en || !entry.zh) continue;
     const current = byId.get(entry.id);
-    if (!current || (Number(entry.createdAt) || 0) > (Number(current.createdAt) || 0)) {
+    const touched = Number(entry.updatedAt) || Number(entry.createdAt) || 0;
+    const currentTouched = Number(current?.updatedAt) || Number(current?.createdAt) || 0;
+    if (!current || touched > currentTouched) {
       byId.set(entry.id, entry);
     }
   }

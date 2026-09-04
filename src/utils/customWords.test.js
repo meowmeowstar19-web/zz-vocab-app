@@ -9,6 +9,7 @@ import {
   CUSTOM_CATEGORY,
   CUSTOM_MAX_PER_BATCH,
   addCustomWords,
+  updateCustomWord,
   getCustomWords,
   normalizeRows,
   readDraft,
@@ -51,6 +52,11 @@ describe('normalizeRows', () => {
     const [row] = normalizeRows([{ en: '  Rain   check  ', zh: ' 改天吧 ' }])
     expect(row.en).toBe('Rain check')
     expect(row.zh).toBe('改天吧')
+  })
+
+  it('英文词组的第一个字母自动大写（包括开头有引号时）', () => {
+    expect(normalizeRows([{ en: 'call it a day', zh: '收工' }])[0].en).toBe('Call it a day')
+    expect(normalizeRows([{ en: '“rain check”', zh: '改天吧' }])[0].en).toBe('“Rain check”')
   })
 })
 
@@ -155,6 +161,24 @@ describe('getCustomWords', () => {
   })
 })
 
+describe('updateCustomWord', () => {
+  it('保留 id 和学习关联，同时规范首字母并更新正文', () => {
+    const scope = freshScope()
+    const original = addCustomWords(scope, [{ en: 'Rain check', zh: '改天吧' }])[0]
+    const updated = updateCustomWord(scope, original.id, {
+      en: 'call it a day', zh: '今天到这里', sentence: "Let's stop here.",
+    })
+    expect(updated).toMatchObject({
+      id: original.id,
+      en: 'Call it a day',
+      zh: '今天到这里',
+      sentence: "Let's stop here.",
+    })
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(original.updatedAt)
+    expect(getCustomWords(scope)).toHaveLength(1)
+  })
+})
+
 describe('云快照读写', () => {
   it('只导出用户输入字段，云落地后可直接 hydrate 使用', () => {
     const scope = freshScope()
@@ -168,6 +192,7 @@ describe('云快照读写', () => {
       zh: '今天就到这儿',
       sentence: "Let's call it a day.",
       createdAt: added.createdAt,
+      updatedAt: added.updatedAt,
     }])
 
     const restoredScope = freshScope()

@@ -37,7 +37,7 @@ function restoreDraft(scope) {
 
 /* 自动长高的输入框：写死 rows=1 再按 scrollHeight 顶开，所以短词组就一行高，
  * 长词组自己换成两三行 —— 永远不出现横向滚动或被裁掉的半个词。 */
-function GrowField({ value, onChange, placeholder, fontSize = 14, minHeight = 34, onPaste, onEnter }) {
+function GrowField({ value, onChange, onBlur, placeholder, fontSize = 14, minHeight = 34, onPaste, onEnter, english = false }) {
   const ref = useRef(null);
   const [focused, setFocused] = useState(false);
 
@@ -79,13 +79,14 @@ function GrowField({ value, onChange, placeholder, fontSize = 14, minHeight = 34
         const el = e.currentTarget;
         setTimeout(() => { try { el.scrollIntoView({ block: 'nearest' }); } catch {} }, 260);
       }}
-      onBlur={() => setFocused(false)}
+      onBlur={() => { setFocused(false); onBlur?.(); }}
       placeholder={placeholder}
       enterKeyHint="next"
-      autoComplete="off"
-      autoCorrect="off"
-      autoCapitalize="none"
-      spellCheck={false}
+      inputMode="text"
+      autoComplete={english ? 'on' : 'off'}
+      autoCorrect={english ? 'on' : 'off'}
+      autoCapitalize={english ? 'sentences' : 'none'}
+      spellCheck={english}
       style={{
         width: '100%', boxSizing: 'border-box', display: 'block',
         minHeight, padding: '7px 9px',
@@ -100,17 +101,21 @@ function GrowField({ value, onChange, placeholder, fontSize = 14, minHeight = 34
   );
 }
 
-export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
-  const [rows, setRows] = useState(() => restoreDraft(scope));
+export default function AddCustomWordsModal({ scope, onClose, onSubmit, initialRow = null }) {
+  const isEditing = !!initialRow;
+  const [rows, setRows] = useState(() => initialRow
+    ? [{ ...emptyRow(), en: initialRow.en || '', zh: initialRow.zh || '', sentence: initialRow.sentence || '' }]
+    : restoreDraft(scope));
   const cardRef = useRef(null);
 
   // 草稿：手打十条最怕误触关掉，边打边存（防抖 300ms，别每个字符都写盘）。
   useEffect(() => {
+    if (isEditing) return undefined;
     const id = setTimeout(() => {
       writeDraft(scope, rows.filter(hasContent).map(({ en, zh, sentence }) => ({ en, zh, sentence })));
     }, 300);
     return () => clearTimeout(id);
-  }, [rows, scope]);
+  }, [rows, scope, isEditing]);
 
   // 回车 = 跳到下一个输入框（最后一个就收键盘）。
   const focusNext = useCallback((el) => {
@@ -125,10 +130,10 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
   const updateRow = useCallback((idx, patch) => {
     setRows(prev => {
       const next = prev.map((r, i) => (i === idx ? { ...r, ...patch } : r));
-      if (next.length < CUSTOM_MAX_PER_BATCH && hasContent(next[next.length - 1])) next.push(emptyRow());
+      if (!isEditing && next.length < CUSTOM_MAX_PER_BATCH && hasContent(next[next.length - 1])) next.push(emptyRow());
       return next;
     });
-  }, []);
+  }, [isEditing]);
 
   const removeRow = useCallback((idx) => {
     setRows(prev => {
@@ -152,11 +157,12 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
       });
     if (!parsed.length) return;
     setRows(prev => {
-      const next = [...prev.slice(0, idx), ...parsed, ...prev.slice(idx + 1)].slice(0, CUSTOM_MAX_PER_BATCH);
-      if (next.length < CUSTOM_MAX_PER_BATCH && hasContent(next[next.length - 1])) next.push(emptyRow());
+      const limit = isEditing ? 1 : CUSTOM_MAX_PER_BATCH;
+      const next = [...prev.slice(0, idx), ...parsed, ...prev.slice(idx + 1)].slice(0, limit);
+      if (!isEditing && next.length < CUSTOM_MAX_PER_BATCH && hasContent(next[next.length - 1])) next.push(emptyRow());
       return next;
     });
-  }, []);
+  }, [isEditing]);
 
   const readyRows = rows.filter(isComplete);
   const halfCount = rows.filter(isHalf).length;
@@ -183,7 +189,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
 
         {/* ── 标题 ── */}
         <div style={{ flex: '0 0 auto', padding: '0 34px' }}>
-          <h2 style={MODAL_TITLE}>自定义词组</h2>
+          <h2 style={MODAL_TITLE}>{isEditing ? '编辑词组' : '自定义词组'}</h2>
         </div>
 
         {/* ── 词条列表（滚动区）── */}
@@ -202,7 +208,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
               {/* 行号 + 删除 */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 16, marginBottom: 5 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#b6a9ac', letterSpacing: 0.4 }}>{idx + 1}</span>
-                {rows.length > 1 && (
+                {!isEditing && rows.length > 1 && (
                   <button
                     type="button" onClick={() => removeRow(idx)} aria-label={`删除第 ${idx + 1} 条`}
                     className="active:scale-90"
@@ -221,6 +227,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
                   onPaste={handleBulkPaste(idx)}
                   onEnter={focusNext}
                   placeholder="英文"
+                  english
                 />
                 <GrowField
                   value={row.zh}
@@ -234,6 +241,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
                   onEnter={focusNext}
                   placeholder="例句（选填）"
                   fontSize={13}
+                  english
                 />
               </div>
             </div>
@@ -245,7 +253,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
           <p style={{ margin: '0 0 8px', fontSize: 11.5, textAlign: 'center', lineHeight: 1.4, minHeight: 16, color: halfCount ? '#c98b8b' : '#9a8f92' }}>
             {halfCount
               ? `有 ${halfCount} 条只填了一半，不会被添加`
-              : `${readyRows.length}/${CUSTOM_MAX_PER_BATCH} 条`}
+              : isEditing ? '修改后会自动保存并同步' : `${readyRows.length}/${CUSTOM_MAX_PER_BATCH} 条`}
           </p>
           <button
             type="button"
@@ -257,7 +265,7 @@ export default function AddCustomWordsModal({ scope, onClose, onSubmit }) {
               display: 'flex', width: 178, margin: '0 auto',
             }}
           >
-            {canSubmit ? `添加 ${readyRows.length} 个词组` : '添加词组'}
+            {isEditing ? '保存修改' : canSubmit ? `添加 ${readyRows.length} 个词组` : '添加词组'}
           </button>
         </div>
       </div>

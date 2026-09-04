@@ -40,18 +40,22 @@ function hydrate(e) {
     ipa: '', pinyin: '', jaReading: null,
     custom: true,
     createdAt: e.createdAt || 0,
+    updatedAt: e.updatedAt || e.createdAt || 0,
   };
 }
 
 function sanitizeEntry(e) {
   if (!e || !e.id || !e.en || !e.zh) return null;
-  return {
+  const entry = {
     id: clean(e.id),
     en: clean(e.en),
     zh: clean(e.zh),
     sentence: clean(e.sentence),
     createdAt: Number(e.createdAt) || 0,
   };
+  // Leave legacy entries byte-compatible until they are actually edited.
+  if (Number(e.updatedAt)) entry.updatedAt = Number(e.updatedAt);
+  return entry;
 }
 
 function readRaw(scope) {
@@ -113,11 +117,18 @@ function clean(s) {
   return String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 }
 
+// Capitalize the first Latin letter, even when the phrase starts with a quote
+// or punctuation. Keeping this in the store (rather than only in the input)
+// also covers bulk paste and callers that add words without opening the modal.
+export function capitalizeEnglishInitial(s) {
+  return clean(s).replace(/[a-z]/i, letter => letter.toUpperCase());
+}
+
 // 只有英文 + 中文都填了的行才算数；半截的行直接丢掉（调用方负责提示）。
 export function normalizeRows(rows) {
   return (rows || [])
     .map(r => ({
-      en: clean(r.en),
+      en: capitalizeEnglishInitial(r.en),
       zh: clean(r.zh),
       sentence: clean(r.sentence),
     }))
@@ -135,7 +146,7 @@ export function addCustomWords(scope, rows) {
   const added = entries.map((r, i) => {
     const id = makeId(r.en, used);
     used.add(id);
-    return { id, ...r, createdAt: now + i };
+    return { id, ...r, createdAt: now + i, updatedAt: now + i };
   });
 
   try {
@@ -150,6 +161,33 @@ export function addCustomWords(scope, rows) {
   // 写 progress，但这个通知让未来的编辑/删除也不会漏掉云端 flush。
   try { window.dispatchEvent(new CustomEvent('app:custom-words-changed')); } catch {}
   return added.map(hydrate);
+}
+
+/** Edit one custom phrase in place, preserving its id and study progress. */
+export function updateCustomWord(scope, id, row) {
+  const normalized = normalizeRows([row])[0];
+  if (!normalized) return null;
+
+  const existing = readRaw(scope);
+  const index = existing.findIndex(entry => entry.id === id);
+  if (index < 0) return null;
+
+  const updated = {
+    ...existing[index],
+    ...normalized,
+    updatedAt: Math.max(Date.now(), (Number(existing[index].updatedAt) || 0) + 1),
+  };
+  const next = [...existing];
+  next[index] = updated;
+  try {
+    localStorage.setItem(KEY(scope), JSON.stringify(next));
+  } catch {
+    return null;
+  }
+  _cache.delete(scope);
+  emit();
+  try { window.dispatchEvent(new CustomEvent('app:custom-words-changed')); } catch {}
+  return hydrate(updated);
 }
 
 /** 给 progressSync 的精简云快照（不携带 hydrate 出来的固定字段）。 */

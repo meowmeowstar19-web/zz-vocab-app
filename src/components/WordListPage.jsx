@@ -5,7 +5,7 @@ import { devPhrases } from '../data/devPhrases';
 import { jaData } from '../data/jaData';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { getProgress, saveProgress, toggleMastered } from '../utils/storage';
-import { useCustomWords, addCustomWords, clearDraft } from '../utils/customWords';
+import { useCustomWords, addCustomWords, updateCustomWord, clearDraft } from '../utils/customWords';
 import { speakWordByLang, speakDevPhrase, preloadAudioManifest } from '../hooks/useAudio';
 
 // 进阶 (dev) phrases use a dedicated audio namespace, not the shared 'en' audio —
@@ -197,6 +197,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [randomKey, setRandomKey] = useState(0);
   const [query, setQuery] = useState('');
   const [showAddCustom, setShowAddCustom] = useState(false);
+  const [editingCustom, setEditingCustom] = useState(null);
   // 用户自己手打的「自定义」词组 —— 跟 devPhrases 同构，进同一个 dev 池。
   const customWords = useCustomWords(userScope);
 
@@ -377,6 +378,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
     setFilter('time');
     posthog?.capture('custom_words_added', { count: added.length, native_lang: nativeLang, target_lang: targetLang });
   }, [userScope, langKey, setFilter, posthog, nativeLang, targetLang]);
+
+  const handleEditCustom = useCallback((rows) => {
+    if (!editingCustom) return;
+    const updated = updateCustomWord(userScope, editingCustom.id, rows[0]);
+    if (!updated) return;
+    setEditingCustom(null);
+    setPopupWord(null);
+    posthog?.capture('custom_word_edited', { word_id: updated.id });
+  }, [editingCustom, userScope, posthog]);
 
   const handleTapWord = useCallback((word) => {
     if (!revealedWords.has(word.id)) {
@@ -751,6 +761,15 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
         />
       )}
 
+      {editingCustom && (
+        <AddCustomWordsModal
+          scope={userScope}
+          initialRow={editingCustom}
+          onClose={() => setEditingCustom(null)}
+          onSubmit={handleEditCustom}
+        />
+      )}
+
       {/* ===== IMAGE POPUP ===== */}
       {popupWord && (
         <PopupDetail
@@ -759,6 +778,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           cachedTranslation={translationCache.get(`${popupWord.id}_${nativeLang}_${targetLang}`) || ''}
           nativeLang={nativeLang}
           targetLang={targetLang}
+          onEdit={popupWord.custom ? () => setEditingCustom(popupWord) : null}
         />
       )}
     </div>
@@ -925,7 +945,7 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
 }
 
 /* ── Popup component ── */
-function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang }) {
+function PopupDetail({ word, onClose, onEdit, cachedTranslation, nativeLang, targetLang }) {
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const displayText = getWordText(word, targetLang) || word.en;
   const nativeText = getWordText(word, nativeLang);
@@ -1066,6 +1086,23 @@ function PopupDetail({ word, onClose, cachedTranslation, nativeLang, targetLang 
         }}
         onClick={e => e.stopPropagation()}
       >
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label="编辑这个词组"
+            title="编辑"
+            className="active:scale-90"
+            style={{
+              position: 'absolute', top: 12, right: 12, zIndex: 2,
+              width: 28, height: 28, borderRadius: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#F8F4EF', border: '1px solid #E7DDD3',
+            }}
+          >
+            <Icon name="edit" size={14} color="#8f8287" stroke={1.8} />
+          </button>
+        )}
         {/* ① 单词 → 例句译文这一整块：占满关闭按钮以上的全部高度，整块居中。
             居中用 margin:auto 而不是 justify-content:center —— 内容撑满时 auto
             自动退化成 0，不会像后者那样把顶部截掉、滚不上去。 */}
