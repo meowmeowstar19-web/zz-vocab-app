@@ -524,6 +524,7 @@ export default function App() {
     if (!uid) return;
     let flushPromise = null;
     let customFlushTimer = null;
+    let visibilitySettleTimer = null;
 
     const flush = (force = false) => {
       if (flushPromise) return flushPromise;
@@ -563,15 +564,30 @@ export default function App() {
       clearTimeout(customFlushTimer);
       customFlushTimer = setTimeout(flushIfDirty, 400);
     };
-    document.addEventListener('visibilitychange', flushForVisibility);
+    const handleVisibility = () => {
+      flushForVisibility();
+      // The destination can become visible a fraction of a second before the
+      // source device's 400ms upload finishes. Recheck once after the handoff
+      // settles so that race still converges in seconds, not at the 5-minute
+      // heartbeat. Visibility transitions are rare, so one extra read is cheap.
+      if (document.visibilityState === 'visible') {
+        clearTimeout(visibilitySettleTimer);
+        visibilitySettleTimer = setTimeout(flushForVisibility, 2_000);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('pagehide', flushIfDirty);
     window.addEventListener('app:custom-words-changed', scheduleCustomFlush);
+    // Same race is possible on a cold desktop launch: its login pull may beat
+    // the phone upload. One post-boot recheck closes that window.
+    visibilitySettleTimer = setTimeout(flushForVisibility, 2_000);
     const id = setInterval(flushIfDirty, 5 * 60_000);
     return () => {
-      document.removeEventListener('visibilitychange', flushForVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pagehide', flushIfDirty);
       window.removeEventListener('app:custom-words-changed', scheduleCustomFlush);
       clearTimeout(customFlushTimer);
+      clearTimeout(visibilitySettleTimer);
       clearInterval(id);
     };
   }, [auth.isRealAccount, auth.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
