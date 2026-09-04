@@ -2,6 +2,11 @@
 // merges cloud + local on login so a returning user keeps anything they did
 // while signed out (guest mode) or on another device.
 import { supabase } from '../lib/supabase';
+import {
+  clearCustomWordEntries,
+  readCustomWordEntries,
+  writeCustomWordEntries,
+} from './customWords';
 
 const TARGETS = ['en', 'ja', 'zh'];
 
@@ -63,6 +68,7 @@ export function readLocalSnapshot(uid, scope) {
   return {
     progress,
     review_states: reviewStates,
+    custom_words: readCustomWordEntries(readScope),
     login_days: perUser || guest || [],
     preferences,
   };
@@ -77,6 +83,7 @@ export function writeLocalSnapshot(uid, snap, scope) {
     writeJSON(`vocab_kids_progress_${writeScope}_${t}`, snap.progress?.[t] || {});
     writeJSON(`vocab_review_states_${writeScope}_${t}`, snap.review_states?.[t] || {});
   }
+  writeCustomWordEntries(writeScope, snap.custom_words || []);
   if (snap.login_days?.length) {
     writeJSON(`login_days_${uid}`, snap.login_days);
   }
@@ -155,9 +162,30 @@ function mergeReviewStates(localMap = {}, cloudMap = {}) {
   return out;
 }
 
+// Custom entries are append-only today. Union by globally-unique id so words
+// added offline on two devices both survive. Legacy slug-only ids can collide;
+// for those, the newest createdAt wins deterministically instead of letting
+// whichever device happened to push last overwrite the other at random.
+function mergeCustomWords(localWords = [], cloudWords = []) {
+  const byId = new Map();
+  for (const entry of [...cloudWords, ...localWords]) {
+    if (!entry?.id || !entry.en || !entry.zh) continue;
+    const current = byId.get(entry.id);
+    if (!current || (Number(entry.createdAt) || 0) > (Number(current.createdAt) || 0)) {
+      byId.set(entry.id, entry);
+    }
+  }
+  return [...byId.values()].sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+}
+
 export function mergeSnapshots(local, cloud, opts = {}) {
   const { isBindFlow = false } = opts;
-  const out = { progress: {}, review_states: {}, login_days: [] };
+  const out = {
+    progress: {},
+    review_states: {},
+    custom_words: mergeCustomWords(local.custom_words, cloud.custom_words),
+    login_days: [],
+  };
   for (const t of TARGETS) {
     out.progress[t] = mergeWordMap(local.progress?.[t], cloud.progress?.[t]);
     out.review_states[t] = mergeReviewStates(local.review_states?.[t], cloud.review_states?.[t]);
@@ -225,6 +253,7 @@ export async function pushToCloud(uid, snap) {
 // data may seed ONLY an account whose cloud row is empty (蓝图 §3.1).
 export function cloudHasProgress(cloud) {
   if (!cloud) return false;
+  if ((cloud.custom_words || []).length > 0) return true;
   const p = cloud.progress || {};
   for (const t of TARGETS) {
     if (Object.keys(p[t] || {}).length > 0) return true;
@@ -274,6 +303,7 @@ export function clearScope(scope) {
     try { localStorage.removeItem(`vocab_review_states_${scope}_${t}`); } catch {}
     try { localStorage.removeItem(`vocab_review_session_${scope}_${t}`); } catch {}
   }
+  clearCustomWordEntries(scope);
 }
 
 // Background sync: pull the cloud row, merge with local, write the union to

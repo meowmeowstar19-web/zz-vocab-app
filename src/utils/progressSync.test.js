@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import {
+  clearScope,
   readLocalSnapshot,
   writeLocalSnapshot,
   mergeSnapshots,
@@ -136,6 +137,55 @@ describe('writeLocalSnapshot — restore without wiping', () => {
     writeLocalSnapshot('u1', { progress: {}, review_states: {}, preferences: { nativeLang: 'zh' } }, 'u_u1')
     expect(localStorage.getItem('app_learning_category')).toBe('animals')
     expect(localStorage.getItem('app_learning_pick_ts')).toBe('7')
+  })
+})
+
+describe('custom words — full cross-device sync', () => {
+  const word = (id, en, createdAt) => ({ id, en, zh: `${en}-zh`, sentence: '', createdAt })
+
+  it('旧手机 localStorage 里的词会进入云快照', () => {
+    localStorage.setItem('vocab_custom_words_u_u1', JSON.stringify([
+      word('custom-legacy', 'phone only', 10),
+    ]))
+    expect(readLocalSnapshot('u1', 'u_u1').custom_words).toEqual([
+      word('custom-legacy', 'phone only', 10),
+    ])
+  })
+
+  it('手机和电脑各自新增都保留，并按创建时间稳定排序', () => {
+    const phone = { ...emptyCloud, custom_words: [word('custom-phone', 'phone', 20)] }
+    const desktop = { ...emptyCloud, custom_words: [word('custom-desktop', 'desktop', 10)] }
+    expect(mergeSnapshots(phone, desktop).custom_words.map(w => w.id)).toEqual([
+      'custom-desktop', 'custom-phone',
+    ])
+  })
+
+  it('云端词条落到新设备的本地词库', () => {
+    const cloudWord = word('custom-cloud', 'from cloud', 30)
+    writeLocalSnapshot('u1', { ...emptyCloud, custom_words: [cloudWord] }, 'u_u1')
+    expect(JSON.parse(localStorage.getItem('vocab_custom_words_u_u1'))).toEqual([cloudWord])
+  })
+
+  it('清理 guest scope 时连同已成功搬走的自定义词一起清理', () => {
+    localStorage.setItem('vocab_custom_words_guest', JSON.stringify([
+      word('custom-guest', 'guest', 1),
+    ]))
+    clearScope('guest')
+    expect(localStorage.getItem('vocab_custom_words_guest')).toBeNull()
+  })
+
+  it('后台 flush 把本地与云端自定义词的并集推回云端', async () => {
+    localStorage.setItem('vocab_custom_words_u_u1', JSON.stringify([
+      word('custom-phone', 'phone', 20),
+    ]))
+    supabaseCalls.cloudRow = {
+      ...emptyCloud,
+      custom_words: [word('custom-desktop', 'desktop', 10)],
+    }
+    await pushLocalToCloud('u1')
+    expect(supabaseCalls.upserts[0].data.custom_words.map(w => w.id)).toEqual([
+      'custom-desktop', 'custom-phone',
+    ])
   })
 })
 

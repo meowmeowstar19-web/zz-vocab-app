@@ -14,6 +14,9 @@ import {
   readDraft,
   writeDraft,
   clearDraft,
+  readCustomWordEntries,
+  writeCustomWordEntries,
+  clearCustomWordEntries,
 } from './customWords.js'
 
 // 每个用例一个新 scope：模块级缓存是按 scope 存的，复用会串味。
@@ -92,6 +95,14 @@ describe('addCustomWords', () => {
     expect(getCustomWords(scope)).toHaveLength(2)
   })
 
+  it('不同设备独立添同一个词也不撞 id', () => {
+    const phone = freshScope()
+    const desktop = freshScope()
+    const a = addCustomWords(phone, [{ en: 'Rain check', zh: '改天吧' }])[0]
+    const b = addCustomWords(desktop, [{ en: 'Rain check', zh: '改日再约' }])[0]
+    expect(a.id).not.toBe(b.id)
+  })
+
   it(`一次最多 ${CUSTOM_MAX_PER_BATCH} 条`, () => {
     const scope = freshScope()
     const rows = Array.from({ length: 15 }, (_, i) => ({ en: `phrase ${i}`, zh: `词 ${i}` }))
@@ -140,6 +151,40 @@ describe('getCustomWords', () => {
   it('存储里根本不是数组时返回空，不抛', () => {
     const scope = freshScope()
     localStorage.setItem(`vocab_custom_words_${scope}`, '{"nope":1}')
+    expect(getCustomWords(scope)).toEqual([])
+  })
+})
+
+describe('云快照读写', () => {
+  it('只导出用户输入字段，云落地后可直接 hydrate 使用', () => {
+    const scope = freshScope()
+    const [added] = addCustomWords(scope, [
+      { en: 'Call it a day', zh: '今天就到这儿', sentence: "Let's call it a day." },
+    ])
+    const entries = readCustomWordEntries(scope)
+    expect(entries).toEqual([{
+      id: added.id,
+      en: 'Call it a day',
+      zh: '今天就到这儿',
+      sentence: "Let's call it a day.",
+      createdAt: added.createdAt,
+    }])
+
+    const restoredScope = freshScope()
+    expect(writeCustomWordEntries(restoredScope, entries)).toBe(true)
+    expect(getCustomWords(restoredScope)[0]).toMatchObject({
+      id: added.id,
+      en: 'Call it a day',
+      custom: true,
+      level: 'dev',
+    })
+  })
+
+  it('清掉 scope 时内存快照也同时失效', () => {
+    const scope = freshScope()
+    addCustomWords(scope, [{ en: 'Rain check', zh: '改天吧' }])
+    clearCustomWordEntries(scope)
+    expect(readCustomWordEntries(scope)).toEqual([])
     expect(getCustomWords(scope)).toEqual([])
   })
 })

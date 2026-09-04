@@ -77,6 +77,8 @@ const TARGETS = ['en', 'ja', 'zh']
 
 function guestHasData() {
   try {
+    const custom = JSON.parse(localStorage.getItem('vocab_custom_words_guest') || '[]')
+    if (Array.isArray(custom) && custom.length > 0) return true
     for (const t of TARGETS) {
       const p = JSON.parse(localStorage.getItem(`vocab_kids_progress_guest_${t}`) || '{}')
       if (Object.keys(p).length > 0) return true

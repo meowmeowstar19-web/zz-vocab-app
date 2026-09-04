@@ -1,8 +1,9 @@
 // 自定义词组 —— 用户在 App 里自己手打的「进阶」内容，归到「自定义」分类。
 //
 // 跟 src/data/ 下那些 AUTO-GENERATED 的词库分开：那边是 Excel 生成的正本，
-// 这边是运行时的用户数据，只落 localStorage，按账号 scope（'guest' / `u_${uid}`）
-// 分槽存 —— 跟 progress 一样，换账号不串味。
+// 这边是运行时的用户数据，按账号 scope（'guest' / `u_${uid}`）
+// 分槽存。本地副本落 localStorage；真实账号的词条正文会由
+// progressSync 连同学习进度一起并入 user_progress 云快照。
 //
 // 形状故意跟 devPhrases 的词对象**完全同构**（level:'dev'）：学习队列、复习、
 // 已斩、搜索、pop 详情这些既有逻辑拿到它就直接能跑，一处都不用分叉。
@@ -42,11 +43,22 @@ function hydrate(e) {
   };
 }
 
+function sanitizeEntry(e) {
+  if (!e || !e.id || !e.en || !e.zh) return null;
+  return {
+    id: clean(e.id),
+    en: clean(e.en),
+    zh: clean(e.zh),
+    sentence: clean(e.sentence),
+    createdAt: Number(e.createdAt) || 0,
+  };
+}
+
 function readRaw(scope) {
   try {
     const s = localStorage.getItem(KEY(scope));
     const arr = s ? JSON.parse(s) : [];
-    return Array.isArray(arr) ? arr.filter(e => e && e.id && e.en && e.zh) : [];
+    return Array.isArray(arr) ? arr.map(sanitizeEntry).filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -85,7 +97,12 @@ function makeId(en, used) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 40);
-  const base = 'custom-' + (slug || 'word');
+  // 旧版只用 slug，两台设备同时添词会产生同一 id，云合并时
+  // 必然丢掉一条。新 id 带随机 nonce，使设备间也天然唯一；旧 id
+  // 保持不变，因为 progress 正是用它做外键。
+  const nonce = globalThis.crypto?.randomUUID?.().replace(/-/g, '').slice(0, 12)
+    || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const base = `custom-${slug || 'word'}-${nonce}`;
   if (!used.has(base)) return base;
   let n = 2;
   while (used.has(`${base}-${n}`)) n++;
@@ -129,7 +146,35 @@ export function addCustomWords(scope, rows) {
   }
   _cache.delete(scope);
   emit();
+  // 自定义词本身也是云同步数据。当前添加流程还会紧接着
+  // 写 progress，但这个通知让未来的编辑/删除也不会漏掉云端 flush。
+  try { window.dispatchEvent(new CustomEvent('app:custom-words-changed')); } catch {}
   return added.map(hydrate);
+}
+
+/** 给 progressSync 的精简云快照（不携带 hydrate 出来的固定字段）。 */
+export function readCustomWordEntries(scope) {
+  return readRaw(scope);
+}
+
+/** 把云合并结果落地，并立即通知已挂载的学习页/单词本。 */
+export function writeCustomWordEntries(scope, entries) {
+  const cleanEntries = Array.isArray(entries) ? entries.map(sanitizeEntry).filter(Boolean) : [];
+  try {
+    localStorage.setItem(KEY(scope), JSON.stringify(cleanEntries));
+  } catch {
+    return false;
+  }
+  _cache.delete(scope);
+  emit();
+  return true;
+}
+
+/** 清空一个 scope，用于 guest 数据成功搬入新账号后的收尾。 */
+export function clearCustomWordEntries(scope) {
+  try { localStorage.removeItem(KEY(scope)); } catch {}
+  _cache.delete(scope);
+  emit();
 }
 
 /* ── 草稿 ────────────────────────────────────────────────────────

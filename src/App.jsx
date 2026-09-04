@@ -516,7 +516,11 @@ export default function App() {
   useEffect(() => {
     const onChange = () => { localDirty.current = true; };
     window.addEventListener('app:progress-changed', onChange);
-    return () => window.removeEventListener('app:progress-changed', onChange);
+    window.addEventListener('app:custom-words-changed', onChange);
+    return () => {
+      window.removeEventListener('app:progress-changed', onChange);
+      window.removeEventListener('app:custom-words-changed', onChange);
+    };
   }, []);
   useEffect(() => {
     const uid = auth.isRealAccount ? auth.user.id : null;
