@@ -13,7 +13,7 @@ import {
   pushLocalToCloud,
 } from './progressSync.js'
 
-const supabaseCalls = { upserts: [], cloudRow: null }
+const supabaseCalls = { upserts: [], cloudRow: null, upsertError: null }
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: () => ({
@@ -24,7 +24,7 @@ vi.mock('../lib/supabase', () => ({
       }),
       upsert: async (row) => {
         supabaseCalls.upserts.push(row)
-        return { error: null }
+        return { error: supabaseCalls.upsertError }
       },
     }),
   },
@@ -43,6 +43,7 @@ beforeEach(() => {
   globalThis.localStorage = fakeLS()
   supabaseCalls.upserts.length = 0
   supabaseCalls.cloudRow = null
+  supabaseCalls.upsertError = null
 })
 afterEach(() => {
   delete globalThis.localStorage
@@ -190,6 +191,13 @@ describe('custom words — full cross-device sync', () => {
 })
 
 describe('pushLocalToCloud — the lang override must not eat the learn verdict', () => {
+  it('上传失败必须 reject，让 App 保留 dirty 并重试', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    supabaseCalls.upsertError = { message: 'offline' }
+    await expect(pushLocalToCloud('u1')).rejects.toThrow('progress sync push failed')
+    warn.mockRestore()
+  })
+
   it("a device with langs but no learn picks pushes the CLOUD's learn intact", async () => {
     // the fresh A2HS container right after the handoff: langs restored, boot
     // default 'all' unstamped, cloud row carrying the account's real picks

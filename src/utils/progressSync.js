@@ -339,5 +339,10 @@ export async function pushLocalToCloud(uid) {
     };
   }
   writeLocalSnapshot(uid, merged, `u_${uid}`);
-  await pushToCloud(uid, merged);
+  if (!(await pushToCloud(uid, merged))) {
+    // App.jsx relies on rejection to restore its dirty flag and retry. The old
+    // silent `false` path marked a failed upload as clean, stranding new words
+    // on one device until another unrelated local edit happened.
+    throw new Error('progress sync push failed');
+  }
 }

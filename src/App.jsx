@@ -494,18 +494,15 @@ export default function App() {
   // snapshot against the cloud row on relevant lifecycle events. Guests are
   // pure local (Plan B) — no cloud row until they sign up.
   //
-  // Cost-optimized in two ways:
+  // Cost-optimized while keeping user-authored content fast:
   //   1) Local writes set `localDirty` via the 'app:progress-changed' event
   //      (dispatched from storage.js saveProgress). Heartbeat and pagehide
   //      skip the push when nothing has changed since the last successful
   //      flush — idle tabs cost nothing.
-  //   2) Heartbeat interval is 5 minutes (was 60s). The original tight
-  //      interval was meant to keep two simultaneously-open devices in sync;
-  //      in practice the cross-device handoff almost always involves the
-  //      user backgrounding/closing the source tab, which fires
-  //      visibilitychange or pagehide and flushes immediately. The heartbeat
-  //      is now just a safety net for the rare "both tabs in foreground"
-  //      scenario, where a 5-minute lag is fine.
+  //   2) A custom-word write gets a dedicated 400ms debounced flush. It is
+  //      infrequent and user-authored, so making it reach the other device
+  //      promptly matters more than saving one request. Ordinary quiz progress
+  //      keeps the cheaper visibility/pagehide/5-minute-heartbeat policy.
   //
   // We always bump progressRefreshKey / wordListRefreshKey after the flush
   // resolves — pushLocalToCloud is pull-merge-push, so even when local was
@@ -525,39 +522,56 @@ export default function App() {
   useEffect(() => {
     const uid = auth.isRealAccount ? auth.user.id : null;
     if (!uid) return;
-    const flushIfDirty = async () => {
-      if (!localDirty.current) return;
-      localDirty.current = false;
-      try {
-        await pushLocalToCloud(uid);
-        setProgressRefreshKey(k => k + 1);
-        setWordListRefreshKey(k => k + 1);
-      } catch {
-        // Restore dirty so the next flush will retry — losing a flush to a
-        // transient network error shouldn't strand the data locally forever.
-        localDirty.current = true;
-      }
+    let flushPromise = null;
+    let customFlushTimer = null;
+
+    const flush = (force = false) => {
+      if (flushPromise) return flushPromise;
+      if (!force && !localDirty.current) return Promise.resolve();
+      const carriedDirtyData = localDirty.current;
+      if (carriedDirtyData) localDirty.current = false;
+      let failed = false;
+      flushPromise = pushLocalToCloud(uid)
+        .then(() => {
+          setProgressRefreshKey(k => k + 1);
+          setWordListRefreshKey(k => k + 1);
+        })
+        .catch(() => {
+          failed = true;
+          // Restore only the dirty data claimed by THIS attempt. Any write
+          // that arrived while the request was running has already set the
+          // flag itself and must never be cleared by an older request.
+          if (carriedDirtyData) localDirty.current = true;
+        })
+        .finally(() => {
+          flushPromise = null;
+          // A custom/progress write may have landed during the request. Drain
+          // it immediately instead of making it wait for the heartbeat.
+          if (!failed && localDirty.current) setTimeout(() => flush(false), 0);
+        });
+      return flushPromise;
     };
-    const flushForVisibility = async () => {
+    const flushIfDirty = () => flush(false);
+    const flushForVisibility = () => {
       // Always pull-merge-push on visibility transitions even when local is
       // clean — returning to the tab is exactly when we want to pick up
       // changes another device pushed. Cheap because visibility events are
       // rare (vs heartbeat, which used to fire every 60s).
-      try {
-        await pushLocalToCloud(uid);
-        localDirty.current = false;
-        setProgressRefreshKey(k => k + 1);
-        setWordListRefreshKey(k => k + 1);
-      } catch {
-        // Keep dirty in case there was something pending we didn't flush.
-      }
+      return flush(true);
+    };
+    const scheduleCustomFlush = () => {
+      clearTimeout(customFlushTimer);
+      customFlushTimer = setTimeout(flushIfDirty, 400);
     };
     document.addEventListener('visibilitychange', flushForVisibility);
     window.addEventListener('pagehide', flushIfDirty);
+    window.addEventListener('app:custom-words-changed', scheduleCustomFlush);
     const id = setInterval(flushIfDirty, 5 * 60_000);
     return () => {
       document.removeEventListener('visibilitychange', flushForVisibility);
       window.removeEventListener('pagehide', flushIfDirty);
+      window.removeEventListener('app:custom-words-changed', scheduleCustomFlush);
+      clearTimeout(customFlushTimer);
       clearInterval(id);
     };
   }, [auth.isRealAccount, auth.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
