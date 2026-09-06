@@ -264,7 +264,12 @@ const DEFAULT_ORAL_COVERS = {
 const DEFAULT_DEV_COVERS = {
   '日常口语': 'talk',
   '口语句型': 'book',
-  '生活': 'home',
+  '生活': 'home',        // 2026-09-06 拆成下面 5 个 tab；映射留着,防旧数据回滚
+  '吃喝': 'eat',
+  '居家': 'home',
+  '出门': 'car',
+  '穿搭购物': 'shirt',
+  '感官描述': 'eye',
   '身心': 'happy',
   '人际': 'friend',
   '做事': 'work',
