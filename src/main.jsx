@@ -8,6 +8,9 @@ import { installAntiScrape } from './utils/antiScrape';
 // deliberately keep OFF the startup chunks; see src/utils/lazyPosthog.js.
 import { PostHogProvider } from '@posthog/react';
 import { posthogClient, loadPosthog } from './utils/lazyPosthog';
+import { readAgeBand } from './login-auth-ui/kidAccount.js';
+import { isKidUser } from './login-auth-ui/kidRules.js';
+import { currentAuthUser } from './authSetup.js';
 
 installAntiScrape();
 
@@ -30,10 +33,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // network" rule.
 function initAnalytics() {
   loadPosthog().then((posthog) => {
+    // Under 13 (this device answered <13, or the session is a kid account):
+    // never record sessions (miracleZZ docs/kids-account-plan.md §六.2). A kid
+    // identified only AFTER init is handled by App.jsx's stopSessionRecording.
+    const kid = readAgeBand() === 'under13' || isKidUser(currentAuthUser());
     posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN, {
       api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
       defaults: '2026-01-30',
+      disable_session_recording: kid,
     });
+    // ...and never under a person a 13+ account identified on this device
+    if (kid && posthog.get_property('$user_state') === 'identified') posthog.reset();
 
     // Keep our own hand-testing out of analytics. The Vite dev server backs both
     // localhost:5174 and the dev.plushieword.com tunnel, so import.meta.env.DEV is

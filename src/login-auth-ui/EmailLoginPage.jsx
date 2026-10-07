@@ -7,8 +7,9 @@
 // LoginPromptModal.
 import { useState } from 'react'
 import { useAuth } from '../authSetup.js'
-import { YELLOW, PW_FONT, asset, STRINGS } from './theme.js'
-import { friendlyAuthError, BackButton } from './shared.jsx'
+import { YELLOW, PW_FONT, STRINGS } from './theme.js'
+import { friendlyAuthError } from './shared.jsx'
+import { MODAL_SCRIM, MODAL_CARD, PopClose } from '../general-ui/popKit.jsx'
 
 export function EmailLoginPage({ onBack, onDone, surface = 'welcome', initialStep = 'email' }) {
   const auth = useAuth()
@@ -86,19 +87,18 @@ export function EmailLoginPage({ onBack, onDone, surface = 'welcome', initialSte
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', ...PW_FONT }}>
-      <img
-        src={asset('login-bg.jpg')} alt=""
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
-      />
-
-      {/* back button — closet style/icon kept consistent site-wide, original position */}
-      <BackButton onClick={handleBack} style={{ position: 'absolute', top: 40, left: 20, zIndex: 10 }} />
-
+    <div style={{ ...MODAL_SCRIM, zIndex: 50, overflowY: 'auto', WebkitOverflowScrolling: 'touch', ...PW_FONT }}
+      onClick={handleBack}>
+      {/* 弹窗卡片盖在当前页面上（不用整页背景图）；键盘弹起放不下时遮罩整体滚动 */}
       <form
         onSubmit={(e) => { e.preventDefault(); step === 'verify' ? handleVerify() : handleSend() }}
-        style={{ position: 'absolute', left: 0, right: 0, top: 111, padding: '0 29px' }}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          ...MODAL_CARD, width: 'min(353px, calc(100vw - 24px))', margin: 'auto',
+          padding: '52px 20px 24px', boxSizing: 'border-box',
+        }}
       >
+        <PopClose onClick={handleBack} />
         {step === 'verify' ? (
           <>
             <p style={{ fontSize: 20, color: '#3A2E2E', fontWeight: 500, margin: '0 0 8px' }}>{STRINGS.verifyTitle}</p>

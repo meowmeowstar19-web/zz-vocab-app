@@ -3,7 +3,7 @@ import LearningPage from './components/LearningPage';
 import WordListPage from './components/WordListPage';
 import SettingsPage from './components/SettingsPage';
 import LanguageSetupPage from './components/LanguageSetupPage';
-import { WelcomePage, LoginPromptModal, EmailLoginPage, HandoffVeil, useHandoffPending } from './login-auth-ui/index.js';
+import { WelcomePage, LoginPromptModal, EmailLoginPage, HandoffVeil, useHandoffPending, useIsKid, isKidUser } from './login-auth-ui/index.js';
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO, PopClose } from './general-ui/popKit.jsx';
 import { useAuth } from './authSetup.js';
 import { migrateOldProgress, migrateProgressToTargetOnly, migrateProgressToUserScope, bumpLoginDay, shouldShowCheckin, markCheckinShown, getLoginDayCount } from './utils/storage';
@@ -169,6 +169,19 @@ export default function App() {
   // optimistic scope, so the common path never remounts and nothing flickers.
   const auth = useAuth();
   const session = auth.session;
+  // 13岁以下（儿童账号，或本设备答过 <13）：PostHog 不 identify、不录屏
+  // （miracleZZ docs/kids-account-plan.md §六.2）。main.jsx 开机时按设备答案
+  // 关录屏；这里接住开机后才答年龄 / 才登录儿童号的情况。
+  const isKid = useIsKid();
+  useEffect(() => {
+    if (!isKid) return;
+    posthog?.stopSessionRecording?.();
+    // A shared device whose analytics id was identified as a 13+ account
+    // (nothing calls reset() on logout) must not keep filing a kid's events
+    // under that person — start a fresh anonymous id. The language-props
+    // effect below re-registers after this (it depends on isKid too).
+    if (posthog?.get_property?.('$user_state') === 'identified') posthog.reset();
+  }, [isKid, posthog]);
   // 摘除 index.html 里的启动闪屏（白底 + PlushieWord 名字，见 index.html
   // <body> 里的 #splash 注释）。App 首次挂载 = 首屏已经有真内容可画，双
   // rAF 等首帧真正提交后淡出再 remove——不做任何图片等待，绝不网络阻塞。
@@ -402,10 +415,12 @@ export default function App() {
     const uid = auth.user.id;
     if (lastSyncedUid.current === uid) return;
     lastSyncedUid.current = uid;
-    posthog?.identify(uid, { email: auth.user.email });
+    // Kid accounts stay anonymous in analytics: no identify, no person profile.
+    const kidAccount = isKidUser(auth.user);
+    if (!kidAccount) posthog?.identify(uid, { email: auth.user.email });
     // Persist the email so the dev-only escape hatch on Settings can still
     // identify the dev user after they drop into guest mode.
-    if (auth.user.email) {
+    if (auth.user.email && !kidAccount) {
       try { localStorage.setItem('app_last_email', auth.user.email); } catch {}
     }
     bumpLoginDay(uid);
@@ -617,8 +632,9 @@ export default function App() {
       language_mode: `${nativeLang}_${targetLang}`,
     };
     posthog?.register(props);
-    if (session?.user?.id) posthog?.setPersonProperties(props);
-  }, [nativeLang, targetLang, posthog, session]);
+    // setPersonProperties would create a person profile — never for kids
+    if (session?.user?.id && !isKid) posthog?.setPersonProperties(props);
+  }, [nativeLang, targetLang, posthog, session, isKid]);
 
   // Decide whether to show language setup whenever auth state changes.
   // `app_native` is the ONLY source of truth: set once when the device first

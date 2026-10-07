@@ -3,19 +3,33 @@
 // status === 'guest' && atWelcome — the old LOGGED_OUT). Moved near-verbatim
 // from src/auth/ui.jsx (Phase 2). PW design minus welcome-text.png (the one
 // deliberate difference).
+// 13岁以下（docs/kids-account-plan.md）：本设备还没答过年龄 → 页面一出来就盖一个
+// 年龄弹窗（可关：Guest Mode 不问年龄；关了再点登录按钮会再弹）。答出 <13 →
+// Google + 邮箱换成用户名账号的两个入口，点进去是全屏 KidLoginPage。
 import { useState } from 'react'
 import { useAuth } from '../authSetup.js'
 import { TOS_URL, PRIVACY_URL, PW_FONT, asset, STRINGS } from './theme.js'
 import { friendlyAuthError, SocialButton, Acknowledge, DocPopup, useLegal } from './shared.jsx'
 import { EmailLoginPage } from './EmailLoginPage.jsx'
+import { AgePromptModal } from './AgePrompt.jsx'
+import { KidEntryButtons, KidLoginPage } from './KidLoginPage.jsx'
+import { useAgeBand } from './kidAccount.js'
 
 export function WelcomePage() {
   const auth = useAuth()
   const legal = useLegal()
   const [showEmail, setShowEmail] = useState(false)
+  const [kidTab, setKidTab] = useState(null) // null | 'create' | 'login' — the full-screen username page
   const [oauthError, setOauthError] = useState(auth.urlAuthError || '')
+  const ageBand = useAgeBand()
+  const [askAge, setAskAge] = useState(ageBand == null)
 
-  const withGuard = (fn) => () => { if (legal.guard()) fn() }
+  // every login door asks the age first (the guest door never does)
+  const withGuard = (fn) => () => {
+    if (!legal.guard()) return
+    if (ageBand == null) { setAskAge(true); return }
+    fn()
+  }
 
   // OAuth round trip in flight — cover the screen with a spinner so the app
   // underneath never flashes through while we redirect / verify. (Old test:
@@ -43,16 +57,6 @@ export function WelcomePage() {
     )
   }
 
-  if (showEmail) {
-    return (
-      <EmailLoginPage
-        surface="welcome"
-        onBack={() => setShowEmail(false)}
-        onDone={() => setShowEmail(false)}
-      />
-    )
-  }
-
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', ...PW_FONT }}>
       <img
@@ -71,13 +75,19 @@ export function WelcomePage() {
           {STRINGS.welcomeTitle}
         </p>
 
-        {/* two 48px round icons (Google / Email), gap 26 — no Discord */}
-        <div style={{ display: 'flex', gap: 26, marginTop: 15 }}>
-          <SocialButton icon={asset('icon-google.png')} label="Google"
-            onClick={withGuard(() => { setOauthError(''); auth.clearError(); auth.loginWithGoogle({ surface: 'welcome' }) })} />
-          <SocialButton icon={asset('icon-email.png')} label="Email"
-            onClick={withGuard(() => { setOauthError(''); auth.clearError(); setShowEmail(true) })} />
-        </div>
+        {/* two 48px round icons (Google / Email), gap 26 — no Discord.
+            Under 13: the username account's two doors instead. */}
+        {ageBand === 'under13' ? (
+          <KidEntryButtons style={{ marginTop: 15 }}
+            onPick={(tab) => withGuard(() => { setOauthError(''); auth.clearError(); setKidTab(tab) })()} />
+        ) : (
+          <div style={{ display: 'flex', gap: 26, marginTop: 15 }}>
+            <SocialButton icon={asset('icon-google.png')} label="Google"
+              onClick={withGuard(() => { setOauthError(''); auth.clearError(); auth.loginWithGoogle({ surface: 'welcome' }) })} />
+            <SocialButton icon={asset('icon-email.png')} label="Email"
+              onClick={withGuard(() => { setOauthError(''); auth.clearError(); setShowEmail(true) })} />
+          </div>
+        )}
 
         <button
           onClick={withGuard(() => auth.chooseGuest())}
@@ -116,6 +126,18 @@ export function WelcomePage() {
       )}
 
       <DocPopup doc={legal.doc} loading={legal.docLoading} onClose={() => legal.setDoc(null)} />
+
+      {askAge && ageBand == null && <AgePromptModal onClose={() => setAskAge(false)} />}
+
+      {/* 用户名账号 / 邮箱是盖在欢迎页上的弹窗：欢迎页一直在底下，关掉就露出来 */}
+      {kidTab && <KidLoginPage initialTab={kidTab} onBack={() => setKidTab(null)} />}
+      {showEmail && (
+        <EmailLoginPage
+          surface="welcome"
+          onBack={() => setShowEmail(false)}
+          onDone={() => setShowEmail(false)}
+        />
+      )}
     </div>
   )
 }

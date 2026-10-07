@@ -117,6 +117,13 @@ export function createOnUpgrade(client) {
 
 const core = createAuthCore({ client: supabase, onUpgrade: createOnUpgrade(supabase) })
 export const useAuth = createUseAuth(core)
+// The same client, for login-auth-ui/kidAccount.js only (13岁以下用户名账号): the
+// core has no password door, and a plain signInWithPassword lands through the
+// core's own SIGNED_IN listener → enterAccount → onUpgrade, like any login.
+export const authClient = supabase
+// Non-React read of the signed-in user, for main.jsx's analytics init (it runs
+// outside the tree and must know whether the session is a kid account).
+export const currentAuthUser = () => core.getState().session?.user ?? null
 
 // iOS Add-to-Home-Screen handoff (core/sessionMirror.js): keep a refresh-token
 // cookie beside the localStorage session so a freshly added PWA — which

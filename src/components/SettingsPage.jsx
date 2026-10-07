@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getLangName, UI_TEXT } from '../utils/langHelpers';
 import { STRINGS as LOGIN_STRINGS } from '../login-auth-ui/theme.js';
+import { useIsKid } from '../login-auth-ui/index.js';
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, MODAL_FOOTER, CTA_SOLO, PAIR_GHOST, PAIR_PRIMARY, PopClose } from '../general-ui/popKit.jsx';
 import { supabase } from '../lib/supabase';
 import { getLoginDayCount, bumpLoginDay } from '../utils/storage';
@@ -68,6 +69,8 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
   const [pendingSwitch, setPendingSwitch] = useState(null);
   const [switchCounts, setSwitchCounts] = useState({ native: 0, target: 0 });
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
+  // 13岁以下账号 / 答过「13岁以下」的设备：不收反馈（反馈会带邮箱、截图、留言）
+  const isKid = useIsKid();
   const prefix = ROW_PREFIX[nativeLang] || ROW_PREFIX.zh;
   const pickerTitles = PICKER_TITLES[nativeLang] || PICKER_TITLES.zh;
 
@@ -644,8 +647,9 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
           )}
         </button>
 
-        {/* Feedback pill — placed below "Add to home screen" */}
-        <button
+        {/* Feedback pill — placed below "Add to home screen". Hidden for
+            under-13 accounts / devices (miracleZZ docs/kids-account-plan.md). */}
+        {!isKid && <button
           data-testid="settings-feedback"
           onClick={openFeedbackModal}
           className="flex items-center active:scale-[0.98]"
@@ -665,7 +669,7 @@ export default function SettingsPage({ nativeLang, targetLang, onLanguageChange,
               <path d="M3 3H15V12H10L6 15V12H3V3Z" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-        </button>
+        </button>}
 
         {/* Follow-us pill — 4 social icons inside a pill matching the other rows.
             Each icon is a separate tap target opening the external profile in a

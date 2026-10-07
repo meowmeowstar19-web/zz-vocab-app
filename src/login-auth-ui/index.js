@@ -5,3 +5,6 @@ export { LoginPromptModal } from './LoginPromptModal.jsx'
 export { EmailLoginPage } from './EmailLoginPage.jsx'
 export { friendlyAuthError, CloseX, BackButton } from './shared.jsx'
 export { HandoffVeil, useHandoffPending } from './HandoffVeil.jsx'
+// 13岁以下账号（docs/kids-account-plan.md）：宿主用 useIsKid 关掉儿童不该有的功能
+export { useIsKid, useAgeBand } from './kidAccount.js'
+export { isKidUser } from './kidRules.js'

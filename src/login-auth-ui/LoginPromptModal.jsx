@@ -9,24 +9,36 @@
 // Closable (top-right X / backdrop) EXCEPT while the OAuth round trip is
 // being verified (pending) — a verdict must have somewhere to land. The
 // rejected-error pane swaps in with a yellow confirm button.
+// 13岁以下（docs/kids-account-plan.md）：本设备还没答过年龄 → 卡片先换成年龄
+// 弹窗（X 照样关掉整个弹窗）；答出 <13 → Google + 邮箱换成用户名账号的两个
+// 入口，点进去是叠在卡片上的 KidLoginPage 弹窗（跟邮箱同款）。
 import { useState } from 'react'
 import { useAuth } from '../authSetup.js'
 import { TOS_URL, PRIVACY_URL, PW_FONT, asset, STRINGS } from './theme.js'
 import { friendlyAuthError, CloseX, SocialButton, Acknowledge, DocPopup, useLegal } from './shared.jsx'
 import { MODAL_SCRIM, MODAL_CARD, MODAL_TITLE, CTA_SOLO } from '../general-ui/popKit.jsx'
 import { EmailLoginPage } from './EmailLoginPage.jsx'
+import { AgePromptBody } from './AgePrompt.jsx'
+import { KidEntryButtons, KidLoginPage } from './KidLoginPage.jsx'
+import { useAgeBand } from './kidAccount.js'
 
 export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
   const auth = useAuth()
   const legal = useLegal()
   const [showEmail, setShowEmail] = useState(false)
+  const [kidTab, setKidTab] = useState(null) // null | 'create' | 'login' — the full-screen username page
   const [oauthError, setOauthError] = useState('')
+  const ageBand = useAgeBand()
 
   // OAuth round-trip verification in flight (boot restored the flow marker).
   // Old test: status === 'BINDING' && bind.provider !== 'email'; new: an
   // oauth flow.
   const pending = auth.flow?.kind === 'oauth'
   const error = auth.error
+  // an in-flight OAuth verdict / error pane belongs to a door already chosen —
+  // only a fresh card asks the age first
+  const needAge = !pending && !error && ageBand == null
+  const kid = ageBand === 'under13'
 
   const handleClose = () => {
     if (pending) return // no exit while a verdict is due
@@ -43,19 +55,8 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
     auth.loginWithGoogle({ surface })
   }
 
-  if (showEmail) {
-    return (
-      <div style={{ position: 'absolute', inset: 0, zIndex: 50, backgroundColor: '#fff' }}>
-        <EmailLoginPage
-          surface={surface}
-          onBack={() => setShowEmail(false)}
-          onDone={() => onDone?.()}
-        />
-      </div>
-    )
-  }
-
   return (
+    <>
     <div
       style={{ ...MODAL_SCRIM, zIndex: 50, ...PW_FONT }}
       onClick={handleClose}
@@ -63,7 +64,7 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
       <div
         style={{
           ...MODAL_CARD,
-          width: 'min(353px, calc(100vw - 24px))', minHeight: 353,
+          width: 'min(353px, calc(100vw - 24px))', minHeight: needAge ? 290 : 353,
           padding: '34px 24px 28px',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
         }}
@@ -71,80 +72,91 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
       >
         {!pending && <CloseX onClick={handleClose} />}
 
-        <p style={{ ...MODAL_TITLE, padding: '0 24px' }}>
-          {STRINGS.loginTitle}
-        </p>
-
-        {/* welcome-back subtitle — reads the snapshot's hadAccount, no loose keys */}
-        {!pending && !error && auth.hadAccount && (
-          <p style={{
-            fontSize: 13, color: '#3A2E2E', textAlign: 'center', opacity: 0.75,
-            margin: '8px 0 0', lineHeight: 1.4, padding: '0 8px',
-          }}>
-            {STRINGS.welcomeBack}
-          </p>
-        )}
-        {/* one door: new players get an account automatically — grouped right
-            under the subtitle (07-16 用户定稿位置), not orphaned by the icons */}
-        {!pending && !error && (
-          <p style={{
-            fontSize: 13, color: '#3A2E2E', textAlign: 'center', opacity: 0.75,
-            margin: '8px 0 0', lineHeight: 1.4, padding: '0 8px',
-          }}>
-            {STRINGS.autoCreateNote}
-          </p>
-        )}
-
-        {pending ? (
-          <>
-            <div style={{ flex: 1, minHeight: 24 }} />
-            <div style={{
-              width: 32, height: 32, border: '3px solid rgba(0,0,0,0.15)',
-              borderTopColor: '#000', borderRadius: '50%', animation: 'mzSpin 0.9s linear infinite',
-            }} />
-            <style>{'@keyframes mzSpin { to { transform: rotate(360deg); } }'}</style>
-            <p style={{ fontSize: 13, color: '#3A2E2E', textAlign: 'center', marginTop: 14, opacity: 0.7 }}>
-              {STRINGS.checkingAccount}
-            </p>
-            <div style={{ flex: 1, minHeight: 24 }} />
-          </>
-        ) : error ? (
-          <>
-            <div style={{ flex: 1, minHeight: 24 }} />
-            <p style={{
-              fontSize: 15, color: '#3A2E2E', textAlign: 'center', lineHeight: 1.6,
-              whiteSpace: 'pre-line', padding: '0 4px', margin: 0,
-            }}>
-              {friendlyAuthError(error)}
-            </p>
-            <div style={{ flex: 1, minHeight: 24 }} />
-            <button style={CTA_SOLO} onClick={() => auth.clearError()}>
-              {STRINGS.ok}
-            </button>
-          </>
+        {needAge ? (
+          <AgePromptBody />
         ) : (
           <>
-            <div style={{ flex: 1, minHeight: 20 }} />
+            <p style={{ ...MODAL_TITLE, padding: '0 24px' }}>
+              {STRINGS.loginTitle}
+            </p>
 
-            {/* social row: Google / Email (48px, gap 26) — no Discord */}
-            <div style={{ display: 'flex', gap: 26 }}>
-              <SocialButton icon={asset('icon-google.png')} label="Google" onClick={startOAuth} />
-              <SocialButton icon={asset('icon-email.png')} label="Email"
-                onClick={() => { if (legal.guard()) setShowEmail(true) }} />
-            </div>
-
-            {oauthError && (
-              <p style={{ color: '#ef4444', fontSize: 12, textAlign: 'center', padding: '0 8px', marginTop: 12 }}>
-                {oauthError}
+            {/* welcome-back subtitle — reads the snapshot's hadAccount, no loose keys */}
+            {!pending && !error && auth.hadAccount && (
+              <p style={{
+                fontSize: 13, color: '#3A2E2E', textAlign: 'center', opacity: 0.75,
+                margin: '8px 0 0', lineHeight: 1.4, padding: '0 8px',
+              }}>
+                {STRINGS.welcomeBack}
+              </p>
+            )}
+            {/* one door: new players get an account automatically — grouped right
+                under the subtitle (07-16 用户定稿位置), not orphaned by the icons */}
+            {!pending && !error && (
+              <p style={{
+                fontSize: 13, color: '#3A2E2E', textAlign: 'center', opacity: 0.75,
+                margin: '8px 0 0', lineHeight: 1.4, padding: '0 8px',
+              }}>
+                {kid ? STRINGS.kidNote : STRINGS.autoCreateNote}
               </p>
             )}
 
-            <div style={{ flex: 1, minHeight: 20 }} />
+            {pending ? (
+              <>
+                <div style={{ flex: 1, minHeight: 24 }} />
+                <div style={{
+                  width: 32, height: 32, border: '3px solid rgba(0,0,0,0.15)',
+                  borderTopColor: '#000', borderRadius: '50%', animation: 'mzSpin 0.9s linear infinite',
+                }} />
+                <style>{'@keyframes mzSpin { to { transform: rotate(360deg); } }'}</style>
+                <p style={{ fontSize: 13, color: '#3A2E2E', textAlign: 'center', marginTop: 14, opacity: 0.7 }}>
+                  {STRINGS.checkingAccount}
+                </p>
+                <div style={{ flex: 1, minHeight: 24 }} />
+              </>
+            ) : error ? (
+              <>
+                <div style={{ flex: 1, minHeight: 24 }} />
+                <p style={{
+                  fontSize: 15, color: '#3A2E2E', textAlign: 'center', lineHeight: 1.6,
+                  whiteSpace: 'pre-line', padding: '0 4px', margin: 0,
+                }}>
+                  {friendlyAuthError(error)}
+                </p>
+                <div style={{ flex: 1, minHeight: 24 }} />
+                <button style={CTA_SOLO} onClick={() => auth.clearError()}>
+                  {STRINGS.ok}
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ flex: 1, minHeight: 20 }} />
 
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <Acknowledge checked={legal.tos} setChecked={legal.setTos} name={STRINGS.tosName} url={TOS_URL} openDoc={legal.openDoc} />
-              <Acknowledge checked={legal.privacy} setChecked={legal.setPrivacy} name={STRINGS.privacyName} url={PRIVACY_URL} openDoc={legal.openDoc} />
-            </div>
+                {/* social row: Google / Email (48px, gap 26) — no Discord.
+                    Under 13: the username account's two doors instead. */}
+                {kid ? (
+                  <KidEntryButtons onPick={(tab) => { if (legal.guard()) setKidTab(tab) }} />
+                ) : (
+                  <div style={{ display: 'flex', gap: 26 }}>
+                    <SocialButton icon={asset('icon-google.png')} label="Google" onClick={startOAuth} />
+                    <SocialButton icon={asset('icon-email.png')} label="Email"
+                      onClick={() => { if (legal.guard()) setShowEmail(true) }} />
+                  </div>
+                )}
+
+                {oauthError && (
+                  <p style={{ color: '#ef4444', fontSize: 12, textAlign: 'center', padding: '0 8px', marginTop: 12 }}>
+                    {oauthError}
+                  </p>
+                )}
+
+                <div style={{ flex: 1, minHeight: 20 }} />
+
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  <Acknowledge checked={legal.tos} setChecked={legal.setTos} name={STRINGS.tosName} url={TOS_URL} openDoc={legal.openDoc} />
+                  <Acknowledge checked={legal.privacy} setChecked={legal.setPrivacy} name={STRINGS.privacyName} url={PRIVACY_URL} openDoc={legal.openDoc} />
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -164,5 +176,17 @@ export function LoginPromptModal({ surface = 'account', onClose, onDone }) {
           general-ui/DocPopup.jsx：塞进卡片会被困成小框，长框必须以整屏为容器 */}
       <DocPopup doc={legal.doc} loading={legal.docLoading} onClose={() => legal.setDoc(null)} />
     </div>
+
+    {/* 用户名账号 / 邮箱弹窗叠在这张卡片上面（兄弟节点，点击不冒泡到底下的遮罩）；
+        关掉只是揭开，底下的卡片一直都在，不会重新弹一次 */}
+    {kidTab && <KidLoginPage initialTab={kidTab} onBack={() => setKidTab(null)} />}
+    {showEmail && (
+      <EmailLoginPage
+        surface={surface}
+        onBack={() => setShowEmail(false)}
+        onDone={() => onDone?.()}
+      />
+    )}
+    </>
   )
 }
