@@ -8,6 +8,8 @@
 //    signInWithPassword —— SIGNED_IN 由 core 自己的监听接住，走 enterAccount →
 //    onUpgrade，游客存档照常并入；core 一行不改。
 //  - 「请家长帮忙」：往 parent_help_requests 插一行（匿名只能插、不能读）。
+//  - 记住用户名：登录 / 注册成功后把用户名存进设备 localStorage，退出后再登录
+//    自动填好；密码不存，交给浏览器 / 系统钥匙串（表单 autoComplete 已标好）。
 import { useSyncExternalStore } from 'react'
 import { authClient, useAuth } from '../authSetup.js'
 import { AGE_KEY, KID_EMAIL_DOMAIN, KID_SIGNUP_FUNCTION, PARENT_HELP_TABLE } from './theme.js'
@@ -62,6 +64,17 @@ export function useIsKid() {
   return band === 'under13'
 }
 
+/* -------------------------------------------------------- last username */
+const LAST_USERNAME_KEY = 'auth.kidUsername.v1'
+
+export function readLastKidUsername() {
+  try { return localStorage.getItem(LAST_USERNAME_KEY) || '' } catch { return '' }
+}
+
+function rememberKidUsername(username) {
+  try { localStorage.setItem(LAST_USERNAME_KEY, normalizeUsername(username)) } catch { /* 隐私模式：不记 */ }
+}
+
 /* ---------------------------------------------------------------- network */
 const kidError = (code) => Object.assign(new Error(code), { code })
 
@@ -79,7 +92,7 @@ export async function kidSignIn(username, password) {
     email: kidEmailOf(username, KID_EMAIL_DOMAIN),
     password,
   })
-  if (!error) return
+  if (!error) return rememberKidUsername(username)
   if (error.status === 429 || /rate limit/i.test(error.message || '')) throw kidError('rate_limited')
   if (/invalid login credentials|invalid_credentials/i.test(`${error.code} ${error.message}`)) throw kidError('wrong_login')
   throw kidError('failed')

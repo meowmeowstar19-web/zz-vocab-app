@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { YELLOW, PW_FONT, STRINGS } from './theme.js'
 import { MODAL_SCRIM, MODAL_CARD, PopClose } from '../general-ui/popKit.jsx'
 import { usernameProblem, passwordProblem } from './kidRules.js'
-import { kidSignIn, kidSignUp, sendParentHelp } from './kidAccount.js'
+import { kidSignIn, kidSignUp, sendParentHelp, readLastKidUsername } from './kidAccount.js'
 
 const INK = '#3A2E2E'
 const SUCCESS_GRACE_MS = 15_000 // 登录成功但宿主迟迟没卸载这一页 → 让按钮能再点
@@ -42,7 +42,8 @@ const errorText = (code) => STRINGS.kidErrors[code] || STRINGS.kidErrors.failed
 
 export function KidLoginPage({ initialTab = 'create', onBack }) {
   const [tab, setTab] = useState(initialTab) // 'create' | 'login' | 'help'
-  const [username, setUsername] = useState('')
+  // 登录 / 求助页签自动填上次登录的用户名（创建页签留空）
+  const [username, setUsername] = useState(() => (initialTab === 'create' ? '' : readLastKidUsername()))
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
   const [parentEmail, setParentEmail] = useState('')
@@ -56,6 +57,9 @@ export function KidLoginPage({ initialTab = 'create', onBack }) {
   const switchTab = (next) => {
     if (loading) return
     setTab(next)
+    const last = readLastKidUsername()
+    if (next !== 'create' && !username) setUsername(last)
+    if (next === 'create' && last && username === last) setUsername('') // 记住的是老号，别带进建号页
     setError('')
     setPassword('')
     setPassword2('')
