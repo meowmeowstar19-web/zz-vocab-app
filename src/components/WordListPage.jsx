@@ -5,6 +5,7 @@ import { devPhrases } from '../data/devPhrases';
 import { jaData } from '../data/jaData';
 import { canSwitchLanguageFreely } from '../config/languageWhitelist';
 import { getProgress, saveProgress, toggleMastered } from '../utils/storage';
+import { getFavorites, toggleFavorite } from '../utils/favorites';
 import { useCustomWords, addCustomWords, updateCustomWord, clearDraft } from '../utils/customWords';
 import { speakWordByLang, speakDevPhrase, preloadAudioManifest } from '../hooks/useAudio';
 
@@ -154,7 +155,7 @@ function searchHaystack(word, nativeLang, targetLang) {
  */
 const FILTER_KEY = 'app_wordlist_filter';
 const SUBTAB_KEY = 'app_wordlist_subtab';
-const FILTER_KEYS = ['vocabIllustrated', 'time', 'random', 'reverseRandom', 'mastered'];
+const FILTER_KEYS = ['vocabIllustrated', 'favorites', 'time', 'random', 'reverseRandom', 'mastered'];
 const SUBTAB_KEYS = ['words', 'phrases', 'dev'];
 
 // Anything not in the whitelist (old build, hand-edited storage) falls back to
@@ -178,6 +179,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
 
   const FILTERS = useMemo(() => [
     { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#C7BAFB' },
+    { key: 'favorites', label: t.favorites, accent: '#FFCE5A' },
     { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
     { key: 'random', label: t.randomOrder, accent: '#8ECFFF' },
     { key: 'reverseRandom', label: t.reverseRandom, accent: '#FFB198' },
@@ -189,6 +191,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const [galleryCat, setGalleryCat] = useState('all');
   const [galleryShuffleKey, setGalleryShuffleKey] = useState(0);
   const [progress, setProgress] = useState(() => getProgress(langKey));
+  const [favorites, setFavorites] = useState(() => getFavorites(langKey));
   const [revealedWords, setRevealedWords] = useState(new Set());
   const [translationCache, setTranslationCache] = useState(() => new Map(_translationCache));
   const [popupWord, setPopupWord] = useState(null);
@@ -214,6 +217,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
 
   useEffect(() => {
     setProgress(getProgress(langKey));
+    setFavorites(getFavorites(langKey));
     setRevealedWords(new Set());
     setPopupWord(null);
   }, [langKey]);
@@ -315,16 +319,23 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
   const wordList = useMemo(() => {
     const prog = progress;
     const showMastered = filter === 'mastered';
+    const showFavorites = filter === 'favorites';
     let list = subTabPool.filter(w => {
       const p = prog[w.id];
-      if (!p) return false;
+      // 收藏是独立书签，不看学习状态：已斩的词也能留在收藏里，
+      // 所以这一档不要求 progress 存在（其余档照旧只列学过的）。
+      if (!showFavorites && !p) return false;
       // Substring, not whole-word: typing a few characters of either language
       // is enough to pull the row up.
       if (searchQuery && !(searchIndex.get(w.id) || '').includes(searchQuery)) return false;
+      if (showFavorites) return !!favorites[w.id];
       if (showMastered) return p.mastered;
       return !!p.timestamp && !p.mastered;
     });
-    if (showMastered) {
+    if (showFavorites) {
+      // 最近收藏的排前面
+      list.sort((a, b) => (favorites[b.id] || 0) - (favorites[a.id] || 0));
+    } else if (showMastered) {
       list.sort((a, b) => (prog[b.id]?.masteredAt || 0) - (prog[a.id]?.masteredAt || 0));
     } else if (filter === 'time') {
       list.sort((a, b) => (prog[b.id]?.timestamp || 0) - (prog[a.id]?.timestamp || 0));
@@ -332,7 +343,18 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
       stableShuffle(list, randomKey * 2 + (filter === 'reverseRandom' ? 1 : 0));
     }
     return list;
-  }, [progress, filter, randomKey, subTabPool, searchQuery, searchIndex]);
+  }, [progress, favorites, filter, randomKey, subTabPool, searchQuery, searchIndex]);
+
+  const handleToggleFavorite = useCallback((wordId) => {
+    if (!wordId) return;
+    const next = toggleFavorite(wordId, langKey);
+    setFavorites(next);
+    posthog?.capture('word_favorite_toggled', {
+      word_id: wordId, favorited: !!next[wordId],
+      content_type: subTab === 'words' ? 'word' : 'phrase',
+      native_lang: nativeLang, target_lang: targetLang,
+    });
+  }, [langKey, posthog, subTab, nativeLang, targetLang]);
 
   const handleToggleMastered = useCallback((wordId) => {
     const currentMastered = progress[wordId]?.mastered || false;
@@ -634,18 +656,20 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
             {/* A search that found nothing is not an empty word book — say which
                 one it is, or the user goes looking for a bug in their progress. */}
             <div className="text-4xl mb-2">
-              {searchQuery ? '🔍' : filter === 'mastered' ? '⚔️' : '😭'}
+              {searchQuery ? '🔍' : filter === 'mastered' ? '⚔️' : filter === 'favorites' ? '⭐' : '😭'}
             </div>
             <div className="text-sm font-bold">
               {searchQuery
                 ? t.noSearchResult
-                : filter === 'mastered'
-                  ? (subTab === 'words' ? t.noMastered : (t.noMasteredPhrases || t.noMastered))
-                  : (subTab === 'words' ? t.noLearned : (t.noLearnedPhrases || t.noLearned))
+                : filter === 'favorites'
+                  ? t.noFavorites
+                  : filter === 'mastered'
+                    ? (subTab === 'words' ? t.noMastered : (t.noMasteredPhrases || t.noMastered))
+                    : (subTab === 'words' ? t.noLearned : (t.noLearnedPhrases || t.noLearned))
               }
             </div>
             <div className="text-xs mt-1 text-textLight">
-              {searchQuery ? t.searchTip : filter === 'mastered' ? t.masteredTip : t.learnedTip}
+              {searchQuery ? t.searchTip : filter === 'favorites' ? t.favoritesTip : filter === 'mastered' ? t.masteredTip : t.learnedTip}
             </div>
           </div>
         ) : (
@@ -779,6 +803,8 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
           nativeLang={nativeLang}
           targetLang={targetLang}
           onEdit={popupWord.custom ? () => setEditingCustom(popupWord) : null}
+          isFavorite={!!favorites[popupWord.id]}
+          onToggleFavorite={() => handleToggleFavorite(popupWord.id)}
         />
       )}
     </div>
@@ -945,7 +971,26 @@ function GalleryGrid({ words, revealedWords, onTap, nativeLang, targetLang }) {
 }
 
 /* ── Popup component ── */
-function PopupDetail({ word, onClose, onEdit, cachedTranslation, nativeLang, targetLang }) {
+/* ── 收藏用的五角星 ──────────────────────────────────────────────
+ * 故意不进 general-ui/icons.jsx：那个文件跟 miracleZZ 逐字节同步
+ * (tools/check-portable-sync.mjs 的 byte 档)，加一个 PW 专用图标就会让
+ * check:sync 报漂移。而且共享的 <Icon> 只描边不填充，画不出「已收藏=实心」
+ * 这个状态 —— 所以这里自带一个能填充的。 */
+function StarIcon({ filled = false, size = 15, color = '#8f8287' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.1l2.75 5.57 6.15.9-4.45 4.33 1.05 6.12L12 17.13l-5.5 2.89 1.05-6.12L3.1 9.57l6.15-.9z"
+        fill={filled ? color : 'none'}
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PopupDetail({ word, onClose, onEdit, cachedTranslation, nativeLang, targetLang, isFavorite, onToggleFavorite }) {
   const t = UI_TEXT[nativeLang] || UI_TEXT.zh;
   const displayText = getWordText(word, targetLang) || word.en;
   const nativeText = getWordText(word, nativeLang);
@@ -1086,6 +1131,27 @@ function PopupDetail({ word, onClose, onEdit, cachedTranslation, nativeLang, tar
         }}
         onClick={e => e.stopPropagation()}
       >
+        {onToggleFavorite && (
+          /* 五角星 = 收藏开关。注意这不是退出控件 —— CLAUDE.md 那条「单词 pop
+             唯一退出 = 底部黄色 Close，别加回右上角 X」说的是退出控件，这里
+             沿用编辑按钮已经开过的先例，把角上这块留给非退出的小开关。 */
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            aria-label={isFavorite ? '取消收藏' : '收藏这个词'}
+            aria-pressed={isFavorite}
+            title={isFavorite ? '取消收藏' : '收藏'}
+            className="active:scale-90"
+            style={{
+              position: 'absolute', top: 12, right: 12, zIndex: 2,
+              width: 28, height: 28, borderRadius: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#F8F4EF', border: '1px solid #E7DDD3',
+            }}
+          >
+            <StarIcon filled={isFavorite} size={15} color={isFavorite ? '#F5A623' : '#8f8287'} />
+          </button>
+        )}
         {onEdit && (
           <button
             type="button"
@@ -1094,7 +1160,7 @@ function PopupDetail({ word, onClose, onEdit, cachedTranslation, nativeLang, tar
             title="编辑"
             className="active:scale-90"
             style={{
-              position: 'absolute', top: 12, right: 12, zIndex: 2,
+              position: 'absolute', top: 12, right: onToggleFavorite ? 48 : 12, zIndex: 2,
               width: 28, height: 28, borderRadius: 14,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: '#F8F4EF', border: '1px solid #E7DDD3',
