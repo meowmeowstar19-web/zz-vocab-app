@@ -84,6 +84,8 @@ function guestHasData() {
       if (Object.keys(p).length > 0) return true
       const r = JSON.parse(localStorage.getItem(`vocab_review_states_guest_${t}`) || '{}')
       if (Object.keys(r).length > 0) return true
+      const f = JSON.parse(localStorage.getItem(`vocab_favorites_guest_${t}`) || '{}')
+      if (f && Object.keys(f).length > 0) return true
     }
   } catch {}
   return false

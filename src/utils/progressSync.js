@@ -7,6 +7,12 @@ import {
   readCustomWordEntries,
   writeCustomWordEntries,
 } from './customWords';
+import {
+  readFavoriteState,
+  writeFavoriteState,
+  clearFavoriteState,
+  mergeFavoriteStates,
+} from './favorites';
 
 const TARGETS = ['en', 'ja', 'zh'];
 
@@ -31,9 +37,11 @@ export function readLocalSnapshot(uid, scope) {
   const readScope = scope || (uid ? `u_${uid}` : 'guest');
   const progress = {};
   const reviewStates = {};
+  const favorites = {};
   for (const t of TARGETS) {
     progress[t] = readJSON(`vocab_kids_progress_${readScope}_${t}`, {});
     reviewStates[t] = readJSON(`vocab_review_states_${readScope}_${t}`, {});
+    favorites[t] = readFavoriteState(`${readScope}_${t}`);
   }
   // Prefer per-user login days, fall back to guest's history (covers first
   // login after the user did a stretch in guest mode).
@@ -69,6 +77,7 @@ export function readLocalSnapshot(uid, scope) {
     progress,
     review_states: reviewStates,
     custom_words: readCustomWordEntries(readScope),
+    favorites,
     login_days: perUser || guest || [],
     preferences,
   };
@@ -82,6 +91,9 @@ export function writeLocalSnapshot(uid, snap, scope) {
   for (const t of TARGETS) {
     writeJSON(`vocab_kids_progress_${writeScope}_${t}`, snap.progress?.[t] || {});
     writeJSON(`vocab_review_states_${writeScope}_${t}`, snap.review_states?.[t] || {});
+    // 老快照（收藏上线前推的）没有 favorites 字段：那就别动本地这格，
+    // 不然一次同步会把本机刚收的词清空。
+    if (snap.favorites?.[t]) writeFavoriteState(`${writeScope}_${t}`, snap.favorites[t]);
   }
   writeCustomWordEntries(writeScope, snap.custom_words || []);
   if (snap.login_days?.length) {
@@ -184,10 +196,12 @@ export function mergeSnapshots(local, cloud, opts = {}) {
     progress: {},
     review_states: {},
     custom_words: mergeCustomWords(local.custom_words, cloud.custom_words),
+    favorites: {},
     login_days: [],
   };
   for (const t of TARGETS) {
     out.progress[t] = mergeWordMap(local.progress?.[t], cloud.progress?.[t]);
+    out.favorites[t] = mergeFavoriteStates(local.favorites?.[t], cloud.favorites?.[t]);
     out.review_states[t] = mergeReviewStates(local.review_states?.[t], cloud.review_states?.[t]);
   }
   const days = new Set([...(local.login_days || []), ...(cloud.login_days || [])]);
@@ -257,6 +271,7 @@ export function cloudHasProgress(cloud) {
   const p = cloud.progress || {};
   for (const t of TARGETS) {
     if (Object.keys(p[t] || {}).length > 0) return true;
+    if (Object.keys(cloud.favorites?.[t]?.fav || {}).length > 0) return true;
   }
   return false;
 }
@@ -302,6 +317,7 @@ export function clearScope(scope) {
     try { localStorage.removeItem(`vocab_kids_progress_${scope}_${t}`); } catch {}
     try { localStorage.removeItem(`vocab_review_states_${scope}_${t}`); } catch {}
     try { localStorage.removeItem(`vocab_review_session_${scope}_${t}`); } catch {}
+    clearFavoriteState(`${scope}_${t}`);
   }
   clearCustomWordEntries(scope);
 }

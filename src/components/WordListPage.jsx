@@ -179,11 +179,11 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
 
   const FILTERS = useMemo(() => [
     { key: 'vocabIllustrated', label: t.vocabIllustrated, accent: '#C7BAFB' },
-    { key: 'favorites', label: t.favorites, accent: '#FFCE5A' },
+    { key: 'favorites', label: t.favorites, accent: '#FFB198' },
     { key: 'time', label: t.timeOrder, accent: '#ff8bba' },
     { key: 'random', label: t.randomOrder, accent: '#8ECFFF' },
-    { key: 'reverseRandom', label: t.reverseRandom, accent: '#FFB198' },
-    { key: 'mastered', label: t.mastered, accent: '#ffd3d3' },
+    { key: 'reverseRandom', label: t.reverseRandom, accent: '#ffd3d3' },
+    { key: 'mastered', label: t.mastered, accent: '#C8C4C6' },
   ], [t]);
 
   const [filter, setFilterState] = useState(() => readSavedTab(FILTER_KEY, FILTER_KEYS, 'vocabIllustrated'));
@@ -241,6 +241,7 @@ export default function WordListPage({ onStartReview, nativeLang = 'zh', targetL
 
   useEffect(() => {
     setProgress(getProgress(langKey));
+    setFavorites(getFavorites(langKey)); // 云同步可能刚拉下别的设备的收藏
   }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

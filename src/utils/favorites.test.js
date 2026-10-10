@@ -5,7 +5,7 @@
 //     error boundary，渲染期抛一次就是永久白屏。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-import { getFavorites, saveFavorites, isFavorite, toggleFavorite } from './favorites.js'
+import { getFavorites, saveFavorites, isFavorite, toggleFavorite, readFavoriteState, mergeFavoriteStates } from './favorites.js'
 
 // 同 customWords.test.js / progressSync.test.js：测试环境没有 localStorage，
 // 塞一个最小实现。
@@ -111,5 +111,35 @@ describe('saveFavorites', () => {
     const k = freshKey()
     expect(() => saveFavorites(null, k)).not.toThrow()
     expect(getFavorites(k)).toEqual({})
+  })
+})
+
+describe('跨设备合并（墓碑）', () => {
+  it('取消收藏留墓碑，再收藏清墓碑', () => {
+    const k = freshKey()
+    toggleFavorite('apple', k)
+    toggleFavorite('apple', k)
+    expect(readFavoriteState(k).removed.apple).toBeGreaterThan(0)
+    toggleFavorite('apple', k)
+    expect(readFavoriteState(k).removed.apple).toBeUndefined()
+    expect(readFavoriteState(k).fav.apple).toBeGreaterThan(0)
+  })
+
+  it('A 机取消（更晚）压过 B 机的旧收藏 —— 不许被并集复活', () => {
+    const a = { fav: {}, removed: { apple: 200 } }
+    const b = { fav: { apple: 100 }, removed: {} }
+    expect(mergeFavoriteStates(a, b)).toEqual({ fav: {}, removed: { apple: 200 } })
+    expect(mergeFavoriteStates(b, a)).toEqual({ fav: {}, removed: { apple: 200 } })
+  })
+
+  it('取消后又在另一台收藏（更晚）→ 收藏赢', () => {
+    const a = { fav: {}, removed: { apple: 200 } }
+    const b = { fav: { apple: 300 }, removed: {} }
+    expect(mergeFavoriteStates(a, b)).toEqual({ fav: { apple: 300 }, removed: {} })
+  })
+
+  it('两边各收各的 → 并集；缺字段/undefined 不抛', () => {
+    expect(mergeFavoriteStates({ fav: { a: 1 } }, { fav: { b: 2 } }).fav).toEqual({ a: 1, b: 2 })
+    expect(mergeFavoriteStates(undefined, undefined)).toEqual({ fav: {}, removed: {} })
   })
 })

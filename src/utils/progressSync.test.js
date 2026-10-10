@@ -238,3 +238,38 @@ describe('pushLocalToCloud — the lang override must not eat the learn verdict'
     expect(supabaseCalls.upserts[0].data.preferences.learn).toEqual({ category: 'colors', level: null, pickedAt: 200 })
   })
 })
+
+describe('favorites sync', () => {
+  it('收藏随快照上云，另一台设备 merge 后写回本地', () => {
+    localStorage.setItem('vocab_favorites_u_u1_en', JSON.stringify({ apple: 100 }))
+    const snap = readLocalSnapshot('u1', 'u_u1')
+    expect(snap.favorites.en.fav).toEqual({ apple: 100 })
+
+    globalThis.localStorage = fakeLS() // 换一台空设备
+    const merged = mergeSnapshots(readLocalSnapshot('u1', 'u_u1'), snap)
+    writeLocalSnapshot('u1', merged, 'u_u1')
+    expect(JSON.parse(localStorage.getItem('vocab_favorites_u_u1_en'))).toEqual({ apple: 100 })
+  })
+
+  it('本机取消收藏经 pushLocalToCloud 同步，云上旧收藏不复活', async () => {
+    supabaseCalls.cloudRow = { ...emptyCloud, favorites: { en: { fav: { apple: 100 }, removed: {} } } }
+    localStorage.setItem('vocab_favorites_removed_u_u1_en', JSON.stringify({ apple: 200 }))
+    await pushLocalToCloud('u1')
+    const pushed = supabaseCalls.upserts.at(-1).data
+    expect(pushed.favorites.en).toEqual({ fav: {}, removed: { apple: 200 } })
+    expect(JSON.parse(localStorage.getItem('vocab_favorites_u_u1_en'))).toEqual({})
+  })
+
+  it('老云快照没有 favorites 字段 → 本地收藏保留', async () => {
+    supabaseCalls.cloudRow = { ...emptyCloud }
+    localStorage.setItem('vocab_favorites_u_u1_ja', JSON.stringify({ cat: 5 }))
+    await pushLocalToCloud('u1')
+    expect(JSON.parse(localStorage.getItem('vocab_favorites_u_u1_ja'))).toEqual({ cat: 5 })
+  })
+
+  it('clearScope 连收藏一起清', () => {
+    localStorage.setItem('vocab_favorites_guest_en', JSON.stringify({ a: 1 }))
+    clearScope('guest')
+    expect(localStorage.getItem('vocab_favorites_guest_en')).toBeNull()
+  })
+})

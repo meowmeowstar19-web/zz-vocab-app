@@ -529,9 +529,11 @@ export default function App() {
     const onChange = () => { localDirty.current = true; };
     window.addEventListener('app:progress-changed', onChange);
     window.addEventListener('app:custom-words-changed', onChange);
+    window.addEventListener('app:favorites-changed', onChange);
     return () => {
       window.removeEventListener('app:progress-changed', onChange);
       window.removeEventListener('app:custom-words-changed', onChange);
+      window.removeEventListener('app:favorites-changed', onChange);
     };
   }, []);
   useEffect(() => {
@@ -593,6 +595,8 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('pagehide', flushIfDirty);
     window.addEventListener('app:custom-words-changed', scheduleCustomFlush);
+    // 收藏也是用户主动点的书签，跟自定义词组同一档：400ms 去抖尽快上云。
+    window.addEventListener('app:favorites-changed', scheduleCustomFlush);
     // Same race is possible on a cold desktop launch: its login pull may beat
     // the phone upload. One post-boot recheck closes that window.
     visibilitySettleTimer = setTimeout(flushForVisibility, 2_000);
@@ -601,6 +605,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pagehide', flushIfDirty);
       window.removeEventListener('app:custom-words-changed', scheduleCustomFlush);
+      window.removeEventListener('app:favorites-changed', scheduleCustomFlush);
       clearTimeout(customFlushTimer);
       clearTimeout(visibilitySettleTimer);
       clearInterval(id);
