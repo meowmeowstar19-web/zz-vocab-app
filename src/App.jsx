@@ -169,6 +169,22 @@ export default function App() {
   // optimistic scope, so the common path never remounts and nothing flickers.
   const auth = useAuth();
   const session = auth.session;
+  // The 进阶 whitelist keys off the account's email, but offline (or on a weak
+  // net) the core keeps us in the account's drawer WITHOUT a live session —
+  // `session` is null there, and the email used to read as '' so 进阶 (and the
+  // user's custom words) vanished from the word book: "1200 words offline
+  // shows 40". Remember the email per account scope while a session is live
+  // and fall back to it for that same scope only.
+  const accountEmailKey = `vocab_account_email_${auth.userScope}`;
+  useEffect(() => {
+    const email = session?.user?.email;
+    if (!email || auth.userScope !== `u_${session.user.id}`) return;
+    try { localStorage.setItem(accountEmailKey, email); } catch {}
+  }, [session, auth.userScope, accountEmailKey]);
+  let userEmail = session?.user?.email || '';
+  if (!userEmail && auth.isAccountScope) {
+    try { userEmail = localStorage.getItem(accountEmailKey) || ''; } catch {}
+  }
   // 13岁以下（儿童账号，或本设备答过 <13）：PostHog 不 identify、不录屏
   // （miracleZZ docs/kids-account-plan.md §六.2）。main.jsx 开机时按设备答案
   // 关录屏；这里接住开机后才答年龄 / 才登录儿童号的情况。
@@ -940,13 +956,14 @@ export default function App() {
               onWordViewed={handleWordViewed}
               requestNextWord={requestNextWord}
               refreshKey={progressRefreshKey}
-              userEmail={session?.user?.email || ''}
+              userEmail={userEmail}
               // 'loading' = boot hasn't resolved getSession yet; 'authenticating'
               // = a login flow is mid-air. The third term is the weak-net
               // degraded window: the drawer belongs to an account (scope u_…)
               // but the session hasn't been re-verified yet (watchdog fired or
-              // getSession hit a network error) — `userEmail` is '' there, and
-              // acting on it would knock the whitelisted 进阶 user back to
+              // getSession hit a network error) — `userEmail` there is only the
+              // cached one (or '' before the first online launch), and acting
+              // on a '' would knock the whitelisted 进阶 user back to
               // all/Words on every weak-net launch. Either way `userEmail` is
               // not yet trustworthy, so LearningPage must not act on it.
               authPending={
@@ -963,7 +980,7 @@ export default function App() {
               targetLang={targetLang}
               userScope={userScope}
               refreshKey={wordListRefreshKey}
-              userEmail={session?.user?.email || ''}
+              userEmail={userEmail}
               // Same three-term gate as LearningPage above — the word book now
               // remembers its tabs, and the 进阶 sub-tab's lock-out must not act
               // on a frame where `userEmail` isn't trustworthy yet.
